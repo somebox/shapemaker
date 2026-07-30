@@ -48,7 +48,7 @@ export function computeOrientation(skeleton, faceIndex) {
  * Default resting face: the first face with the most sides.
  *
  * Shape-agnostic (M3 bases have no pentagons), and on the M1 icosidodecahedron
- * it selects a pentagon — matching the Python oracle's `--orient pentagon`.
+ * it selects a pentagon — matching the prototype's `--orient pentagon`.
  * Largest-face-down is also the most stable rest, which is the right default
  * even though it is not the best orientation for bridging (see README).
  *

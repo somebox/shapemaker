@@ -1,410 +1,357 @@
-# Shapemaker — spec
+# Shapemaker specification
 
-A browser app for designing printable 3D shapes interactively: pick a base
-shape, tweak it with sliders, examine it resting on a build plate, export STL
-(or an SVG projection). Successor to the Python prototype in `prototype/`.
+Shapemaker is a static browser app for designing geometric forms that can be
+built physically or used as artwork. A user chooses a base polyhedron, changes
+its proportions and shell, inspects real dimensions, and exports geometry for
+workflows such as 3D printing, laser cutting, model making, or PCB-based
+structures.
 
-Main use cases: 3D printing and art projects. Creative range comes from a few
-levers that recombine — generators × density × jitter × lace × seed × resting
-face × presets — not from a growing modeling language.
+The creative vocabulary stays deliberately small: base shape, scale, density,
+jitter, openings, seed, orientation, and presets. These controls should combine
+into interesting results without turning the app into general CAD.
 
-## The contract (law — everything else is illustration)
+## Product goals
 
-```ts
-compile(state) → { skeleton, mesh, metrics, validation, orientation }
-Skeleton    { positions: Float64Array, faces: number[][], edges: [i,j][] }   // convex
-Mesh        { positions: Float32Array, indices: Uint32Array, faceId: Uint32Array }
-orientation { faceIndex, matrix }   // applied at draw + export, computed once
+- **Immediate feedback:** controls regenerate the preview interactively.
+- **Real, inspectable dimensions:** all geometry is expressed in millimetres.
+  Overall dimensions and edge lengths remain visible while the user scales or
+  edits the shape.
+- **Fabrication-ready geometry:** exports are internally consistent and retain
+  true scale. STL is watertight, consistently wound, and free of known
+  self-intersections.
+- **Fabrication-aware preview:** the form can rest on a real-scale reference
+  plane while the camera orbits it. Optional printing overlays indicate
+  approximate overhang risk without pretending to replace a slicer.
+- **Reproducible iteration:** a design can be saved as a portable project,
+  reopened later, shared by URL, and restored through undo/redo.
+- **Useful starting points:** presets demonstrate attractive and practical
+  combinations. The prototype TPU frame remains the default reference.
+- **Static deployment:** no backend or build step is required. The complete app
+  runs from GitHub Pages or another static HTTP server.
+
+## Scope
+
+### Version 1
+
+- Icosidodecahedron, Platonic solids, and seeded random convex polyhedra.
+- Uniform free scaling with live dimensions and edge-length inspection.
+- On-sphere jitter.
+- Solid closed forms and hollow shells, with optional openings on hollow forms.
+- Inset-and-fillet openings.
+- Face-based resting orientation.
+- STL and camera-projected SVG export.
+- Project save/load, URL state, undo/redo, presets, measurements, and honest
+  print-risk overlays.
+
+### Not in version 1
+
+- General CAD, booleans, or concave forms.
+- Slicing or automatic/scored orientation.
+- Fabrication-specific nesting, toolpaths, Gerber generation, or slicer output.
+- Additional opening styles or editable operator stacks.
+- Dihedral edge fillets or resin drain-hole design.
+- Mobile-first layout.
+
+Ideas without a committed use case, including true round struts, live in
+[`ROADMAP.md`](ROADMAP.md) rather than the active specification.
+
+## Application contract
+
+```text
+compile(state) -> {
+  skeleton,
+  mesh,
+  metrics,
+  validation,
+  orientation,
+  state
+}
+
+Skeleton    { positions: Float64Array, faces: number[][], edges: [i, j][] }
+Mesh        { positions: Float32Array, indices: Uint32Array,
+              faceId: Uint32Array }
+Orientation { faceIndex, matrix }
 ```
 
-- `compile` is the **only** regeneration API; UI, hash, exports, tests call it.
-- Dependency rule: `points → hull → skeleton → solid → mesh`; viewer/ui
-  consume outputs only; **no geometry module imports Three.js**.
-- Schema is the single source of truth for defaults, bounds, visibility, and
-  the hash codec.
-- v1 excludes: operators UI, opening styles beyond inset+fillet, struts,
-  concave shapes, scored orientation, 3D edge fillets (see Non-goals).
+Rules:
 
-## Goals
+1. `compile()` is the only regeneration API used by UI, exports, project and
+   URL restore, and tests.
+2. Geometry modules never import Three.js and must run headlessly under Node.
+3. Stage outputs are treated as immutable.
+4. Geometry is correct by construction; no normal- or topology-repair pass is
+   used.
+5. User-reachable failures return structured validation and do not throw
+   through the `compile()` boundary.
+6. The orientation matrix is computed once and applied by preview and export;
+   geometry buffers remain unoriented.
+7. From Milestone 2 onward, the parameter schema is the source of defaults,
+   bounds, visibility, project serialization, and URL serialization. Phase 1
+   defaults currently live in `src/types.js`.
 
-- **Interactive design.** Sliders drive live regeneration; export is a
-  separate, explicit step.
-- **Printing-aware preview.** The shape is a static object resting on a base
-  plane; the *camera* moves, the model never spins freely. The user picks the
-  resting face by clicking it. Overhang risk and near-horizontal edges can be
-  overlaid (approximate, honestly labeled).
-- **Print-ready export.** Binary STL that slices cleanly: watertight,
-  consistent winding, no self-intersections. Plus SVG projection (current
-  camera) for art / documentation.
-- **Real units.** Every length, readout, and export is millimetres. STL drops
-  into a slicer at true size.
-- **Reproducible, with undo.** Full state lives in the URL hash with a
-  canonical, versioned encoding (`#v1:…`, stable key order, fixed precision —
-  equal shapes give equal URLs). Committed changes (slider release, not drag
-  ticks) push history entries: browser back/forward, ⟲/⟳ buttons, Ctrl+Z all
-  restore full state. A copy-link button makes sharing explicit. Canonical
-  equality is the history gate: if the encoded hash is unchanged, nothing is
-  pushed (no-op compiles and preset re-clicks don't spam history).
-- **Starting points, not blank canvas.** 6–10 named presets (full state
-  recipes, stored as data in `presets.json`) — living documentation of good
-  parameter ranges. They arrive with M3, alongside the first alternative base
-  that makes a *choice* of starting point meaningful; M1 hardcodes the
-  prototype defaults in `types.js`.
-  Presets carry a material density so the ~grams readout is meaningful
-  without a materials system. A preset chip shows an "edited" state once the
-  user diverges; clicking it again resets to the preset. First load opens on
-  the prototype icosidodecahedron frame at its proven defaults, resting on a
-  face — the emotional object, not a debug cube.
-- **Protect the default object.** Product razor for every future change: it
-  should make "Prototype TPU" look better or clearer — or make spinning a
-  seed into lace more fun. If it does neither, it waits.
-- **Zero-install.** Static site — GitHub Pages or `python3 -m http.server`.
-  No build step, no backend, all dependencies vendored.
+## Geometry pipeline
 
-## Non-goals (v1)
-
-- General CAD / boolean modeling; concave shapes (pipeline guarantees convex).
-- Slicing or scored orientation (`bridges.py` stays the offline ground truth);
-  no synthetic printability score a user might trust over their slicer.
-- **Skeleton operators UI** (truncate/subdivide) and **opening styles beyond
-  inset+fillet** — the seams exist (below) but get no v1 chrome. One hole
-  language done superbly beats three shallow ones.
-- **Struts solidifier** — v1.1; the frame shell already gives the
-  strut-network look ("frame shells on random hulls *are* space frames").
-- True 3D dihedral-edge fillets — never; truncate/subdivide (v1.1) cover the
-  aesthetic without breaking construction guarantees.
-- Escape holes for hollow closed shells (resin drainage) — documented only.
-- Mobile-first UI.
-
-## The pipeline
-
-Internally a chain of pure stages — pure by convention: outputs are *treated
-as immutable* and never mutated after a stage returns, but typed-array buffers
-are not literally frozen (freezing them would cost defensive copies for no
-practical gain). **Users see only two forms of the object**:
-
-| form | what it is | who consumes it |
-|---|---|---|
-| **Polyhedron** (`Skeleton`) | convex V/E/F + metrics | wireframe, SVG, edge stats, orient |
-| **Solid** (`Mesh`) | triangles + `faceId` | preview, overhang shading, STL |
-
-Stage vocabulary stays in `pipeline.js`, never in the UI.
-
-```
- base points → jitter → hull → skeleton → shell → orient → export
+```text
+base points -> jitter -> convex hull -> skeleton -> scale -> shell -> orient -> export
 ```
 
-1. **Base points** — on a sphere of circumradius r: platonic solids
-   (tetra/cube/octa/dodeca/icosa), icosidodecahedron (default), or
-   random-on-sphere (N points, seeded PRNG, Poisson-disk-style min
-   separation). Seed is visible and editable; reroll is a button. N defaults
-   to 24, max ~60 until preview LOD cost is measured (hollow + openings
-   multiplies triangles fast).
-2. **Jitter** — seeded displacement along the sphere surface, **expressed as
-   % of circumradius** (0–20 %) — mean edge length isn't known until after
-   the hull, so it cannot be the unit without a hidden pre-pass. On-sphere
-   jitter keeps every point extreme, so all N points survive as hull
-   vertices. **One seed** drives both random placement and jitter (decided:
-   simpler state and URLs; a separate jitter seed is a v1.1 option defaulting
-   to `seed`).
-3. **Hull** — quickhull + coplanar-facet merge with size-relative tolerance
-   (`~1e-7 × circumradius`), so a dodecahedron keeps 12 pentagons and a
-   jittered cube doesn't shatter. **Merge caution:** near-regular jitter
-   produces near-coplanar facets; a generous epsilon can silently over-merge
-   and flip topology mid-drag. Full merge applies only at jitter = 0; once
-   jitter > ε the tolerance tightens so intended small facets survive.
-4. **Skeleton** — the hub. Size = **circumdiameter in mm**, one underlying
-   param. Edge lengths are a readout (min/mean/max); for regular bases an
-   edge-length field is a second *view* of the same key — editing either
-   writes the one size param through the exact bijection (kept deliberately:
-   cheap, unambiguous, repeatedly requested). **When jitter > 0 or the base
-   is random, the edge field turns read-only** — the bijection is gone, and
-   two writable size sources would be a dual-source bug.
-5. **Shell** — depth and openings, with one restriction: **openings require a
-   hollow shell in v1.** The annulus closes against the inner surface, so a
-   solid body with through-holes is a different construction (v1.1). The three
-   supported combinations are solid+closed, hollow+closed, hollow+open.
-   - **Depth**: *solid*, or *hollow* with wall thickness in mm
-     (uniform-scale inner shell, all vertices shared, trivially watertight;
-     thickness = minimum wall, actual min–max reported).
-   - **Openings**: *closed*, or a hole per face — the face inset, corners
-     filleted (`fillet_polygon` port: radius auto-clamps, border exact at
-     edge midpoints). **Border is authored as a fraction of face apothem**
-     (0–0.45) so one slider stays meaningful across sizes, jitter, and
-     irregular hulls where a single mm value would seal small faces while
-     starving large ones; the resulting **mm range is always shown** (and
-     "≈ n lines @ 0.4 mm nozzle"), with a warning when the minimum drops
-     below printable. Fillet in mm, auto-clamped per face. Known residual:
-     on highly irregular hulls one fraction still yields visibly uneven lace
-     weight — accepted for v1 (it's honest); presets stick to mild jitter,
-     and per-face border is deliberately not invented.
-6. **Orient** — computed **once, in compile, from the skeleton**:
-   `orientation = { faceIndex, matrix }` (face normal → −Z, z_min = 0).
-   Skeleton and mesh positions stay unoriented; the matrix is applied at
-   draw time and at export — one transform, applied in two places, never
-   computed in two places. The viewer only *emits* `faceIndex` (raycast
-   picking); hash restoration reproduces the pose without a WebGL context.
-7. **Export** — explicit: binary STL (mm, oriented via the matrix);
-   filename `«shape»_«size»mm.stl`, with the seed included when the shape
-   depends on one (`lace_s1337_100mm.stl`) so files are reproducible without
-   the URL. SVG of skeleton edges from the current camera.
+### Base points and jitter
 
-## Extension seams (v1.1 — in the text, out of the chrome)
+Base generators produce normalized points on a sphere: Platonic solids, the
+default icosidodecahedron, or seeded random points with a minimum angular
+separation. Random point count initially tops out near 60 until interactive
+performance is measured.
 
-- **OpeningGenerator interface from day one, one implementation**
-  (`insetFillet`). The annulus construction needs only a star-shaped-about-
-  centroid hole inside the face, so *circle* and *mirror* (180°-rotated face
-  copy) become drop-in 2D generators later — no solidifier changes.
-- **Skeleton operators** (`Skeleton → Skeleton`, convexity-preserving):
-  *truncate(t)* — progressive gem cutting from any base (icosahedron at the
-  classic depth = soccer ball); *subdivide(ν)* with a *spherify blend (0–1)*
-  — blend 1 is geodesic spheres / shape smoothing, blend 0 tessellates the
-  existing form with a finer face grid (unprojected sub-vertices bypass
-  re-hulling); *dual* — faces ↔ vertices, the route to hexagon-dominant
-  Goldberg spheres ("sphere with hex holes"; topology always keeps 12
-  pentagons). Applied once each in fixed order; **no operator stack**
-  (decided). Smoothing lives in the skeleton, never as post-hoc mesh
-  relaxation.
-- **Struts** — round beams + node joints, via manifold-3d (WASM) or convex
-  node hulls, not a hand-rolled boolean.
+Jitter moves points along the sphere by 0–20% of circumradius. Keeping points on
+the sphere prevents vertices from silently disappearing inside the hull. One
+seed controls random placement and jitter in version 1.
 
-## What the prototype provides (review)
+### Hull, skeleton, and scale
 
-**`icosidodecahedron.py` — the geometry ports to JS**, as pure, testable
-nuggets: `fillet_polygon` (tangent-arc rounding, radius auto-clamped, border
-preserved — already general over convex polygons); `radial_sample` (centroid
-ray-cast, the core of the can't-self-intersect construction, valid for all
-convex faces); `edge_params` (reversal-symmetric subdivision — shared-edge
-faces emit identical points); uniform-scale inner shell. Its ConvexHull face
-recovery is our hull→skeleton stage. **Not ported:** numpy/trimesh
-scaffolding (winding correct by construction, no repair pass),
-`LOW_BRIDGE_AXIS`, orientation search.
+QuickHull closes the point cloud. Coplanar facets are merged using a
+size-relative tolerance. Exact regular bases retain their polygonal faces;
+nonzero jitter uses a tighter tolerance to avoid merging intentional facets.
 
-**`meshcheck.py` — stays Python, is the acceptance suite.** Möller–Trumbore
-self-intersection scan; its lesson (topology ≠ geometry: watertight meshes
-can have 1500+ crossing triangle pairs) gates every solidifier change via a
-test script over exported STLs (defaults, extremes, jitter seeds).
+The resulting normalized `Skeleton` is the central shape representation. A
+single uniform scale converts it to millimetres. The primary interaction is
+free scaling by overall size; the UI continuously reports bounding dimensions
+and edge minimum, mean, and maximum. Hovering or selecting an edge reports its
+exact length.
 
-**`bridges.py` — stays Python, ground truth for orientation.** The app shows
-only the honest geometric proxy.
+For a regular shape, entering an edge length is an alternate way to set the same
+uniform scale because all edges are equal. It is not a second independent size
+parameter. Constraints that preserve a target mean or selected edge while the
+shape changes are future workflow features tracked in the roadmap.
 
-## Tech
+Before additional generators are accepted, skeleton validation must check
+finite positions, valid face indices, planarity, non-degenerate faces and edges,
+closed edge adjacency, and consistent outward rings.
 
-| area | pick | why |
-|---|---|---|
-| Rendering | Three.js vendored ESM; `OrbitControls`, `Raycaster` | don't write camera math or picking |
-| Hull | vendored small quickhull (e.g. mauriciopoppe/quickhull3d), golden-tested vs scipy | hull isn't the differentiator; coplanar merge is our code |
-| RNG | seedable `sfc32` | reproducible shapes from a URL |
-| Vec math | thin own `vec3` module | testable geometry, no ad-hoc arrays |
-| Triangulation | fan per face | faces are convex |
-| Export | own binary STL + SVG writers | trivial formats, full control |
-| Framework | none — vanilla ES2022 | a `state` object + `compile()` is enough |
+### Shell
 
+Version 1 supports three combinations:
+
+- solid with closed faces;
+- hollow with closed faces;
+- hollow with one opening per face.
+
+Openings require a hollow shell because their rims close against the inner
+surface. Solid bodies with through-holes require a different construction and
+are deferred.
+
+A hollow shell uses a uniformly scaled inner surface. This keeps shared vertices
+exact and makes the shell watertight by construction. Wall thickness specifies
+the minimum thickness; the actual range is reported.
+
+Openings use a centroid-scaled inset and tangent fillet. Each face boundary is
+subdivided globally so adjacent faces share identical points. The opening is
+sampled on matching centroid rays, preserving the prototype's non-intersecting
+annulus construction.
+
+Border width is authored in millimetres in version 1. This is useful across
+physical fabrication methods because it describes the actual width of material,
+not merely visual openness. The UI dynamically limits it using the smallest
+face and reports the resulting range and relative openness. Exactly one border
+representation is authoritative in state and project files.
+
+Opening, border, and applied-fillet measurements are retained per face and
+aggregated for status reporting. Metrics must not assume that faces with the
+same side count are congruent.
+
+### Orientation
+
+Clicking a face selects it as the resting face. The face's actual plane normal
+is aligned with `-Z`, then the shape is translated until its minimum `Z` is
+zero. Selection is stored as a skeleton face index; stale indices fall back to a
+stable default with a warning.
+
+### Export
+
+- Binary STL applies the resting orientation and writes millimetres.
+- Seed-dependent filenames include the seed.
+- SVG projects skeleton edges from the current camera and retains real units.
+- Export always compiles at full quality and refuses invalid state.
+- More specialized fabrication outputs belong in the roadmap until their
+  required semantics are defined.
+
+## Projects and persistence
+
+A **project** is the durable unit of work. It contains canonical authoring
+state plus optional view and descriptive metadata; generated meshes and
+exports remain derived artifacts.
+
+Projects use portable UTF-8 JSON files with the extension
+`.shapemaker.json`. They are opened and downloaded locally in the browser, so
+no account or backend is required. The versioned schema, migration behavior,
+canonical serialization, and example file are defined in
+[`PROJECT_FORMAT.md`](PROJECT_FORMAT.md).
+
+Project parsing and migration happen before `compile()`. Loading replaces the
+current session as one undoable action; saving establishes the clean baseline
+without discarding undo history. Unsupported future versions are never
+silently overwritten.
+
+URL state is the compact sharing format, while project files are the durable
+and human-readable format. Optional local recovery may retain an unsaved
+session, but does not replace explicit project files.
 ## Architecture
 
-```
-`✓` exists today (M1). Everything else is planned — listed so the seams are
-agreed before the code arrives, not to imply it is written.
+### Implemented in Phase 1
 
-```
-index.html                         ✓
-vendor/three/                      ✓  pinned ESM + LICENSE + provenance README
-vendor/quickhull3d/                   M3
-presets.json                          M3  named full-state recipes (data, not buttons)
+```text
+index.html
+vendor/three/          pinned Three.js, controls, licence, provenance
 src/
-  main.js            ✓  adapter only: events → state → compile → viewer/ui
-  compile.js         ✓  THE entrypoint → {skeleton, mesh, metrics, validation, orientation}
-  pipeline.js        ✓  stage runner + per-stage cache (key = hash of stage params)
-  validate.js        ✓  pure param checks + validationError() used by the stages
-  types.js  vec3.js  ✓
-  skeleton.js        ✓  edgeList, inradiusRange, assertSkeleton — shape-agnostic
-  faceframe.js       ✓  toFaceFrame / fromFaceFrame — the face-local 2D boundary
+  main.js              browser event adapter
+  compile.js           sole regeneration entry point
+  pipeline.js          stage runner and bounded caches
+  validate.js          state validation and structured geometry errors
+  types.js             Phase 1 defaults and core type documentation
+  skeleton.js          shape-independent skeleton utilities
+  faceframe.js         face-local 2D/world transforms
   points/
-    icosidodeca.js   ✓  combinatorial faces, no hull
-    platonic.js         M3
-    randomsphere.js     M4
-  hull.js               M3  quickhull wrapper + coplanar merge → Skeleton
+    icosidodeca.js
   geom/
-    poly2.js         ✓  inset, fillet, radialSample   (pure 2D, heavily tested)
-    edgesub.js       ✓  symmetric edge params + global stitch keys
-    annulus.js       ✓  rings → quads → tris          (no Three, no schema)
-  solid/shell.js     ✓  policy only: depth × OpeningGenerator → calls geom/*
-  mesh.js            ✓  structural + manifold invariants, winding via volume sign
-  orient.js          ✓  pure resting-face transform
-  metrics.js         ✓  bbox, edge stats, wall/border/fillet ranges, per-face metrics
-  export/stl.js      ✓        export/svg.js   M5
-  viewer.js          ✓  scene, plate, orbit, face pick, setFocusFaces(ids)
-  schema.js             M2  param definitions: keys, bounds, units, visibility
-  hashcodec.js          M2  URL codec derived from schema + version prefix
-  ui.js                 M2  schema-driven panel + presets strip + status
+    poly2.js           inset, fillet, radial sampling
+    edgesub.js         shared edge subdivisions
+    annulus.js         rings to triangles
+  solid/
+    shell.js
+  mesh.js              structural and manifold invariants
+  orient.js            resting-face transform
+  metrics.js
+  export/
+    stl.js
+  viewer.js            Three.js preview and picking
+prototype/             Python reference: geometry, meshcheck, bridge analysis
+test/                  fixtures, parity tests, and acceptance references
 ```
 
-Rules that keep it honest:
+### Planned modules
 
-- **`compile(state)` is the only regeneration API.** UI, hash parsing, export
-  buttons, and tests all call it. If `main.js` ever branches on stages,
-  modularity has leaked.
-- **Schema is the single source of truth** for defaults, bounds, visibility,
-  and the hash codec — sliders and URLs cannot drift apart.
-- **`metrics` is computed once** in compile; viewer and UI never re-derive.
-- **No geometry module imports Three.js** — the pipeline runs headless under
-  `node --test`.
-- **Correct by construction, not repair**: prototype invariants preserved as
-  assertions; no `fix_normals` pass. No genus computation in-browser.
-- **Validation as data**: `{ok, errors: [{stage, key, message, clampTo?,
-  faceIds?}], warnings}`. `faceIds` feeds the viewer's generic
-  `setFocusFaces()` highlight channel — the same one face-picking uses — so a
-  violated constraint *shows* the limiting faces instead of only printing
-  copy.
-- **Preview ≠ export quality**: dragging may use coarse `edge_div` /skipped
-  fillets (internal LOD, never a user toggle); Export regenerates at full
-  quality through the same code.
-
-## Deployment (verified, not assumed)
-
-Static hosting only — no app server, no API, no WebSocket. But **ES modules
-and import maps do not work from `file://`**; the app must be served over
-HTTP(S): `python3 -m http.server` locally, GitHub Pages in production.
-
-The trap: a Pages **project site** serves at `https://<user>.github.io/<repo>/`,
-not at `/`. Anything absolute-rooted works locally and 404s in production.
-Tested against a subpath-served tree (Chrome, local server):
-
-| Import-map value | At `/` (local) | At `/shapemaker/` (Pages) |
-|---|---|---|
-| `"three": "./vendor/three/three.module.js"` | ✅ | ✅ resolves to `/shapemaker/vendor/…` |
-| `"three": "/vendor/three/three.module.js"` | ✅ | ❌ **404, module never executes** |
-
-Rules that follow:
-
-- **Every path is `./`-relative** — import-map values, `<script src>`,
-  `presets.json` fetches, assets. No leading `/` anywhere.
-- Import-map values resolve against the **document base URL**, so a bare
-  specifier used inside `src/viewer.js` still resolves to
-  `«base»/vendor/…`, *not* relative to `src/`. Verified — nested modules and
-  the trailing-slash prefix form (`"three/addons/": "./vendor/three/addons/"`)
-  both work unchanged under a subpath.
-- **Serve from the repo root** on the default branch (Pages offers root or
-  `/docs`; our `index.html`, `src/`, `vendor/` are already root-level, so no
-  `docs/` duplication).
-- **Add `.nojekyll`** at the root. Pages runs Jekyll by default, which drops
-  underscore-prefixed paths and excludes `node_modules` and `vendor/bundle|
-  cache|gems|ruby`. Our `vendor/three/` would survive today, but the file
-  costs nothing and removes the whole class of surprise.
-- **Pages is case-sensitive; macOS usually isn't.** A wrong-case import
-  passes locally and 404s in production — so the local dev command should
-  reproduce the subpath: serve the *parent* directory and open
-  `http://localhost:8000/shapemaker/`. That is exactly the Pages base path,
-  and it catches both bugs before deploy.
-
-## Testing
-
-- **Numeric parity**: `poly2`/`edgesub`/`radial_sample` vs dumps from the
-  Python originals.
-- **Golden file / north-star demo**: icosidodecahedron at prototype defaults →
-  triangle count, bbox, volume within ε of the reference STL.
-- **Acceptance**: exported STLs (defaults, extremes, several seeds) →
-  `prototype/meshcheck.py` reports zero self-intersections. The offline
-  scripts are the oracle.
-- **Properties**: convex faces ⇒ star-shaped openings; impossible params ⇒
-  clean Validation, never a mesh.
-
-## UI
-
-Three blocks, not a stage stack. Canvas is the primary UI; the panel is
-support.
-
-```
-┌────────────────────────────────────┬──────────────────────┐
-│  [Prototype TPU][Solid gem][Lace…] │ SHAPE                │
-│                                    │  base [icosidode ▾]  │
-│         3D preview                 │  (N ──o 24  seed     │
-│    object resting on grid          │   [1337] ⟳  sep ─o─) │
-│                                    │  jitter o──── 0 %    │
-│    click face  = rest on it        │  size ──o── 100 mm   │
-│    hover face  = sides/apothem tip │   · edge 30.9 mm     │
-│    dbl-click   = reset camera      │ FORM                 │
-│    keys 1/2/3  = top/front/iso     │  depth [hollow ▾]    │
-│                                    │  wall ─o── 1.4 mm    │
-│                                    │  openings [on]       │
-│                                    │  border ──o─ 0.28    │
-│                                    │   · 3.2 mm ≈ 8 lines │
-│                                    │  fillet ─o── 4.5 mm  │
-│                                    │ MAKE                 │
-│                                    │  rest: pentagon ▾ ◀▶ │
-│                                    │  view [∅|hang|edges] │
-│                                    │  [STL] [SVG] [⧉ link]│
-├────────────────────────────────────┴──────────────────────┤
-│ print  95×95×92 mm · wall 1.4–1.55 · longest flat 31 mm   │
-│ mesh   12 480 tris · watertight ✓ · 16 cm³ · ~19 g TPU    │
-└───────────────────────────────────────────────────────────┘
+```text
+presets.json            Milestone 3
+vendor/quickhull3d/     Milestone 3
+src/schema.js           Milestone 2
+src/hashcodec.js        Milestone 2
+src/project-format.js   Milestone 2
+src/ui.js               Milestone 2
+src/hull.js             Milestone 3
+src/points/platonic.js  Milestone 3
+src/points/random.js    Milestone 4
+src/export/svg.js       Milestone 5
 ```
 
-- **Canvas gestures**: click a face to rest on it (with a flash via
-  `setFocusFaces`); hover shows side-count/apothem tooltip; double-click
-  empty resets to ¾ view; keys 1/2/3 snap top/front/iso (feeds SVG and print
-  reasoning). Picking resolves through `faceId` to a **skeleton face** —
-  never a rim or chamfer triangle; assert this on lacy shells.
-- **The plate grid is real mm** (10 mm squares, bolder line each 50 mm) —
-  the cheapest possible way to sell true units.
-- **Resting face picker**: grouped by face family (e.g. "pentagon (12) /
-  triangle (20)"), not bare indices; ◀ ▶ stepper as accessibility backup.
-- **Dynamic slider bounds beat error messages**: border/fillet/wall maxima
-  are functions of the current skeleton (smallest apothem, min inradius) and
-  move when base/jitter changes. Validation copy is the fallback, not the
-  first line of defense.
-- **Seed UX invites play**: visible editable seed, ⟳ reroll, copy-link
-  button. Undo entries are labeled ("border 0.28 → 0.31"). Random shapes get
-  **density chips** (sparse / medium / dense) that set N + separation
-  together, so the two coupled knobs aren't the first thing a user meets.
-- **Print overlays are tools, not the brand look**: one View menu
-  (∅ / overhang / horizontal edges / both), threshold under a disclosure,
-  **default ∅** — the object should look desirable first. Overlays are one
-  click away and never color-alone (pattern/icon accompanies red/amber).
-- **Status is two fixed lines** (print / mesh), monospaced numbers, mm
-  everywhere, pinned so it never scrolls away. Mass estimate from a small
-  density preset (TPU/PLA/PETG). Openings row adds min free diameter ("will
-  a finger/LED fit").
-- **Presets strip**: chips above the canvas; one click = full state replace +
-  history entry.
-- Not built: pipeline diagrams, cache indicators, node graphs, operator
-  stacks, bridge scores.
+The viewer and UI consume compiled outputs only. Face-local opening geometry is
+isolated in `faceframe.js` and `geom/`; shell policy does not depend on a
+particular polyhedron.
 
-## Milestones — the expressive loop
+Preview and export may use different quality settings, but they use the same
+solidifier. Pipeline caches are bounded and exclude resting-face selection from
+the mesh key.
 
-0. **Engineering walk** (internal): vendored Three.js, box on grid, orbit,
-   STL writer. In parallel: port `poly2` / `edgesub` / `annulus` against
-   Python dumps under `node --test` — the hard geometry proves out before
-   Three.js is more than a box. Never the public face.
-1. **Place & export**: icosidodecahedron frame at prototype defaults through
-   the real pipe (`compile`), resting on a face, STL parity with the
-   reference + `meshcheck.py` wired as the acceptance script. **Gate: the
-   platonic menu stays shut until this is boringly correct.**
-2. **Trust the mesh**: size / wall / openings / relative border / fillet with
-   dynamic bounds; metrics lines; hash state + undo.
-3. **Change the family**: platonic menu — same solidifier; face-family rest
-   picker; presets strip.
-4. **Distort & invent**: jitter + random-on-sphere with seed UX — the
-   flexibility engine over the proven quality engine; acceptance over seeds.
-5. **Share, draw, judge**: copy-link, SVG (current camera), honest overlays +
-   threshold.
+Project parsing, migration, and serialization are separate from `compile()`.
+The parser produces canonical state; `compile()` validates and builds it.
 
-v1.1: struts, opening styles (circle/mirror), truncate/subdivide, scale-to-
-mean-edge, radial jitter.
+## Validation and metrics
 
-## Open questions
+Validation has three layers:
 
-- Strut solidifier (v1.1): manifold-3d WASM vs convex-node-hull construction —
-  decide when the frame shell's coverage of the aesthetic is known.
-- **Border authoring — now with evidence, still open.** Both spellings exist
-  (`borderMm`, `borderFraction`); exactly one may be set, and `compile()`
-  rejects both together rather than silently preferring one. Measured on the
-  M1 solid at Ø100: a constant **3.2 mm** gives every face the same frame
-  width, while a constant fraction **0.28** yields 2.50 mm on triangles and
-  5.95 mm on pentagons — a 2.4× spread, with the thin end below the ~2.5 mm
-  printability floor the prototype README documents. So relative-primary is
-  *not* obviously right even on regular solids; the case for it was irregular
-  hulls, where one mm value can exceed a small face's width. Decide at M4 with
-  jittered examples in hand, not before. (Constant-mm now means the
-  **narrowest** border on each face, since the inset scale is sized from the
-  smallest centroid-to-edge distance.)
+1. `validateState()` checks public parameter semantics and combinations.
+2. Geometry stages check constraints that require a skeleton.
+3. Mesh invariants detect internal construction defects.
+
+Validation entries have this shape:
+
+```text
+{ stage, key, message, clampTo?, faceIds? }
+```
+
+The UI keeps the last valid preview visible, identifies the offending control,
+and can highlight limiting faces.
+
+Metrics are computed once by `compile()` and include dimensions, triangle
+count, volume, edge minimum/mean/maximum, selected-edge length, wall and border
+ranges, applied fillet range, minimum opening diameter, and the longest
+near-horizontal skeleton edge. Placement-dependent metrics use the orientation
+matrix.
+
+A hollow closed shell has two disconnected boundary surfaces (outer and inner),
+which mesh tools may report as two bodies. This is expected; other version-1
+outputs must be a single connected body.
+
+## UI principles
+
+The canvas is primary; controls are grouped by user intent:
+
+- **Shape:** base, random density/seed, jitter, uniform scale.
+- **Form:** solid/hollow, wall, openings, border, fillet.
+- **Inspect:** overall dimensions, edge statistics, selected edge, face data.
+- **Make:** orientation, preview overlay, project save/open, export, copy link.
+
+Additional principles:
+
+- Free scaling is the default workflow. Measurements update continuously and do
+  not require opening a separate dialog.
+- Clicking or hovering an edge exposes its exact length. Regular shapes may use
+  edge length as the scale input.
+- Clicking a face is the primary way to choose a resting face; a grouped picker
+  is the accessible alternative.
+- The reference grid uses 10 mm squares and emphasized 50 mm lines.
+- Ordinary parameter changes preserve the camera view. Reframing occurs on
+  first load, explicit reset, or a major size/base change.
+- Dynamic control limits prevent invalid geometry where possible; structured
+  validation is the fallback.
+- Printing overlays are optional tools, not the default appearance, and never
+  communicate only through colour.
+- Status separates dimensional/fabrication information from mesh diagnostics.
+- Equal canonical state produces an equal versioned URL. Only committed changes
+  create history entries.
+- The UI visibly distinguishes unsaved project changes and shows the current
+  project name.
+
+## Deployment
+
+The app is a static ES-module site. It must be served over HTTP(S), not opened
+through `file://`.
+
+All browser paths are document-relative (`./...`) so GitHub Pages project sites
+work under `/repository-name/`. `.nojekyll` remains at the repository root.
+Local deployment testing should serve the parent directory and open
+`http://localhost:8000/shapemaker/` to reproduce a Pages subpath.
+
+Project open/save uses browser file input and download APIs. Where available,
+the File System Access API may improve repeated saves, but it must remain an
+optional progressive enhancement.
+
+## Verification
+
+- Numeric fixtures compare JavaScript geometry helpers with the Python
+  prototype.
+- The prototype-default model is checked against reference triangle count,
+  volume, wall range, and placed height.
+- Browser-independent tests exercise `compile()`, validation, orientation,
+  solidification, project migration/round-trip, and STL output.
+- Every supported project fixture must load, serialize canonically, reload, and
+  produce equivalent compiled state.
+- `scripts/acceptance.sh` exports representative cases and requires expected
+  body count, watertightness, consistent winding, no degenerate triangles,
+  positive volume, and zero self-intersections.
+- New hull generators and irregular seeds enter the acceptance matrix before
+  release.
+
+## Milestones
+
+1. **Place and export — complete:** prototype-default frame, face resting,
+   browser preview, STL parity, and geometric acceptance.
+2. **Measure, save, and continue:** schema-driven controls, free scaling and
+   edge inspection, project open/save, dynamic bounds, URL state, and undo/redo.
+3. **Change the family:** Platonic solids, QuickHull/coplanar merge, face-family
+   picker, and presets.
+4. **Distort and invent:** on-sphere jitter, seeded random hulls, density
+   presets, and irregular-shape acceptance.
+5. **Share, draw, and judge:** copy-link workflow, unit-aware SVG, and honest
+   print-risk overlays.
+
+Priorities and uncommitted future ideas are maintained in
+[`ROADMAP.md`](ROADMAP.md).
