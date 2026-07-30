@@ -6,10 +6,15 @@ reference plane, and export geometry. The initial implementation grows out of
 the printable TPU prototype in `prototype/`, but the design also targets
 laser-cut, PCB, and model-making workflows.
 
-This repo is at **Milestone 1** — icosidodecahedron frame at prototype defaults
+**Live app:** [somebox.github.io/shapemaker](https://somebox.github.io/shapemaker/)
+
+![Shapemaker v0.1 — icosidodecahedron frame resting on the build plate, with
+live print and mesh measurements](media/screenshot-v0.1.png)
+
+Version **0.1.0** (Milestone 1) — icosidodecahedron frame at prototype defaults
 through `compile()`, resting on a face, with STL parity and meshcheck acceptance.
 Milestone 2 adds dimensional controls, edge inspection, portable project files,
-URL state, and undo/redo.
+URL state, and undo/redo. See [`docs/CHANGELOG.md`](docs/CHANGELOG.md).
 
 ## Requirements
 
@@ -157,17 +162,25 @@ Static hosting only. Rules from the spec (verified):
   fixtures are not published. This is a copy, not a build: the app still runs
   directly from the repo root locally.
 
-**First-time setup:** push `main`, then set *Settings → Pages → Build and
-deployment → Source* to **GitHub Actions** (not "Deploy from a branch"). The
-workflow needs that mode; until it is selected, the deploy step fails with a
-permissions error while everything else passes.
+**Pages source must be "GitHub Actions"** (*Settings → Pages → Build and
+deployment → Source*), not "Deploy from a branch". Branch mode would look for
+the site in the repo — and `docs/` holds documentation, not the app, so the
+build fails. The two modes also fight: whichever ran last wins, so leaving
+branch mode enabled produces a failing build on every push.
 
 ## Project documents
 
-- [`SPEC.md`](SPEC.md) defines committed product behavior and architecture.
-- [`PROJECT_FORMAT.md`](PROJECT_FORMAT.md) defines portable
+All documentation lives in [`docs/`](docs/):
+
+- [`SPEC.md`](docs/SPEC.md) defines committed product behavior and architecture.
+- [`PROJECT_FORMAT.md`](docs/PROJECT_FORMAT.md) defines portable
   `.shapemaker.json` files and migration rules.
-- [`ROADMAP.md`](ROADMAP.md) tracks priorities and uncommitted future ideas.
+- [`ROADMAP.md`](docs/ROADMAP.md) tracks priorities and uncommitted future ideas.
+- [`CHANGELOG.md`](docs/CHANGELOG.md) records released versions.
+
+`docs/` is documentation only — it is **not** the published site root. Pages
+deploys the app via the Actions workflow (see below), so nothing in `docs/`
+is served.
 
 ## Contributing
 

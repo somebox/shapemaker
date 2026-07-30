@@ -70,6 +70,13 @@
       cursor: pointer;
     }
     button:hover { background: color-mix(in srgb, var(--accent) 18%, transparent); }
+    .version {
+      margin-top: auto;
+      font-family: "IBM Plex Mono", ui-monospace, monospace;
+      font-size: 0.7rem;
+      color: var(--muted);
+      opacity: 0.6;
+    }
     #status {
       font-family: "IBM Plex Mono", ui-monospace, monospace;
       font-size: 0.75rem;
@@ -93,6 +100,7 @@
           Click a face to rest on it. Camera orbits; the model stays put.
         </p>
         <button type="button" id="btn-export">Export STL</button>
+        <span id="version" class="version"></span>
       </aside>
     </div>
     <div id="status">compiling…</div>

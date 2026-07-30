@@ -6,10 +6,14 @@
 import { compile } from "./compile.js";
 import { createViewer } from "./viewer.js";
 import { writeBinaryStl } from "./export/stl.js";
+import { VERSION } from "./version.js";
 
 const canvasHost = document.getElementById("canvas-host");
 const statusEl = document.getElementById("status");
 const exportBtn = document.getElementById("btn-export");
+const versionEl = document.getElementById("version");
+
+if (versionEl) versionEl.textContent = `v${VERSION}`;
 
 /** @type {ReturnType<typeof compile> | null} */
 let last = null;

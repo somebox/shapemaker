@@ -41,7 +41,7 @@ jobs:
       - name: No root-absolute asset paths
         run: |
           if grep -nE '(src|href)="/|"/vendor/|"/src/' index.html; then
-            echo "::error file=index.html::Root-absolute path found; use ./relative paths (see SPEC.md § Deployment)"
+            echo "::error file=index.html::Root-absolute path found; use ./relative paths (see docs/SPEC.md § Deployment)"
             exit 1
           fi
           echo "index.html paths are ./relative"

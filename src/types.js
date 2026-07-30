@@ -25,7 +25,7 @@ export const DEFAULT_STATE = Object.freeze({
    * spelling and the M1 default. `borderFraction` is the alternative
    * spelling (frame width proportional to face size); exactly one may be
    * set. Which becomes the M2 authoring primary is still open — see
-   * SPEC.md § Open questions.
+   * docs/SPEC.md § Open questions.
    */
   borderMm: 3.2,
   borderFraction: null,
