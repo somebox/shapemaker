@@ -20,8 +20,8 @@ jobs:
       matrix:
         node: ["20", "22", "24"]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ matrix.node }}
       # No `npm ci`: the app has zero runtime or dev dependencies. package.json
@@ -33,7 +33,7 @@ jobs:
     name: Deployment path rules
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # GitHub Pages project sites serve from /<repo>/, so any root-absolute
       # path works locally and 404s in production. This is the cheapest guard
@@ -86,11 +86,11 @@ jobs:
     name: Mesh acceptance (Python reference)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
@@ -111,7 +111,7 @@ jobs:
 
       - name: Upload exported meshes
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: acceptance-stls
           path: test/out/acceptance/*.stl
