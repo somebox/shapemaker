@@ -1,0 +1,85 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never let two deploys race; queue rather than cancel so main always lands.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Assemble site
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # Gate the deploy on the suite. Cheap (no dependencies to install) and it
+      # means a broken pipeline can never reach the published URL.
+      - name: Run tests before publishing
+        run: npm test
+
+      # There is no build step: this only copies the files the app actually
+      # needs, leaving the Python reference, tests and fixtures out of the
+      # published site. The app still runs directly from the repo root locally.
+      - name: Collect site files
+        run: |
+          mkdir -p _site
+          cp index.html _site/
+          cp .nojekyll _site/
+          cp -R src _site/
+          cp -R vendor _site/
+          # presets.json arrives with Milestone 3; copy it once it exists.
+          [ -f presets.json ] && cp presets.json _site/ || true
+
+      - name: Verify the artifact is complete and self-contained
+        run: |
+          fail=0
+          for required in \
+            _site/index.html \
+            _site/.nojekyll \
+            _site/src/main.js \
+            _site/src/compile.js \
+            _site/vendor/three/three.module.js \
+            _site/vendor/three/addons/controls/OrbitControls.js
+          do
+            [ -f "$required" ] || { echo "::error::missing $required"; fail=1; }
+          done
+
+          # A published page must not reach outside itself: the CSP-free static
+          # host gives no second chance, and an external URL would break offline.
+          if grep -rnE 'from "https?://|src="https?://|@import url\("https?://' _site/index.html _site/src/ ; then
+            echo "::error::site references an external origin; all assets must be vendored"
+            fail=1
+          fi
+          if [ "$fail" -ne 0 ]; then exit 1; fi
+          echo "artifact is complete and self-contained"
+
+      - name: Report artifact size
+        run: du -sh _site && du -sh _site/* | sort -h
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    name: Deploy
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

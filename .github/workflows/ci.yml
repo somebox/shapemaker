@@ -1,0 +1,119 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+# Cancel superseded runs on the same branch; a stale acceptance run is wasted time.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Unit + parity (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ["20", "22", "24"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      # No `npm ci`: the app has zero runtime or dev dependencies. package.json
+      # exists only for "type": "module" and the test script.
+      - name: Run tests
+        run: npm test
+
+  static-checks:
+    name: Deployment path rules
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # GitHub Pages project sites serve from /<repo>/, so any root-absolute
+      # path works locally and 404s in production. This is the cheapest guard
+      # against a class of bug that only appears after deploy.
+      - name: No root-absolute asset paths
+        run: |
+          if grep -nE '(src|href)="/|"/vendor/|"/src/' index.html; then
+            echo "::error file=index.html::Root-absolute path found; use ./relative paths (see SPEC.md § Deployment)"
+            exit 1
+          fi
+          echo "index.html paths are ./relative"
+
+      - name: Import map resolves to files that exist
+        run: |
+          fail=0
+          # Pull each "./..." target out of the import map and check it resolves.
+          targets=$(sed -n '/<script type="importmap">/,/<\/script>/p' index.html \
+                    | grep -oE '"\./[^"]+"' | tr -d '"')
+          for t in $targets; do
+            # Trailing-slash entries are directory prefixes, not files.
+            case "$t" in
+              */) [ -d "$t" ] || { echo "::error::import map prefix $t is not a directory"; fail=1; } ;;
+              *)  [ -f "$t" ] || { echo "::error::import map target $t does not exist"; fail=1; } ;;
+            esac
+          done
+          if [ "$fail" -ne 0 ]; then exit 1; fi
+          echo "all import map targets resolve"
+
+      - name: Geometry stays free of Three.js
+        run: |
+          # Rule 2 of the application contract: the pipeline must run headless.
+          offenders=$(grep -rl 'from "three' src/ | grep -v '^src/viewer.js$' || true)
+          if [ -n "$offenders" ]; then
+            echo "::error::these modules import three.js but must not: $offenders"
+            exit 1
+          fi
+          echo "only viewer.js imports three"
+
+      - name: compile() runs headless under Node
+        run: |
+          node -e '
+            import("./src/compile.js").then(({ compile }) => {
+              const r = compile();
+              if (!r.validation.ok) throw new Error("default state failed to compile");
+              console.log(`headless compile: ${r.metrics.triangleCount} tris, ${r.metrics.volumeCm3.toFixed(3)} cm3`);
+            });
+          '
+
+  acceptance:
+    name: Mesh acceptance (Python reference)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: prototype/requirements.txt
+
+      - name: Install the Python reference
+        run: |
+          python -m venv .venv
+          .venv/bin/python -m pip install --upgrade pip
+          .venv/bin/python -m pip install -r prototype/requirements.txt
+
+      # Exports STLs through the same compile() the browser uses, then requires
+      # each to be watertight, winding-consistent, degeneracy-free, positive
+      # volume, and free of self-intersections — the last being the check that
+      # topology alone cannot make (see prototype/README.md).
+      - name: Run acceptance
+        run: bash scripts/acceptance.sh
+
+      - name: Upload exported meshes
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acceptance-stls
+          path: test/out/acceptance/*.stl
+          retention-days: 14
+          if-no-files-found: warn

@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Browser app for designing printable 3D shapes",
   "scripts": {
-    "test": "node --test test/**/*.test.js",
+    "test": "node --test test/*.test.js",
     "acceptance": "bash scripts/acceptance.sh"
   }
 }
