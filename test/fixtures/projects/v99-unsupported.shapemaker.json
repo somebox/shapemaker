@@ -1,0 +1,9 @@
+{
+  "format": "shapemaker-project",
+  "formatVersion": 99,
+  "name": "From the future",
+  "state": {
+    "base": "icosidodeca",
+    "circumdiameterMm": 100
+  }
+}

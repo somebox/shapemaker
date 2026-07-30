@@ -11,6 +11,7 @@ import { DEFAULT_STATE } from "./types.js";
 import { runPipeline } from "./pipeline.js";
 import { computeOrientation, defaultRestingFace } from "./orient.js";
 import { computeMetrics } from "./metrics.js";
+import { computeLimits } from "./limits.js";
 import { validateState } from "./validate.js";
 
 /** Result when nothing could be built. */
@@ -72,6 +73,7 @@ export function compile(partial = {}) {
       info: solid.info,
       orientation,
       watertight: solid.info.watertight,
+      limits: computeLimits(skeleton, state),
     });
   } catch (err) {
     validation.ok = false;

@@ -6,84 +6,307 @@
 import { compile } from "./compile.js";
 import { createViewer } from "./viewer.js";
 import { writeBinaryStl } from "./export/stl.js";
-import { VERSION } from "./version.js";
+import { createPanel, normalizePatch } from "./ui.js";
+import { serializeProjectV1, parseProject } from "./project-format.js";
+import { normalizeState, statesEqual } from "./schema.js";
+import { encodeHash, decodeHash } from "./hashcodec.js";
+import { nextHistoryAction } from "./history.js";
+import {
+  canSaveProject,
+  classifyOpen,
+  shouldEstablishCleanBaseline,
+} from "./session.js";
 
 const canvasHost = document.getElementById("canvas-host");
-const statusEl = document.getElementById("status");
-const exportBtn = document.getElementById("btn-export");
-const versionEl = document.getElementById("version");
-
-if (versionEl) versionEl.textContent = `v${VERSION}`;
+const panelEl = document.getElementById("panel");
 
 /** @type {ReturnType<typeof compile> | null} */
 let last = null;
-let state = {};
+/** @type {object} */
+let draft = normalizeState({});
+let projectName = "Untitled";
+/** @type {object} */
+let cleanState = normalizeState({});
+let cleanName = "Untitled";
+/** @type {object|null} */
+let lastLimits = null;
+/** Ignore popstate we ourselves caused via replace/push. */
+let applyingHistory = false;
+/** Whether the current history entry is the live preview for an edit. */
+let liveHistoryEdit = false;
+/** Whether the draft, rather than merely the last preview, compiles. */
+let draftValid = false;
+/** Last hash we wrote — canonical-equality gate. */
+let lastWrittenHash = "";
+
+if (new URLSearchParams(location.search).get("mock") === "future") {
+  document.body.classList.add("mock-future");
+}
+
+const fileInput = document.createElement("input");
+fileInput.type = "file";
+fileInput.accept = ".json,.shapemaker.json,application/json";
+fileInput.hidden = true;
+document.body.appendChild(fileInput);
+
+/** @type {ReturnType<typeof createPanel>} */
+let ui;
+/** @type {number|null} */
+let pinnedEdgeMm = null;
 
 const viewer = createViewer(canvasHost, {
   onFacePick(faceIndex) {
-    state = { ...state, faceIndex };
-    regenerate();
-    viewer.setFocusFaces([faceIndex]); // after regenerate — setMesh clears it
+    applyPatch({ faceIndex }, true);
+    viewer.setFocusFaces([faceIndex]);
+  },
+  onEdgeHover(info) {
+    if (info) ui?.setSelectedEdge(info.lengthMm);
+    else ui?.setSelectedEdge(pinnedEdgeMm);
+  },
+  onEdgeSelect(info) {
+    pinnedEdgeMm = info?.lengthMm ?? null;
+    ui?.setSelectedEdge(pinnedEdgeMm);
   },
 });
 
-function regenerate() {
-  const next = compile(state);
-  if (!next.validation.ok) {
-    // Keep the last good mesh on screen; the message names the bad parameter.
-    statusEl.textContent = next.validation.errors
-      .map((e) => `${e.key ?? e.stage}: ${e.message}`)
-      .join("\n");
+ui = createPanel(panelEl, {
+  onPatch(patch, { commit }) {
+    applyPatch(patch, commit);
+  },
+  onNameChange(name) {
+    projectName = name;
+    updateProjectStatus();
+  },
+  onSave() {
+    if (!canSaveProject({ draftValid, last })) return;
+    const text = serializeProjectV1({ name: projectName, state: last.state });
+    downloadText(text, `${safeName(projectName)}.shapemaker.json`);
+    cleanState = normalizeState(last.state);
+    cleanName = projectName;
+    updateProjectStatus();
+  },
+  onOpen() {
+    fileInput.value = "";
+    fileInput.click();
+  },
+  onCopyLink() {
+    // Ensure the URL reflects the current valid state without adding history.
+    if (draftValid && last?.state) writeUrl(encodeHash(last.state), "replace");
+    const url = location.href;
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(url).catch(() => fallbackCopy(url));
+    } else {
+      fallbackCopy(url);
+    }
+  },
+  onExport() {
+    const result = compile(draft);
+    if (!result.validation.ok || !result.mesh) {
+      ui.setResult(result, { limits: lastLimits, invalid: true });
+      return;
+    }
+    const size = result.state.circumdiameterMm;
+    const buf = writeBinaryStl(result.mesh, {
+      header: `shapemaker_${size}mm`,
+      matrix: result.orientation.matrix,
+    });
+    const blob = new Blob([buf], { type: "model/stl" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `icosidodeca_${size}mm.stl`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  },
+});
+
+ui.setActionsVisible({ open: true, copyLink: true });
+
+fileInput.addEventListener("change", async () => {
+  const file = fileInput.files?.[0];
+  if (!file) return;
+  const text = await file.text();
+  const parsed = parseProject(text);
+  const check = parsed.ok ? compile(parsed.state) : null;
+  const decision = classifyOpen({
+    parseOk: parsed.ok,
+    compileOk: Boolean(check?.validation?.ok),
+  });
+
+  if (decision !== "accept") {
+    // Leave name/draft/clean/mesh unchanged — surface the error only.
+    const message =
+      decision === "reject-parse"
+        ? parsed.error
+        : check.validation.errors[0]?.message || "Project failed to compile";
+    ui.setResult(
+      {
+        validation: {
+          ok: false,
+          errors: [{ key: "project", message }],
+          warnings: [],
+        },
+        state: draft,
+        metrics: null,
+      },
+      { limits: lastLimits, invalid: true },
+    );
+    updateProjectStatus();
     return;
   }
-  // Reframe only when the object's size or identity changes; ordinary wall /
-  // border / fillet edits must leave the camera where the user put it.
-  const reframe = !last ||
+
+  const prevName = projectName;
+  const prevDraft = draft;
+  const prevClean = cleanState;
+  const prevCleanName = cleanName;
+
+  projectName = parsed.project.name || "Untitled";
+  draft = normalizeState(parsed.state);
+  regenerate({ forceFrame: true, commit: true });
+  if (
+    shouldEstablishCleanBaseline({
+      openAccepted: true,
+      regenerateOk: draftValid && !!last?.state,
+    })
+  ) {
+    cleanState = normalizeState(last.state);
+    cleanName = projectName;
+    updateProjectStatus();
+    return;
+  }
+  // Accepted file but unexpected regenerate failure — restore session.
+  projectName = prevName;
+  draft = prevDraft;
+  cleanState = prevClean;
+  cleanName = prevCleanName;
+  updateProjectStatus();
+});
+
+window.addEventListener("popstate", () => {
+  if (applyingHistory) return;
+  const decoded = decodeHash(location.hash);
+  if (!decoded.ok) return;
+  liveHistoryEdit = false;
+  draft = decoded.state;
+  regenerate({ forceFrame: false, fromHistory: true });
+});
+
+function applyPatch(patch, commit) {
+  const normalized = normalizePatch(patch);
+  draft = { ...draft, ...normalized };
+  regenerate({ commit });
+}
+
+function regenerate({
+  forceFrame = false,
+  commit = true,
+  fromHistory = false,
+} = {}) {
+  const next = compile(draft);
+  if (!next.validation.ok) {
+    draftValid = false;
+    ui.setResult(next, { limits: lastLimits, invalid: true });
+    updateProjectStatus();
+    // Do not write an invalid hash.
+    return;
+  }
+
+  const reframe =
+    forceFrame ||
+    !last ||
     last.state.base !== next.state.base ||
     last.state.circumdiameterMm !== next.state.circumdiameterMm;
 
+  draftValid = true;
   last = next;
-  state = { ...next.state };
-  viewer.setMesh(next.mesh, next.orientation, { frame: reframe });
+  draft = { ...next.state };
+  lastLimits = next.metrics.limits;
+  viewer.setMesh(next.mesh, next.orientation, {
+    frame: reframe,
+    skeleton: next.skeleton,
+  });
+  ui.setResult(next, { limits: lastLimits });
+  updateProjectStatus();
 
-  const m = next.metrics;
-  const warn = next.validation.warnings.map((w) => `\n${w.message}`).join("");
-  statusEl.textContent =
-    `print  ${fmt(m.extentsMm[0])}×${fmt(m.extentsMm[1])}×${fmt(m.extentsMm[2])} mm` +
-    (m.wallMm.min != null ? ` · wall ${fmt(m.wallMm.min)}–${fmt(m.wallMm.max)}` : " · solid") +
-    ` · longest flat ${fmt(m.longestHorizontalMm)} mm\n` +
-    `mesh   ${m.triangleCount.toLocaleString("en-US")} tris` +
-    ` · watertight ${m.watertight ? "✓" : "✗"}` +
-    ` · ${m.volumeCm3.toFixed(1)} cm³` +
-    warn;
-}
-
-function fmt(n) {
-  return Number.isFinite(n) ? (Math.round(n * 10) / 10).toFixed(1).replace(/\.0$/, "") : "—";
-}
-
-exportBtn.addEventListener("click", () => {
-  // Export regenerates at full quality through the same code. Once M2 exposes
-  // editable fields the on-screen mesh may be the last *good* one while the
-  // current state is invalid, so this must check rather than assume.
-  const result = compile(state);
-  if (!result.validation.ok || !result.mesh) {
-    statusEl.textContent = result.validation.errors
-      .map((e) => `cannot export — ${e.key ?? e.stage}: ${e.message}`)
-      .join("\n");
+  if (fromHistory) {
+    lastWrittenHash = encodeHash(draft);
     return;
   }
-  const size = result.state.circumdiameterMm;
-  const buf = writeBinaryStl(result.mesh, {
-    header: `shapemaker_${size}mm`,
-    matrix: result.orientation.matrix,
+  syncHistory(commit);
+}
+
+function syncHistory(commit) {
+  if (!last?.state) return;
+  const hash = encodeHash(last.state);
+  const step = nextHistoryAction({
+    commit,
+    liveEdit: liveHistoryEdit,
+    hash,
+    lastWrittenHash,
   });
-  const blob = new Blob([buf], { type: "model/stl" });
+  liveHistoryEdit = step.liveEdit;
+  if (step.action !== "none") writeUrl(hash, step.action);
+  else lastWrittenHash = hash;
+}
+
+/** @param {string} hash @param {'push'|'replace'} action */
+function writeUrl(hash, action) {
+  const url = `${location.pathname}${location.search}#${hash}`;
+  applyingHistory = true;
+  if (action === "push") history.pushState({ shapemaker: true }, "", url);
+  else history.replaceState({ shapemaker: true }, "", url);
+  lastWrittenHash = hash;
+  applyingHistory = false;
+}
+
+function updateProjectStatus() {
+  const dirty =
+    projectName !== cleanName || !statesEqual(draft, cleanState);
+  ui.setProjectStatus({
+    name: projectName,
+    dirty,
+    canSave: canSaveProject({ draftValid, last }),
+  });
+}
+
+function downloadText(text, filename) {
+  const blob = new Blob([text], { type: "application/json" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
-  a.download = `icosidodeca_${size}mm.stl`;
+  a.download = filename;
   a.click();
   URL.revokeObjectURL(a.href);
-});
+}
 
-regenerate();
+function safeName(name) {
+  return name.replace(/[^\w\-]+/g, "_") || "shapemaker";
+}
+
+function fallbackCopy(url) {
+  const ta = document.createElement("textarea");
+  ta.value = url;
+  document.body.appendChild(ta);
+  ta.select();
+  try {
+    document.execCommand("copy");
+  } catch {
+    /* ignore */
+  }
+  ta.remove();
+}
+
+// Boot: prefer URL hash, else defaults. Seed the URL without a live-edit entry.
+const boot = decodeHash(location.hash);
+if (boot.ok) {
+  draft = boot.state;
+  regenerate({ forceFrame: true, fromHistory: true });
+  cleanState = normalizeState(draft);
+  cleanName = projectName;
+} else {
+  regenerate({ forceFrame: true, fromHistory: true });
+  if (last?.state) {
+    cleanState = normalizeState(last.state);
+    draft = { ...last.state };
+    writeUrl(encodeHash(last.state), "replace");
+  }
+}
+updateProjectStatus();

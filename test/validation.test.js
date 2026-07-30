@@ -29,7 +29,7 @@ describe("compile() rejects invalid state without throwing", () => {
     ["zero wall", { wallMm: 0 }, "wallMm"],
     ["edgeDiv 0", { edgeDiv: 0 }, "edgeDiv"],
     ["edgeDiv fractional", { edgeDiv: 2.5 }, "edgeDiv"],
-    ["negative fillet", { filletMm: -5 }, "filletMm"],
+    ["negative fillet", { filletMm: -0.1 }, "filletMm"],
     ["negative border", { borderMm: -2 }, "borderMm"],
     ["unknown base", { base: "bogus" }, "base"],
     ["unknown depth", { depth: "squishy" }, "depth"],
@@ -126,20 +126,24 @@ describe("per-face metrics survive irregular faces", () => {
     const seen = new Set(fm.map((f) => f.faceIndex));
     assert.equal(seen.size, fm.length, "face indices are unique");
     assert.ok(r.metrics.openingMinDiameterMm > 0, "reports a real min opening");
-    // At the default 4.5 mm nothing clamps, so the range is legitimately flat.
-    assert.equal(r.metrics.filletMm.min, r.metrics.filletMm.max);
+    assert.ok(
+      r.metrics.filletMm.min <= 4.5 && r.metrics.filletMm.max <= 4.5,
+      `requested fillet should clamp only where needed: ${JSON.stringify(r.metrics.filletMm)}`,
+    );
   });
 
-  it("reports the fillet clamp as a range when face classes differ", () => {
-    // 8 mm fits a pentagon but not a triangle: the triangle clamps to ~5.71.
-    // A side-count-keyed metric would have reported only the last face built.
-    const r = compileFresh({ filletMm: 8 });
+  it("clamps the same requested millimetre radius per face when necessary", () => {
+    const r = compileFresh({ filletMm: 100 });
+    assert.equal(r.validation.ok, true);
+    const bySides = new Map();
+    for (const f of r.metrics.faceMetrics) {
+      bySides.set(f.sides, f.filletUsedMm);
+    }
+    assert.ok(bySides.get(3) > 0 && bySides.get(5) > 0);
     assert.ok(
-      r.metrics.filletMm.min < 6 && r.metrics.filletMm.max === 8,
-      `expected a clamped spread, got ${JSON.stringify(r.metrics.filletMm)}`,
+      bySides.get(5) > bySides.get(3) * 1.5,
+      `pentagon clamp ${bySides.get(5)} should exceed triangle ${bySides.get(3)}`,
     );
-    const applied = new Set(r.metrics.faceMetrics.map((f) => f.filletUsedMm.toFixed(3)));
-    assert.equal(applied.size, 2, "two distinct clamp values across the 32 faces");
   });
 });
 

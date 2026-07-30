@@ -14,9 +14,9 @@ import { transformPoint } from "./orient.js";
  * @param {{ positions: Float64Array, faces: number[][], edges: number[][] }} args.skeleton
  * @param {{ triangleCount: number, volume: number, wall: {min: number|null, max: number|null}, borderMm: object }} args.info
  * @param {{ matrix: Float64Array }} args.orientation
- * @param {boolean} args.watertight
+ * @param {{ wallMmMax: number|null, borderMmMax: number|null, filletMmMax: number|null }} [args.limits]
  */
-export function computeMetrics({ skeleton, info, orientation, watertight }) {
+export function computeMetrics({ skeleton, info, orientation, watertight, limits }) {
   const edgeStats = edgeLengthStats(skeleton);
   const placed = placedBBox(skeleton.positions, orientation.matrix);
   const longestFlat = longestNearHorizontal(skeleton, orientation.matrix, 5 * Math.PI / 180);
@@ -33,6 +33,7 @@ export function computeMetrics({ skeleton, info, orientation, watertight }) {
     faceMetrics: info.faceMetrics,
     edgeMm: edgeStats,
     watertight,
+    limits: limits ?? { wallMmMax: null, borderMmMax: null, filletMmMax: null },
     // placed
     bboxMm: placed.bbox,
     extentsMm: placed.extents,

@@ -84,10 +84,20 @@ Loading follows this sequence:
 
 A newer unsupported version must never be silently rewritten. The app should
 show a clear compatibility message and either reject the project or open its
-metadata read-only. A failed load leaves the current project unchanged.
+metadata read-only. A failed load leaves the current project unchanged. Rejected opens must not
+rewrite controls, the draft, the clean baseline, or the mesh from the failed
+file.
+
+A state object that contains relative `fillet` (0–1) without `filletMm` is
+rejected. Version 1 authoring uses millimetres only; relative fillet would
+require an intentional format bump if reintroduced.
 
 Saving does not clear undo history. Loading begins a new named project session
-and resets its dirty/unsaved baseline to the loaded canonical state.
+and resets its dirty/unsaved baseline only after the loaded state compiles
+successfully.
+
+Version 0.2 saves geometry/`state` (and name/metadata as present) and may omit
+`view`; camera restore is optional and not required for session continuity.
 
 ## State, view, and metadata
 
@@ -98,7 +108,9 @@ resting face. It must not contain cached metrics or generated arrays.
 
 Exactly one representation of a physical parameter is authoritative. For
 version 1, border width is stored as `borderMm`; a proportional openness value
-is derived rather than stored beside it.
+is derived rather than stored beside it. Opening corner radius is stored as
+`filletMm`; the applied radius may be lower on a face whose geometry cannot fit
+the requested value. Per-face applied millimetres are reported in metrics.
 
 ### `view`
 

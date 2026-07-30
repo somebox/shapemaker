@@ -46,7 +46,7 @@ describe("buildShell at prototype defaults", () => {
     assert.equal(mesh.indices.length / 3, REF_TRIS);
   });
 
-  it("volume matches Python reference within ε", () => {
+  it("volume matches the Python reference within ε", () => {
     const cm3 = info.volume / 1000;
     const rel = Math.abs(cm3 - REF_VOLUME_CM3) / REF_VOLUME_CM3;
     assert.ok(rel < VOLUME_EPS, `volume ${cm3} vs ${REF_VOLUME_CM3} (rel ${rel})`);

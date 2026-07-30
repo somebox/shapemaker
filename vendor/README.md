@@ -31,3 +31,39 @@ in three.js documentation.
    and reload the app: orbit, pick several faces, export an STL.
 
 Import-map entries must stay `./`-relative — see SPEC.md § Deployment.
+
+## Fonts
+
+Latin WOFF2 subsets only (no CDN). Declared in `index.html` via `@font-face`.
+
+### Archivo
+
+| | |
+|---|---|
+| weights | 400, 600 (normal) |
+| upstream | https://github.com/Omnibus-Type/Archivo via [@fontsource/archivo](https://fontsource.org/fonts/archivo) 5.2.5 |
+| license | OFL — see [`fonts/archivo/OFL.txt`](fonts/archivo/OFL.txt) |
+
+| local path | role |
+|---|---|
+| `fonts/archivo/archivo-latin-400-normal.woff2` | labels, body |
+| `fonts/archivo/archivo-latin-600-normal.woff2` | headers, buttons |
+
+### IBM Plex Mono
+
+| | |
+|---|---|
+| weights | 400, 500 (normal) |
+| upstream | https://github.com/IBM/plex via [@fontsource/ibm-plex-mono](https://fontsource.org/fonts/ibm-plex-mono) 5.2.5 |
+| license | OFL — see [`fonts/plex-mono/OFL.txt`](fonts/plex-mono/OFL.txt) |
+
+| local path | role |
+|---|---|
+| `fonts/plex-mono/ibm-plex-mono-latin-400-normal.woff2` | measurements, inputs |
+| `fonts/plex-mono/ibm-plex-mono-latin-500-normal.woff2` | emphasized numerics |
+
+### Updating
+
+1. `npm pack` the new `@fontsource/*` release; copy the latin `*-normal.woff2` files above.
+2. Refresh `OFL.txt` from the package `LICENSE` and the versions in this file.
+3. Keep total WOFF2 payload under ~150 KB.

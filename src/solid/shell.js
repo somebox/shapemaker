@@ -60,7 +60,7 @@ export function buildShell(skeleton, opts) {
     wallMm,
     borderMm = null,
     borderFraction = null,
-    filletMm,
+    filletMm = 4.5,
     edgeDiv = 10,
     openings = true,
     depth = "hollow",

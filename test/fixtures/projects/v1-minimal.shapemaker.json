@@ -1,0 +1,15 @@
+{
+  "format": "shapemaker-project",
+  "formatVersion": 1,
+  "state": {
+    "base": "icosidodeca",
+    "circumdiameterMm": 100,
+    "borderMm": 3.2,
+    "depth": "hollow",
+    "wallMm": 1.4,
+    "openings": true,
+    "filletMm": 4.5,
+    "edgeDiv": 10,
+    "faceIndex": 0
+  }
+}

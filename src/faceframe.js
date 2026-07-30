@@ -22,7 +22,7 @@
  * }} FaceFrame
  *
  * On a regular polygon every `edgeDist` equals the apothem. They diverge on
- * irregular faces (M4 jitter), which is why the frame reports all of them:
+ * irregular faces (M5 jitter), which is why the frame reports all of them:
  * a centroid scale of (1 − b/edgeDistMin) guarantees the *narrowest* border
  * on the face is exactly b, and the widest is edgeDistMax/edgeDistMin × b.
  * Measuring from one arbitrary edge instead would make results depend on
@@ -33,7 +33,7 @@
  * Build the local frame for one face.
  *
  * The plane normal uses Newell's method rather than the radial direction, so
- * it stays correct for irregular faces (M4 jitter) where the centroid
+ * it stays correct for irregular faces (M5 jitter) where the centroid
  * direction and the true plane normal diverge. On the symmetric M1 solid the
  * two agree to float noise.
  *

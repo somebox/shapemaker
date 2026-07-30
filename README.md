@@ -8,13 +8,12 @@ laser-cut, PCB, and model-making workflows.
 
 **Live app:** [somebox.github.io/shapemaker](https://somebox.github.io/shapemaker/)
 
-![Shapemaker v0.1 — icosidodecahedron frame resting on the build plate, with
-live print and mesh measurements](media/screenshot-v0.1.png)
+![Shapemaker v0.2 — instrument panel with live Form controls and dimension
+strip beside the icosidodecahedron frame](media/screenshot-v0.2.png)
 
-Version **0.1.0** (Milestone 1) — icosidodecahedron frame at prototype defaults
-through `compile()`, resting on a face, with STL parity and meshcheck acceptance.
-Milestone 2 adds dimensional controls, edge inspection, portable project files,
-URL state, and undo/redo. See [`docs/CHANGELOG.md`](docs/CHANGELOG.md).
+Version **0.2.0** (Milestone 2) — live Shape/Form/Inspect/Make panel, dynamic
+bounds, project Save/Open, URL state with undo/redo and Copy Link, and edge
+hover/select measurement. See [`docs/CHANGELOG.md`](docs/CHANGELOG.md).
 
 ## Requirements
 
@@ -56,23 +55,24 @@ binary STL in millimetres.
 
 ```bash
 node scripts/export-stl.mjs out.stl
-node scripts/export-stl.mjs out.stl --wall=2.0 --border=4 --fillet=0
+node scripts/export-stl.mjs out.stl --wall=2.0 --border=4 --fillet=4.5
 ```
 
 ## Configuration
 
-M1 state is hardcoded in [`src/types.js`](src/types.js) (`DEFAULT_STATE`):
+Canonical authoring state is defined in [`src/schema.js`](src/schema.js)
+(`DEFAULT_STATE`, `STATE_KEYS`, control definitions); `src/types.js` re-exports
+it for the compile boundary. The same canonical state round-trips through
+project files, the URL hash, and dirty tracking:
 
 | key | default | meaning |
 |---|---|---|
 | `circumdiameterMm` | 100 | outer diameter across opposite vertices |
 | `borderMm` | 3.2 | frame width at edge midpoints |
 | `wallMm` | 1.4 | minimum wall thickness (pentagons) |
-| `filletMm` | 4.5 | opening corner radius (clamped per face) |
-| `edgeDiv` | 10 | segments per polyhedron edge |
+| `filletMm` | 4.5 | requested opening corner radius; clamped per face |
+| `edgeDiv` | 10 | segments per polyhedron edge (internal, not a panel control) |
 | `faceIndex` | first pentagon | resting face |
-
-Schema-driven sliders and URL hash arrive in Milestone 2.
 
 ## Example
 
@@ -87,30 +87,39 @@ North-star numbers (Ø100 prototype defaults): **7200 triangles**,
 ## Project structure
 
 ```
-index.html          entry (import map → ./vendor/…)
+index.html          entry (import map → ./vendor/…, vendored fonts, tokens)
 vendor/three/       Three.js r170 ESM + OrbitControls (+ LICENSE, README)
+vendor/fonts/       Archivo + IBM Plex Mono WOFF2 subsets (+ OFL licences)
 src/
-  main.js           events → state → compile → viewer/export
+  main.js           session owner: draft state, history, save/open, export
+  ui.js             panel — owns DOM, emits patches, never owns state
+  schema.js         DEFAULT_STATE, control defs, canonical codec
+                    (normalizeState / serializeState / statesEqual)
+  hashcodec.js      versioned URL hash over canonical state
+  history.js        pure push/replace policy for live vs committed edits
+  session.js        pure Save/Open eligibility rules
+  project-format.js .shapemaker.json serialize / parse / migrate
+  limits.js         proactive wall/border/fillet ceilings from the skeleton
   compile.js        THE regeneration API — never throws for bad input
   validate.js       parameter checks; validationError() for the stages
   pipeline.js       stage runner + per-stage cache instance
-  types.js          Skeleton / Mesh / DEFAULT_STATE
+  types.js          Skeleton / Mesh types; re-exports DEFAULT_STATE
   skeleton.js       edgeList, inradiusRange, assertSkeleton  ← shape-agnostic
   faceframe.js      toFaceFrame / fromFaceFrame              ← face-local 2D
-  points/           icosidodeca (platonic M3, random M4)
+  points/           icosidodeca (platonic M3, random M5)
   geom/             poly2, edgesub, annulus
   solid/shell.js    depth × OpeningGenerator
   mesh.js           structural + manifold invariants
   orient.js         resting-face transform (plane normal → −Z, z_min = 0)
-  metrics.js        computed once; viewer/UI never re-derive
+  metrics.js        computed once (incl. limits); viewer/UI never re-derive
   export/stl.js     binary STL writer
-  viewer.js         grid, orbit, face pick   ← the only module importing three
+  viewer.js         grid, orbit, face + edge pick ← the only module importing three
 prototype/          Python reference (meshcheck, original generator)
 test/               node --test + fixtures + reference.json
 scripts/            export-stl.mjs, acceptance.sh
 ```
 
-The two shape-agnostic modules are the M3/M4 seam: `solid/shell.js` learns
+The two shape-agnostic modules are the family/irregular seam: `solid/shell.js` learns
 everything about the polyhedron through `skeleton.js` and `faceframe.js`, so
 adding platonic bases or jitter does not touch the solidifier.
 

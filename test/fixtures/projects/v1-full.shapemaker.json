@@ -1,0 +1,31 @@
+{
+  "format": "shapemaker-project",
+  "formatVersion": 1,
+  "name": "Prototype TPU",
+  "createdWith": "0.1.0",
+  "state": {
+    "base": "icosidodeca",
+    "circumdiameterMm": 100,
+    "borderMm": 3.2,
+    "depth": "hollow",
+    "wallMm": 1.4,
+    "openings": true,
+    "filletMm": 4.5,
+    "edgeDiv": 10,
+    "faceIndex": 0
+  },
+  "view": {
+    "camera": {
+      "position": [120, 90, 140],
+      "target": [0, 0, 40],
+      "up": [0, 0, 1]
+    },
+    "overlay": "none"
+  },
+  "metadata": {
+    "notes": "",
+    "material": "TPU",
+    "densityGPerCm3": 1.21
+  },
+  "extensions": {}
+}

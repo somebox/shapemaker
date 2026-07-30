@@ -1,6 +1,7 @@
 /**
  * Three.js viewer: mm grid plate, orbit camera (model stays fixed),
- * face pick via faceId → skeleton face, orientation matrix at draw time.
+ * face pick via faceId → skeleton face, orientation matrix at draw time,
+ * edge hover/select via invisible LineSegments over skeleton edges.
  */
 
 import * as THREE from "three";
@@ -8,11 +9,15 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 
 /**
  * @param {HTMLElement} container
- * @param {{ onFacePick?: (faceIndex: number) => void }} [opts]
+ * @param {{
+ *   onFacePick?: (faceIndex: number) => void,
+ *   onEdgeHover?: (info: { edgeIndex: number, lengthMm: number }|null) => void,
+ *   onEdgeSelect?: (info: { edgeIndex: number, lengthMm: number }|null) => void,
+ * }} [opts]
  */
 export function createViewer(container, opts = {}) {
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x1a1a1e);
+  scene.background = new THREE.Color(0x121214);
 
   const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 2000);
   camera.position.set(120, 90, 140);
@@ -44,19 +49,24 @@ export function createViewer(container, opts = {}) {
 
   let meshObj = null;
   let focusMesh = null;
+  let edgePick = null;
+  let edgeHighlight = null;
   let faceIdAttr = null;
+  let edgeLengths = null;
+  let selectedEdge = null;
+  let hoverEdge = null;
   let hasFramed = false;
   const raycaster = new THREE.Raycaster();
+  raycaster.params.Line.threshold = 1.8;
   const pointer = new THREE.Vector2();
 
   /**
    * Replace geometry and placement.
-   *
-   * The camera is only reframed when asked (`frame: true`) or the first time,
-   * because M2 regenerates on every slider move: reframing each time would
-   * yank the view away while the user is inspecting a detail.
+   * @param {object} mesh
+   * @param {object} orientation
+   * @param {{ frame?: boolean, skeleton?: { positions: Float64Array, edges: number[][] } }} [opts]
    */
-  function setMesh(mesh, orientation, { frame = false } = {}) {
+  function setMesh(mesh, orientation, { frame = false, skeleton = null } = {}) {
     while (modelGroup.children.length) {
       const c = modelGroup.children[0];
       modelGroup.remove(c);
@@ -68,21 +78,60 @@ export function createViewer(container, opts = {}) {
     }
     meshObj = null;
     focusMesh = null;
+    edgePick = null;
+    edgeHighlight = null;
     faceIdAttr = mesh.faceId;
 
     const geo = new THREE.BufferGeometry();
     geo.setAttribute("position", new THREE.BufferAttribute(mesh.positions, 3));
     geo.setIndex(new THREE.BufferAttribute(mesh.indices, 1));
-    geo.computeVertexNormals();
 
+    // Flat shading so the preview shows the same facets the STL exports —
+    // smooth vertex normals made fillet arcs look softer than the mesh is.
     const mat = new THREE.MeshStandardMaterial({
       color: 0xc4a882,
       metalness: 0.05,
       roughness: 0.55,
       side: THREE.DoubleSide,
+      flatShading: true,
     });
     meshObj = new THREE.Mesh(geo, mat);
     modelGroup.add(meshObj);
+
+    if (skeleton?.edges?.length) {
+      edgeLengths = new Float64Array(skeleton.edges.length);
+      const pts = [];
+      const pos = skeleton.positions;
+      for (let e = 0; e < skeleton.edges.length; e++) {
+        const [i, j] = skeleton.edges[e];
+        const ax = pos[i * 3], ay = pos[i * 3 + 1], az = pos[i * 3 + 2];
+        const bx = pos[j * 3], by = pos[j * 3 + 1], bz = pos[j * 3 + 2];
+        pts.push(ax, ay, az, bx, by, bz);
+        edgeLengths[e] = Math.hypot(bx - ax, by - ay, bz - az);
+      }
+      const eg = new THREE.BufferGeometry();
+      eg.setAttribute("position", new THREE.Float32BufferAttribute(pts, 3));
+      edgePick = new THREE.LineSegments(
+        eg,
+        new THREE.LineBasicMaterial({
+          transparent: true,
+          opacity: 0,
+          depthWrite: false,
+        }),
+      );
+      // Keep pickable; invisible
+      edgePick.visible = true;
+      modelGroup.add(edgePick);
+    } else {
+      edgeLengths = null;
+    }
+
+    // Re-apply selection highlight after rebuild
+    if (selectedEdge != null && edgeLengths && selectedEdge < edgeLengths.length) {
+      showEdgeHighlight(selectedEdge, 0xc4a882);
+    } else {
+      selectedEdge = null;
+    }
 
     // Apply orientation matrix to the group (not the buffers)
     const M = orientation.matrix;
@@ -95,6 +144,29 @@ export function createViewer(container, opts = {}) {
       frameObject();
       hasFramed = true;
     }
+  }
+
+  function showEdgeHighlight(edgeIndex, color) {
+    if (edgeHighlight) {
+      modelGroup.remove(edgeHighlight);
+      edgeHighlight.geometry.dispose();
+      edgeHighlight.material.dispose();
+      edgeHighlight = null;
+    }
+    if (!edgePick || edgeIndex == null) return;
+    const src = edgePick.geometry.getAttribute("position");
+    const a = edgeIndex * 2;
+    const pts = [
+      src.getX(a), src.getY(a), src.getZ(a),
+      src.getX(a + 1), src.getY(a + 1), src.getZ(a + 1),
+    ];
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.Float32BufferAttribute(pts, 3));
+    edgeHighlight = new THREE.LineSegments(
+      g,
+      new THREE.LineBasicMaterial({ color, linewidth: 2 }),
+    );
+    modelGroup.add(edgeHighlight);
   }
 
   /** Point the camera at the model from a ¾ view. */
@@ -143,10 +215,7 @@ export function createViewer(container, opts = {}) {
         depthTest: true,
       }),
     );
-    // Same local space as meshObj (orientation is on the group)
     modelGroup.add(focusMesh);
-    // Auto-clear, but only this flash: rapid clicks queue several timers and
-    // an older one must not clear a newer highlight.
     const mine = focusMesh;
     setTimeout(() => {
       if (focusMesh !== mine) return;
@@ -157,9 +226,42 @@ export function createViewer(container, opts = {}) {
     }, 400);
   }
 
-  function onPointerDown(ev) {
+  function pickEdge(ev) {
+    if (!edgePick || !edgeLengths) return null;
+    const rect = renderer.domElement.getBoundingClientRect();
+    pointer.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
+    pointer.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
+    raycaster.setFromCamera(pointer, camera);
+    const hits = raycaster.intersectObject(edgePick, false);
+    if (!hits.length) return null;
+    const seg = hits[0].index;
+    if (seg == null) return null;
+    const edgeIndex = Math.floor(seg / 2);
+    if (edgeIndex < 0 || edgeIndex >= edgeLengths.length) return null;
+    return { edgeIndex, lengthMm: edgeLengths[edgeIndex] };
+  }
+
+  function onPointerMove(ev) {
+    const info = pickEdge(ev);
+    const next = info?.edgeIndex ?? null;
+    if (next === hoverEdge) return;
+    hoverEdge = next;
+    if (selectedEdge == null) {
+      showEdgeHighlight(next, 0xd8c9ae);
+    }
+    opts.onEdgeHover?.(info);
+  }
+
+  function onClickPick(ev) {
+    // Prefer edge when close; otherwise face
+    const edge = pickEdge(ev);
+    if (edge) {
+      selectedEdge = edge.edgeIndex;
+      showEdgeHighlight(selectedEdge, 0xc4a882);
+      opts.onEdgeSelect?.(edge);
+      return;
+    }
     if (!meshObj || !opts.onFacePick) return;
-    // Ignore if this was a drag (OrbitControls)
     const rect = renderer.domElement.getBoundingClientRect();
     pointer.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
     pointer.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
@@ -168,8 +270,6 @@ export function createViewer(container, opts = {}) {
     if (!hits.length) return;
     const tri = hits[0].faceIndex;
     if (tri == null || !faceIdAttr) return;
-    // Emit only. The caller re-compiles and then asks for the flash, because
-    // setMesh() rebuilds modelGroup and would destroy a flash started here.
     opts.onFacePick(faceIdAttr[tri]);
   }
 
@@ -182,7 +282,14 @@ export function createViewer(container, opts = {}) {
     if (!downPos) return;
     const dx = ev.clientX - downPos.x, dy = ev.clientY - downPos.y;
     downPos = null;
-    if (dx * dx + dy * dy < 16) onPointerDown(ev);
+    if (dx * dx + dy * dy < 16) onClickPick(ev);
+  });
+  renderer.domElement.addEventListener("pointermove", onPointerMove);
+  renderer.domElement.addEventListener("pointerleave", () => {
+    if (hoverEdge == null) return;
+    hoverEdge = null;
+    if (selectedEdge == null) showEdgeHighlight(null);
+    opts.onEdgeHover?.(null);
   });
 
   renderer.domElement.addEventListener("dblclick", frameObject);
@@ -205,7 +312,18 @@ export function createViewer(container, opts = {}) {
   resize();
   frame();
 
-  return { setMesh, setFocusFaces, frameObject, camera, controls };
+  return {
+    setMesh,
+    setFocusFaces,
+    frameObject,
+    camera,
+    controls,
+    clearEdgeSelection() {
+      selectedEdge = null;
+      showEdgeHighlight(null);
+      opts.onEdgeSelect?.(null);
+    },
+  };
 }
 
 /** XY plate with 10 mm minor / 50 mm major lines, Z = 0. */

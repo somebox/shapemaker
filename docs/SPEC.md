@@ -143,10 +143,17 @@ A hollow shell uses a uniformly scaled inner surface. This keeps shared vertices
 exact and makes the shell watertight by construction. Wall thickness specifies
 the minimum thickness; the actual range is reported.
 
-Openings use a centroid-scaled inset and tangent fillet. Each face boundary is
+Openings use a centroid-scaled inset and tangent fillet. Fillet is authored as
+a radius in millimetres; a face whose opening cannot fit the requested radius
+clamps it locally, and the applied range is reported. Each face boundary is
 subdivided globally so adjacent faces share identical points. The opening is
 sampled on matching centroid rays, preserving the prototype's non-intersecting
 annulus construction.
+
+Mesh density is controlled by edge subdivision and fillet-arc sampling. A
+user-facing quality preset (Milestone 4) may raise or lower those counts;
+it must not introduce smooth shading that makes the preview diverge from the
+exported triangle mesh. The viewer uses flat shading so preview ≡ STL.
 
 Border width is authored in millimetres in version 1. This is useful across
 physical fabrication methods because it describes the actual width of material,
@@ -170,7 +177,9 @@ stable default with a warning.
 - Binary STL applies the resting orientation and writes millimetres.
 - Seed-dependent filenames include the seed.
 - SVG projects skeleton edges from the current camera and retains real units.
-- Export always compiles at full quality and refuses invalid state.
+- Export compiles through the same `compile()` path as the preview and refuses
+  invalid state. When a mesh quality preset exists, preview and STL use that
+  same tessellation — there is no separate “pretty” preview mesh.
 - More specialized fabrication outputs belong in the roadmap until their
   required semantics are defined.
 
@@ -232,14 +241,15 @@ test/                  fixtures, parity tests, and acceptance references
 ```text
 presets.json            Milestone 3
 vendor/quickhull3d/     Milestone 3
-src/schema.js           Milestone 2
-src/hashcodec.js        Milestone 2
-src/project-format.js   Milestone 2
-src/ui.js               Milestone 2
+src/schema.js           canonical state codec + control defs
+src/hashcodec.js        versioned URL hash
+src/project-format.js   .shapemaker.json serialize/parse
+src/ui.js               Shape/Form/Inspect/Make panel
+src/limits.js           proactive slider ceilings
 src/hull.js             Milestone 3
 src/points/platonic.js  Milestone 3
-src/points/random.js    Milestone 4
-src/export/svg.js       Milestone 5
+src/points/random.js    Milestone 5
+src/export/svg.js       Milestone 6
 ```
 
 The viewer and UI consume compiled outputs only. Face-local opening geometry is
@@ -287,12 +297,15 @@ The canvas is primary; controls are grouped by user intent:
 - **Shape:** base, random density/seed, jitter, uniform scale.
 - **Form:** solid/hollow, wall, openings, border, fillet.
 - **Inspect:** overall dimensions, edge statistics, selected edge, face data.
-- **Make:** orientation, preview overlay, project save/open, export, copy link.
+- **Make:** orientation, mesh quality preset, preview overlay, project
+  save/open, export, copy link.
 
 Additional principles:
 
 - Free scaling is the default workflow. Measurements update continuously and do
   not require opening a separate dialog.
+- The preview is flat-shaded so it matches the exported triangle mesh. Finer
+  appearance comes from denser tessellation (quality preset), not smooth normals.
 - Clicking or hovering an edge exposes its exact length. Regular shapes may use
   edge length as the scale input.
 - Clicking a face is the primary way to choose a resting face; a grouped picker
@@ -345,13 +358,15 @@ optional progressive enhancement.
 1. **Place and export — complete:** prototype-default frame, face resting,
    browser preview, STL parity, and geometric acceptance.
 2. **Measure, save, and continue:** schema-driven controls, free scaling and
-   edge inspection, project open/save, dynamic bounds, URL state, and undo/redo.
+   edge inspection, project open/save, dynamic bounds, URL state, undo/redo,
+   and Copy Link.
 3. **Change the family:** Platonic solids, QuickHull/coplanar merge, face-family
    picker, and presets.
-4. **Distort and invent:** on-sphere jitter, seeded random hulls, density
+4. **Mesh quality:** tessellation presets (Draft / Normal / Fine) via edge and
+   fillet sampling; flat-shaded preview that matches STL.
+5. **Distort and invent:** on-sphere jitter, seeded random hulls, density
    presets, and irregular-shape acceptance.
-5. **Share, draw, and judge:** copy-link workflow, unit-aware SVG, and honest
-   print-risk overlays.
+6. **Share, draw, and judge:** unit-aware SVG and honest print-risk overlays.
 
 Priorities and uncommitted future ideas are maintained in
 [`ROADMAP.md`](ROADMAP.md).

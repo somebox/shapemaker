@@ -16,6 +16,24 @@ need and acceptance criteria are clear.
 Goal: turn the Phase 1 demonstration into a design tool users can leave and
 return to.
 
+Delivery is staged so the panel can be reviewed before persistence machinery
+encodes its layout:
+
+- **A — Living mockup.** Hand-wired Shape / Form / Inspect / Make panel over
+  the existing `compile()` API; real Form controls and Save serializer; no
+  schema, hash, undo, or Open yet.
+- **B — Review checkpoint.** Screenshots and playtest (including narrow
+  viewports and zoom) decide control density, measurement placement, and
+  validation UX before Stage C.
+- **C1 — Canonical state and projects.** `schema.js`, one canonical codec,
+  project parse/migration/Open, dynamic bounds through schema.
+- **C2 — History and sharing.** Versioned URL hash, browser-history undo/redo,
+  Copy Link.
+- **C3 — Edge inspection and checkpoint.** Hover/select exact edge length;
+  polish; v0.2 exit criteria.
+
+### Scope
+
 - Schema-driven controls for scale, wall, openings, border, and fillet.
 - Uniform free scaling with live bounding dimensions.
 - Edge minimum/mean/maximum and hover/select exact edge measurement.
@@ -24,9 +42,15 @@ return to.
 - `.shapemaker.json` project open/save using project format version 1.
 - Project migration and canonical round-trip tests.
 - Current project name, dirty/unsaved indicator, and Save/Open actions.
-- Optional local recovery of the latest unsaved session.
-- Canonical versioned URL state and browser-history undo/redo.
+- Canonical versioned URL state, browser-history undo/redo, and Copy Link.
 - Preserve camera position during ordinary parameter changes.
+
+### Cut from Milestone 2
+
+- Optional local recovery of the latest unsaved session.
+- File System Access API progressive enhancement for repeated saves.
+
+Neither moves the checkpoint; both remain later polish.
 
 ### Milestone 2 exit criteria
 
@@ -36,6 +60,17 @@ return to.
   without data loss.
 - Measurements update during scaling and match exported geometry.
 - Invalid edits keep the last valid preview and cannot be exported.
+
+### Stage B review questions
+
+1. Slider+numeric per control, or numeric-on-click?
+2. Measurements: Inspect group vs dimension strip (fabrication vs mesh diagnostics)?
+3. Does validation highlight+message anchoring work?
+4. Project name / dirty placement?
+5. Panel overflow (independent scroll; status visibility)?
+6. Keyboard: labels, focus, arrow-key increments?
+7. Disabled-with-explanation vs hidden for future controls?
+8. Cut anything that does not earn its place.
 
 ## Next — Milestone 3: change the family
 
@@ -48,7 +83,35 @@ Goal: reuse the trusted shell workflow across regular shape families.
 - Presets stored as immutable project-like state recipes.
 - Acceptance fixtures for every regular base and supported shell combination.
 
-## Next — Milestone 4: distort and invent
+## Next — Milestone 4: mesh quality
+
+Goal: let users choose how finely the shell is tessellated so smoother-looking
+fillets and frames are real geometry in both the preview and the STL — not a
+shading trick.
+
+STL carries triangles only; slicers do not honour smooth vertex normals. The
+viewer therefore stays flat-shaded so preview ≡ export. “Smoother” means denser
+facets via existing solidifier knobs (`edgeDiv`, fillet arc segments), exposed
+as a small preset rather than raw internals.
+
+- Mesh quality / smoothness preset (e.g. Draft / Normal / Fine) in Make (or
+  Form), stored in canonical state and project files.
+- Map presets to `edgeDiv` and fillet-arc segment counts; keep flat shading.
+- Preview and Export STL use the same compiled mesh (no separate LOD for save).
+- Document triangle-count / performance expectations per preset; Fine must
+  remain interactive on a typical laptop at the default icosidodecahedron.
+- Acceptance: each preset exports watertight; Normal remains the default and
+  keeps current parity anchors unless explicitly re-baselined.
+
+### Milestone 4 exit criteria
+
+- Changing the preset regenerates preview and STL with visibly finer (or
+  coarser) facets on fillet arcs; dimensions and topology stay valid.
+- Flat shading remains on; there is no smooth-normal mode that makes the
+  preview diverge from the export.
+- Preset round-trips through project save/open and URL state.
+
+## Next — Milestone 5: distort and invent
 
 Goal: provide expressive irregular forms without adding a modeling language.
 
@@ -60,11 +123,10 @@ Goal: provide expressive irregular forms without adding a modeling language.
 - Re-evaluate whether fixed millimetre borders remain sufficient on small,
   irregular faces.
 
-## Next — Milestone 5: share, draw, and judge
+## Next — Milestone 6: share, draw, and judge
 
 Goal: improve communication and downstream fabrication handoff.
 
-- Copy-link workflow.
 - Unit-aware SVG projection from the current camera.
 - Approximate overhang and near-horizontal-edge overlays.
 - Material-density presets and mass estimate.
@@ -141,6 +203,8 @@ performance budget, and export guarantees before promoting it from backlog.
 - True dihedral edge fillets.
 - General booleans or concave modeling.
 - Backend accounts or cloud storage.
+- Optional local session recovery.
+- File System Access API for repeated project saves.
 
 ## Decision log
 
@@ -153,5 +217,8 @@ performance budget, and export guarantees before promoting it from backlog.
   evidence.
 - **Projects are portable files.** URL state is for sharing; local recovery is
   convenience; neither replaces `.shapemaker.json`.
+- **Copy Link is part of Milestone 2** (with URL state), not Milestone 6.
+- **Mesh “smoothness” is tessellation, not shading.** Preview stays flat-shaded
+  so it matches STL; quality presets only increase facet density (Milestone 4).
 - **True struts remain backlog.** No geometry dependency is chosen without a
   demonstrated use case.

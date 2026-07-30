@@ -29,13 +29,16 @@ export function insetScale(poly, borderFraction) {
  * @returns {{ polyline: Float64Array, radius: number }}
  *   polyline is flat [x,y,…]; radius is the value actually applied
  */
-export function filletPolygon(poly, radius, segments = 64) {
+/**
+ * Largest tangent fillet radius that still fits a convex polygon's corners.
+ * Shared by filletPolygon and metrics.limits (slider ceilings).
+ * @param {Float64Array|number[][]} poly
+ * @returns {number}
+ */
+export function filletRmax(poly) {
   const pts = toPairs(poly);
   const n = pts.length;
-  if (radius <= 1e-9) {
-    return { polyline: flatten(pts), radius: 0.0 };
-  }
-
+  if (n < 3) return 0;
   let rmax = Infinity;
   for (let k = 0; k < n; k++) {
     const prev = pts[(k + n - 1) % n];
@@ -45,9 +48,21 @@ export function filletPolygon(poly, radius, segments = 64) {
     const d2x = nxt[0] - cur[0], d2y = nxt[1] - cur[1];
     const l1 = Math.hypot(d1x, d1y);
     const l2 = Math.hypot(d2x, d2y);
+    if (l1 < 1e-12 || l2 < 1e-12) continue;
     const half = Math.acos(clamp((d1x * d2x + d1y * d2y) / (l1 * l2), -1, 1)) / 2.0;
     rmax = Math.min(rmax, 0.5 * Math.min(l1, l2) * Math.tan(half));
   }
+  return Number.isFinite(rmax) ? rmax : 0;
+}
+
+export function filletPolygon(poly, radius, segments = 64) {
+  const pts = toPairs(poly);
+  const n = pts.length;
+  if (radius <= 1e-9) {
+    return { polyline: flatten(pts), radius: 0.0 };
+  }
+
+  const rmax = filletRmax(pts);
   const r = Math.min(radius, rmax * 0.999);
 
   const out = [];
