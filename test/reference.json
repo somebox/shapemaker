@@ -1,0 +1,16 @@
+{
+  "description": "Icosidodecahedron hollow frame at prototype defaults (Ø100, border 3.2, wall 1.4, fillet 4.5, edge_div 10). Orientation-invariant anchors from Python/existing STL; pentagon-down height is analytic (2×r5).",
+  "defaults": {
+    "circumdiameterMm": 100,
+    "borderMm": 3.2,
+    "wallMm": 1.4,
+    "filletMm": 4.5,
+    "edgeDiv": 10
+  },
+  "triangleCount": 7200,
+  "volumeCm3": 16.14979675,
+  "volumeRelEps": 1e-4,
+  "pentagonDownHeightMm": 85.065080835204,
+  "heightEpsMm": 1e-3,
+  "wallMm": { "min": 1.4, "max": 1.53745965995315 }
+}

@@ -1,0 +1,13 @@
+# Oracle dependencies for the Python prototype and the acceptance gate.
+#
+# Pinned to compatible-minor ranges because these are the *reference*: a
+# trimesh or scipy change to mesh processing would move the numbers the JS
+# port is validated against, and a drifting oracle is worse than no oracle.
+# These are the versions the M1 parity figures (7200 tris, 16.150 cm3) were
+# verified with.
+numpy~=2.5.1
+scipy~=1.18.0
+trimesh~=4.12.2
+shapely~=2.1.2
+rtree~=1.4.1
+pillow~=12.3.0

@@ -1,0 +1,11 @@
+{
+  "name": "shapemaker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Browser app for designing printable 3D shapes",
+  "scripts": {
+    "test": "node --test test/**/*.test.js",
+    "acceptance": "bash scripts/acceptance.sh"
+  }
+}
