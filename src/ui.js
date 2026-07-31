@@ -5,6 +5,7 @@
 
 import { VERSION } from "./version.js";
 import { CONTROL_DEFS } from "./schema.js";
+import { faceFamilies, locateFace } from "./face-families.js";
 
 export { CONTROL_DEFS };
 
@@ -35,6 +36,7 @@ export function normalizePatch(patch) {
  *   onExport: () => void,
  *   onOpen?: () => void,
  *   onCopyLink?: () => void,
+ *   onPreset?: (id: string) => void,
  *   onNameChange: (name: string) => void,
  * }} handlers
  */
@@ -59,6 +61,11 @@ export function createPanel(panelEl, handlers) {
   dirtyLabel.setAttribute("data-on", "0");
   identity.append(nameInput, dirtyDot, dirtyLabel);
   scroll.appendChild(identity);
+
+  const presetStrip = el("div", { className: "preset-strip" });
+  presetStrip.setAttribute("data-preset-strip", "");
+  presetStrip.hidden = true;
+  scroll.appendChild(presetStrip);
 
   nameInput.addEventListener("input", () => {
     handlers.onNameChange(nameInput.value.trim() || "Untitled");
@@ -87,12 +94,6 @@ export function createPanel(panelEl, handlers) {
         section.appendChild(root);
       }
       if (g.id === "shape") {
-        section.appendChild(
-          el("p", {
-            className: "hint",
-            textContent: "More families in development (M3–M5).",
-          }),
-        );
         section.appendChild(buildFutureBlock());
       }
     } else if (g.id === "inspect") {
@@ -212,15 +213,45 @@ export function createPanel(panelEl, handlers) {
     selectedEdge: panelEl.querySelector("[data-inspect=selected-edge]"),
   };
   const faceReadout = panelEl.querySelector("[data-face-readout]");
+  const faceStepper = panelEl.querySelector("[data-face-stepper]");
+  const warnLine = panelEl.querySelector("[data-base-warn]");
   const saveBtn = panelEl.querySelector("#btn-save");
   const exportBtn = panelEl.querySelector("#btn-export");
   const openBtn = panelEl.querySelector("#btn-open");
   const copyBtn = panelEl.querySelector("#btn-copy-link");
 
+  /** @type {{ sides: number, label: string, indices: number[] }[]} */
+  let families = [];
+  let familyIndex = 0;
+
   saveBtn?.addEventListener("click", () => handlers.onSave());
   exportBtn?.addEventListener("click", () => handlers.onExport());
   openBtn?.addEventListener("click", () => handlers.onOpen?.());
   copyBtn?.addEventListener("click", () => handlers.onCopyLink?.());
+
+  faceStepper?.querySelector("[data-face-prev]")?.addEventListener("click", () => {
+    stepFace(-1);
+  });
+  faceStepper?.querySelector("[data-face-next]")?.addEventListener("click", () => {
+    stepFace(1);
+  });
+  faceStepper?.querySelector("[data-face-family]")?.addEventListener("click", () => {
+    if (families.length < 2) return;
+    familyIndex = (familyIndex + 1) % families.length;
+    const faceIndex = families[familyIndex].indices[0];
+    queuePatch({ faceIndex }, true);
+  });
+
+  function stepFace(delta) {
+    if (!families.length) return;
+    const fam = families[familyIndex] || families[0];
+    const loc = locateFace(families, Number(faceReadout?.dataset.faceIndex ?? 0));
+    familyIndex = loc.familyIndex;
+    const cur = families[familyIndex];
+    const n = cur.indices.length;
+    const nextK = (loc.indexInFamily + delta + n) % n;
+    queuePatch({ faceIndex: cur.indices[nextK] }, true);
+  }
 
   function setSegment(key, value) {
     panelEl.querySelectorAll(`[data-seg-key="${key}"]`).forEach((btn) => {
@@ -232,7 +263,7 @@ export function createPanel(panelEl, handlers) {
   }
 
   return {
-    setResult(result, { limits, invalid } = {}) {
+    setResult(result, { limits, invalid, warnings } = {}) {
       const state = result?.state;
       const metrics = result?.metrics;
       const validation = result?.validation;
@@ -241,15 +272,22 @@ export function createPanel(panelEl, handlers) {
       if (state) {
         circumdiameter = state.circumdiameterMm;
         applyStateToControls(state, inputs, ranges, controlRoots);
-        // segments
         setSegment("depth", state.depth);
         setSegment("openings", String(!!state.openings));
-        if (faceReadout) {
-          faceReadout.textContent =
-            state.faceIndex < 0
-              ? "Rest face: auto"
-              : `Rest face: ${state.faceIndex}`;
-        }
+      }
+
+      if (result?.skeleton?.faces) {
+        families = faceFamilies(result.skeleton.faces);
+        const fi = state?.faceIndex ?? 0;
+        const loc = locateFace(families, fi);
+        familyIndex = loc.familyIndex;
+        updateFaceStepper(faceStepper, faceReadout, loc, families.length > 1);
+      }
+
+      if (warnLine) {
+        const msg = warnings?.[0] || "";
+        warnLine.textContent = msg;
+        warnLine.hidden = !msg;
       }
 
       if (metrics) {
@@ -268,7 +306,6 @@ export function createPanel(panelEl, handlers) {
 
       if (lim) applyLimits(lim, ranges, limitLabels, CONTROL_DEFS);
 
-      // validation highlight
       for (const [, node] of errNodes) node.textContent = "";
       for (const [, root] of controlRoots) root.classList.remove("has-error");
       if (validation && !validation.ok) {
@@ -299,6 +336,35 @@ export function createPanel(panelEl, handlers) {
     setActionsVisible({ open, copyLink }) {
       if (openBtn) openBtn.hidden = !open;
       if (copyBtn) copyBtn.hidden = !copyLink;
+    },
+
+    setPresets(list) {
+      presetStrip.innerHTML = "";
+      if (!list?.length) {
+        presetStrip.hidden = true;
+        return;
+      }
+      presetStrip.hidden = false;
+      for (const p of list) {
+        const btn = el("button", {
+          type: "button",
+          className: "preset-chip",
+          textContent: p.name,
+        });
+        btn.setAttribute("data-preset-id", p.id);
+        btn.title = p.description || p.name;
+        btn.addEventListener("click", () => handlers.onPreset?.(p.id));
+        presetStrip.appendChild(btn);
+      }
+    },
+
+    setPresetStatus(statuses) {
+      for (const s of statuses || []) {
+        const btn = presetStrip.querySelector(`[data-preset-id="${s.id}"]`);
+        if (!btn) continue;
+        btn.setAttribute("data-active", s.active ? "1" : "0");
+        btn.setAttribute("data-edited", s.edited ? "1" : "0");
+      }
     },
   };
 }
@@ -344,7 +410,10 @@ function buildControl(def, _handlers, inputs, ranges, errNodes, limitLabels) {
       step: String(def.step ?? 0.1),
     });
     if (def.min != null) num.min = String(def.min);
-    if (def.max != null) num.max = String(def.max);
+    // Size slider max is convenience-only; typed circumdiameter may exceed it.
+    if (def.max != null && def.key !== "circumdiameterMm") {
+      num.max = String(def.max);
+    }
     inputs.set(def.key, num);
     row.append(lab, num, el("span", { className: "unit", textContent: def.unit || "" }));
     root.appendChild(row);
@@ -399,13 +468,34 @@ function buildInspect() {
 
 function buildMake(handlers) {
   const box = el("div", { className: "actions" });
-  const face = el("div", { className: "face-readout", textContent: "Rest face: —" });
-  face.setAttribute("data-face-readout", "");
-  box.appendChild(face);
+  const warn = el("p", { className: "hint base-warn", textContent: "" });
+  warn.setAttribute("data-base-warn", "");
+  warn.hidden = true;
+  box.appendChild(warn);
+
+  const stepper = el("div", { className: "face-stepper" });
+  stepper.setAttribute("data-face-stepper", "");
+  const familyBtn = el("button", {
+    type: "button",
+    className: "btn-quiet",
+    textContent: "triangle",
+  });
+  familyBtn.setAttribute("data-face-family", "");
+  familyBtn.setAttribute("aria-label", "Cycle face family");
+  const prev = el("button", { type: "button", className: "btn-quiet", textContent: "←" });
+  prev.setAttribute("data-face-prev", "");
+  prev.setAttribute("aria-label", "Previous face in family");
+  const next = el("button", { type: "button", className: "btn-quiet", textContent: "→" });
+  next.setAttribute("data-face-next", "");
+  next.setAttribute("aria-label", "Next face in family");
+  const readout = el("span", { className: "face-readout", textContent: "Face: —" });
+  readout.setAttribute("data-face-readout", "");
+  stepper.append(familyBtn, prev, readout, next);
+  box.appendChild(stepper);
   box.appendChild(
     el("p", {
       className: "hint",
-      textContent: "Click a face on the model to rest on it.",
+      textContent: "Click a face on the model, or step within a family.",
     }),
   );
 
@@ -471,7 +561,13 @@ function applyStateToControls(state, inputs, ranges, controlRoots) {
     }
     const range = ranges.get(def.key);
     if (range && document.activeElement !== range) {
-      range.value = String(uiVal);
+      const lo = Number(range.min);
+      const hi = Number(range.max);
+      const clamped =
+        Number.isFinite(uiVal) && Number.isFinite(lo) && Number.isFinite(hi)
+          ? Math.min(hi, Math.max(lo, uiVal))
+          : uiVal;
+      range.value = String(clamped);
     }
   }
 }
@@ -507,6 +603,18 @@ function uiToState(def, uiVal) {
 function stateToUi(def, stateVal) {
   if (def?.fromState) return def.fromState(stateVal);
   return stateVal;
+}
+
+function updateFaceStepper(stepper, readout, loc, multiFamily) {
+  if (!stepper || !readout || !loc?.family) return;
+  const { family, indexInFamily } = loc;
+  readout.textContent = `Face: ${family.label} · ${indexInFamily + 1} of ${family.indices.length}`;
+  readout.dataset.faceIndex = String(family.indices[indexInFamily]);
+  const famBtn = stepper.querySelector("[data-face-family]");
+  if (famBtn) {
+    famBtn.textContent = family.label;
+    famBtn.hidden = !multiFamily;
+  }
 }
 
 function setInspect(els, m) {

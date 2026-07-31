@@ -106,6 +106,24 @@ Version 0.2 saves geometry/`state` (and name/metadata as present) and may omit
 Contains every authoring input needed to regenerate geometry, including seed and
 resting face. It must not contain cached metrics or generated arrays.
 
+#### `faceIndex` stability
+
+`faceIndex` refers to a position in the app's deterministic face ordering for
+the given base — it is a list position, not a geometric key. Within a format
+version that ordering is stable, and it is stable under input-point order by
+construction (deterministic face identity).
+
+**Known pre-1.0 compatibility break:** version 0.3 moved the
+icosidodecahedron from a combinatorial construction to the shared hull
+pipeline. The face sort is sides-ascending, which preserves 0.2's face-family
+partition (indices 0–19 are triangles, 20–31 pentagons), but order *within* a
+family changed. A 0.2 project or URL with a concrete `faceIndex` reopens
+resting on the same **kind** of face, possibly a different one of that kind —
+so a re-exported STL may be oriented differently. `faceIndex: -1` (default
+rest) is unaffected. Accepted deliberately while pre-1.0; from 1.0 onward a
+change like this requires a format-version bump with a migration (or a
+geometry-based `faceKey`).
+
 Exactly one representation of a physical parameter is authoritative. For
 version 1, border width is stored as `borderMm`; a proportional openness value
 is derived rather than stored beside it. Opening corner radius is stored as

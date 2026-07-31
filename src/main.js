@@ -16,6 +16,10 @@ import {
   classifyOpen,
   shouldEstablishCleanBaseline,
 } from "./session.js";
+import { adaptStateForBase } from "./adapt-base.js";
+import { hullSkeletonForBase, scaleSkeleton } from "./pipeline.js";
+import { computeLimits } from "./limits.js";
+import { parsePresetsEnvelope } from "./presets.js";
 
 const canvasHost = document.getElementById("canvas-host");
 const panelEl = document.getElementById("panel");
@@ -38,6 +42,8 @@ let liveHistoryEdit = false;
 let draftValid = false;
 /** Last hash we wrote — canonical-equality gate. */
 let lastWrittenHash = "";
+/** @type {{ id: string, name: string, state: object, resolved: object }[]} */
+let presets = [];
 
 if (new URLSearchParams(location.search).get("mock") === "future") {
   document.body.classList.add("mock-future");
@@ -89,6 +95,16 @@ ui = createPanel(panelEl, {
     fileInput.value = "";
     fileInput.click();
   },
+  onPreset(id) {
+    const preset = presets.find((p) => p.id === id);
+    if (!preset) return;
+    // Same path as Open: project bytes from immutable app data.
+    const text = serializeProjectV1({
+      name: preset.name,
+      state: preset.state,
+    });
+    openProjectText(text);
+  },
   onCopyLink() {
     // Ensure the URL reflects the current valid state without adding history.
     if (draftValid && last?.state) writeUrl(encodeHash(last.state), "replace");
@@ -106,14 +122,15 @@ ui = createPanel(panelEl, {
       return;
     }
     const size = result.state.circumdiameterMm;
+    const base = result.state.base;
     const buf = writeBinaryStl(result.mesh, {
-      header: `shapemaker_${size}mm`,
+      header: `shapemaker_${base}_${size}mm`,
       matrix: result.orientation.matrix,
     });
     const blob = new Blob([buf], { type: "model/stl" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    a.download = `icosidodeca_${size}mm.stl`;
+    a.download = `${base}_${size}mm.stl`;
     a.click();
     URL.revokeObjectURL(a.href);
   },
@@ -121,10 +138,31 @@ ui = createPanel(panelEl, {
 
 ui.setActionsVisible({ open: true, copyLink: true });
 
+fetch(new URL("../presets.json", import.meta.url))
+  .then((r) => r.json())
+  .then((raw) => {
+    const parsed = parsePresetsEnvelope(raw);
+    if (!parsed.ok) {
+      console.warn("presets:", parsed.error);
+      return;
+    }
+    presets = parsed.presets;
+    ui.setPresets(presets);
+    updateProjectStatus();
+  })
+  .catch((err) => console.warn("presets load failed", err));
+
 fileInput.addEventListener("change", async () => {
   const file = fileInput.files?.[0];
   if (!file) return;
-  const text = await file.text();
+  openProjectText(await file.text());
+});
+
+/**
+ * Open / preset apply — shared session mutation path.
+ * @param {string} text
+ */
+function openProjectText(text) {
   const parsed = parseProject(text);
   const check = parsed.ok ? compile(parsed.state) : null;
   const decision = classifyOpen({
@@ -133,7 +171,6 @@ fileInput.addEventListener("change", async () => {
   });
 
   if (decision !== "accept") {
-    // Leave name/draft/clean/mesh unchanged — surface the error only.
     const message =
       decision === "reject-parse"
         ? parsed.error
@@ -173,13 +210,12 @@ fileInput.addEventListener("change", async () => {
     updateProjectStatus();
     return;
   }
-  // Accepted file but unexpected regenerate failure — restore session.
   projectName = prevName;
   draft = prevDraft;
   cleanState = prevClean;
   cleanName = prevCleanName;
   updateProjectStatus();
-});
+}
 
 window.addEventListener("popstate", () => {
   if (applyingHistory) return;
@@ -191,20 +227,43 @@ window.addEventListener("popstate", () => {
 });
 
 function applyPatch(patch, commit) {
-  const normalized = normalizePatch(patch);
+  let normalized = normalizePatch(patch);
+  let warnings = [];
+
+  if (normalized.base != null && normalized.base !== draft.base) {
+    const unit = hullSkeletonForBase(normalized.base);
+    const R = (draft.circumdiameterMm ?? 100) / 2;
+    const sk = scaleSkeleton(unit, R);
+    // Limits from skeleton (no solidifier). Border max does not depend on the
+    // current border value; fillet ceiling is unused by adaptation.
+    const limits = computeLimits(sk, {
+      ...draft,
+      base: normalized.base,
+      faceIndex: -1,
+    });
+    const adapted = adaptStateForBase({
+      currentState: draft,
+      nextBase: normalized.base,
+      nextLimits: limits,
+    });
+    normalized = normalizePatch({ ...normalized, ...adapted.patch });
+    warnings = adapted.warnings;
+  }
+
   draft = { ...draft, ...normalized };
-  regenerate({ commit });
+  regenerate({ commit, warnings });
 }
 
 function regenerate({
   forceFrame = false,
   commit = true,
   fromHistory = false,
+  warnings = [],
 } = {}) {
   const next = compile(draft);
   if (!next.validation.ok) {
     draftValid = false;
-    ui.setResult(next, { limits: lastLimits, invalid: true });
+    ui.setResult(next, { limits: lastLimits, invalid: true, warnings });
     updateProjectStatus();
     // Do not write an invalid hash.
     return;
@@ -224,7 +283,10 @@ function regenerate({
     frame: reframe,
     skeleton: next.skeleton,
   });
-  ui.setResult(next, { limits: lastLimits });
+  ui.setResult(next, { limits: lastLimits, warnings });
+  if (next.state.faceIndex >= 0) {
+    viewer.setFocusFaces([next.state.faceIndex]);
+  }
   updateProjectStatus();
 
   if (fromHistory) {
@@ -266,6 +328,15 @@ function updateProjectStatus() {
     dirty,
     canSave: canSaveProject({ draftValid, last }),
   });
+  if (presets.length) {
+    ui.setPresetStatus(
+      presets.map((p) => ({
+        id: p.id,
+        active: statesEqual(draft, p.resolved),
+        edited: projectName === p.name && !statesEqual(draft, p.resolved),
+      })),
+    );
+  }
 }
 
 function downloadText(text, filename) {

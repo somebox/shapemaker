@@ -45,21 +45,44 @@ export function computeOrientation(skeleton, faceIndex) {
 }
 
 /**
- * Default resting face: the first face with the most sides.
+ * Default resting face: maximum area, then most sides, then lowest index
+ * (face identity already sorted the list).
  *
- * Shape-agnostic (M3 bases have no pentagons), and on the M1 icosidodecahedron
- * it selects a pentagon — matching the prototype's `--orient pentagon`.
- * Largest-face-down is also the most stable rest, which is the right default
- * even though it is not the best orientation for bridging (see README).
+ * On dodecahedron / icosidodecahedron this selects a pentagon. On uniform
+ * Platonic solids every face ties on area and sides, so index 0 wins.
  *
- * @param {number[][]} faces
+ * @param {{ positions: Float64Array, faces: number[][] }} skeleton
  */
-export function defaultRestingFace(faces) {
+export function defaultRestingFace(skeleton) {
+  const { positions, faces } = skeleton;
   let best = 0;
-  for (let i = 1; i < faces.length; i++) {
-    if (faces[i].length > faces[best].length) best = i;
+  let bestArea = -1;
+  let bestSides = -1;
+  for (let i = 0; i < faces.length; i++) {
+    const area = faceArea(positions, faces[i]);
+    const sides = faces[i].length;
+    if (
+      area > bestArea + 1e-12 ||
+      (Math.abs(area - bestArea) <= 1e-12 && sides > bestSides)
+    ) {
+      best = i;
+      bestArea = area;
+      bestSides = sides;
+    }
   }
   return best;
+}
+
+/** Planar polygon area via Newell magnitude / 2. */
+function faceArea(positions, ring) {
+  let nx = 0, ny = 0, nz = 0;
+  for (let k = 0; k < ring.length; k++) {
+    const a = ring[k] * 3, b = ring[(k + 1) % ring.length] * 3;
+    nx += (positions[a + 1] - positions[b + 1]) * (positions[a + 2] + positions[b + 2]);
+    ny += (positions[a + 2] - positions[b + 2]) * (positions[a] + positions[b]);
+    nz += (positions[a] - positions[b]) * (positions[a + 1] + positions[b + 1]);
+  }
+  return Math.hypot(nx, ny, nz) / 2;
 }
 
 /**

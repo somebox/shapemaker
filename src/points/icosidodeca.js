@@ -1,27 +1,35 @@
 /**
- * Icosidodecahedron: 30 vertices (icosahedron edge midpoints on a sphere),
- * 32 faces (20 triangles + 12 pentagons) by combinatorics — no hull.
+ * Icosidodecahedron point cloud and combinatorial oracle skeleton.
  *
- * Each icosahedron face → a triangle of its 3 edge-midpoints.
- * Each icosahedron vertex → a pentagon of its 5 incident edge-midpoints.
+ * Production uses icosidodecaPoints() → hullToSkeleton().
+ * icosidodecahedronDirect() remains the geometric oracle for tests.
  */
 
 const PHI = (1.0 + Math.sqrt(5.0)) / 2.0;
 
 /**
+ * Normalized (unit circumradius) 30-vertex point cloud.
+ * @returns {Float64Array}
+ */
+export function icosidodecaPoints() {
+  return icosidodecahedronDirect(1).positions;
+}
+
+/**
+ * Combinatorial skeleton at the given circumradius — no hull.
+ * 30 verts, 20 triangles + 12 pentagons.
+ *
  * @param {number} circumradius
  * @returns {{ positions: Float64Array, faces: number[][] }}
- *   positions: 30×3 flat float64; faces: 32 ordered CCW rings (seen from outside)
  */
-export function icosidodecahedron(circumradius = 1.0) {
-  const ico = icosahedronVerts(); // 12 verts, edge length 2
-  const edges = icosaEdges(ico);  // 30 edges as [i,j] with i < j
+export function icosidodecahedronDirect(circumradius = 1.0) {
+  const ico = icosahedronVerts();
+  const edges = icosaEdges(ico);
   const edgeIndex = new Map();
   for (let e = 0; e < edges.length; e++) {
     edgeIndex.set(`${edges[e][0]},${edges[e][1]}`, e);
   }
 
-  // Midpoints → icosidodeca verts, scaled to circumradius
   const positions = new Float64Array(30 * 3);
   for (let e = 0; e < 30; e++) {
     const [i, j] = edges[e];
@@ -34,10 +42,9 @@ export function icosidodecahedron(circumradius = 1.0) {
     positions[e * 3 + 2] = (z / L) * circumradius;
   }
 
-  const icoFaces = icosaFaces(ico); // 20 triangles
+  const icoFaces = icosaFaces(ico);
   const faces = [];
 
-  // Triangles from icosa faces
   for (const f of icoFaces) {
     const mids = [];
     for (let k = 0; k < 3; k++) {
@@ -48,7 +55,6 @@ export function icosidodecahedron(circumradius = 1.0) {
     faces.push(orderRingCCW(positions, mids));
   }
 
-  // Pentagons from icosa vertices
   for (let v = 0; v < 12; v++) {
     const incident = [];
     for (let e = 0; e < 30; e++) {
@@ -72,11 +78,15 @@ export function icosidodecahedron(circumradius = 1.0) {
 }
 
 /**
+ * @deprecated Prefer icosidodecahedronDirect (oracle) or icosidodecaPoints (production).
+ * Kept so existing tests keep importing a familiar name.
+ */
+export function icosidodecahedron(circumradius = 1.0) {
+  return icosidodecahedronDirect(circumradius);
+}
+
+/**
  * Analytic inradii (centre → face plane) for triangle and pentagon faces.
- *
- * Not used by the solidifier — that derives inradii from the skeleton so it
- * stays shape-agnostic. Kept as an independent closed-form cross-check in
- * tests: if the generic path and this formula ever disagree, one is wrong.
  */
 export function inradii(circumradius) {
   const R = circumradius;
@@ -117,7 +127,6 @@ function icosaEdges(ico) {
   return edges;
 }
 
-/** Convex-hull faces of the 12-vertex icosahedron (brute-force; N=12). */
 function icosaFaces(ico) {
   const faces = [];
   const n = ico.length;
@@ -125,25 +134,32 @@ function icosaFaces(ico) {
     for (let j = i + 1; j < n; j++) {
       for (let k = j + 1; k < n; k++) {
         const a = ico[i], b = ico[j], c = ico[k];
-        // Skip non-edges
         if (!isIcosaEdge(a, b) || !isIcosaEdge(b, c) || !isIcosaEdge(c, a)) continue;
         const nx = (b[1] - a[1]) * (c[2] - a[2]) - (b[2] - a[2]) * (c[1] - a[1]);
         const ny = (b[2] - a[2]) * (c[0] - a[0]) - (b[0] - a[0]) * (c[2] - a[2]);
         const nz = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
         const len = Math.hypot(nx, ny, nz);
         if (len < 1e-12) continue;
-        // Plane: n·(x-a) = 0. All other verts must be on the inner side (n·(v-a) ≤ 0
-        // if n points outward). Pick outward by centroid of triangle from origin.
         let ox = nx / len, oy = ny / len, oz = nz / len;
         const cx = (a[0] + b[0] + c[0]) / 3;
         const cy = (a[1] + b[1] + c[1]) / 3;
         const cz = (a[2] + b[2] + c[2]) / 3;
-        if (ox * cx + oy * cy + oz * cz < 0) { ox = -ox; oy = -oy; oz = -oz; }
+        if (ox * cx + oy * cy + oz * cz < 0) {
+          ox = -ox;
+          oy = -oy;
+          oz = -oz;
+        }
         let hull = true;
         for (let t = 0; t < n; t++) {
           if (t === i || t === j || t === k) continue;
-          const d = ox * (ico[t][0] - a[0]) + oy * (ico[t][1] - a[1]) + oz * (ico[t][2] - a[2]);
-          if (d > 1e-9) { hull = false; break; }
+          const d =
+            ox * (ico[t][0] - a[0]) +
+            oy * (ico[t][1] - a[1]) +
+            oz * (ico[t][2] - a[2]);
+          if (d > 1e-9) {
+            hull = false;
+            break;
+          }
         }
         if (hull) faces.push([i, j, k]);
       }
@@ -157,7 +173,6 @@ function isIcosaEdge(a, b) {
   return Math.abs(Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]) - 2.0) < 1e-9;
 }
 
-/** Order ring indices CCW as seen from outside (from +radial). */
 function orderRingCCW(positions, idxs) {
   let cx = 0, cy = 0, cz = 0;
   for (const i of idxs) {
@@ -166,16 +181,20 @@ function orderRingCCW(positions, idxs) {
     cz += positions[i * 3 + 2];
   }
   const n = idxs.length;
-  cx /= n; cy /= n; cz /= n;
+  cx /= n;
+  cy /= n;
+  cz /= n;
   const nl = Math.hypot(cx, cy, cz);
   const nx = cx / nl, ny = cy / nl, nz = cz / nl;
 
-  // Orthonormal frame in the face plane
   const i0 = idxs[0];
-  let ux = positions[i0 * 3] - cx, uy = positions[i0 * 3 + 1] - cy, uz = positions[i0 * 3 + 2] - cz;
+  let ux = positions[i0 * 3] - cx;
+  let uy = positions[i0 * 3 + 1] - cy;
+  let uz = positions[i0 * 3 + 2] - cz;
   const ul = Math.hypot(ux, uy, uz);
-  ux /= ul; uy /= ul; uz /= ul;
-  // w = n × u
+  ux /= ul;
+  uy /= ul;
+  uz /= ul;
   const wx = ny * uz - nz * uy;
   const wy = nz * ux - nx * uz;
   const wz = nx * uy - ny * ux;

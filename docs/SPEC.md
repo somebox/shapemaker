@@ -95,6 +95,11 @@ Rules:
 base points -> jitter -> convex hull -> skeleton -> scale -> shell -> orient -> export
 ```
 
+From Milestone 3 the interactive path is points → hull+merge+face-identity
+(`assertSkeleton`) → scale to mm in the pipeline → shell. Jitter remains M5.
+Origin-centered hull input is required by `assertSkeleton`'s outward-winding
+check.
+
 ### Base points and jitter
 
 Base generators produce normalized points on a sphere: Platonic solids, the
@@ -239,15 +244,16 @@ test/                  fixtures, parity tests, and acceptance references
 ### Planned modules
 
 ```text
-presets.json            Milestone 3
-vendor/quickhull3d/     Milestone 3
+presets.json            shipped (M3)
+vendor/quickhull3d/     shipped (M3)
 src/schema.js           canonical state codec + control defs
 src/hashcodec.js        versioned URL hash
 src/project-format.js   .shapemaker.json serialize/parse
 src/ui.js               Shape/Form/Inspect/Make panel
 src/limits.js           proactive slider ceilings
-src/hull.js             Milestone 3
-src/points/platonic.js  Milestone 3
+src/hull.js             shipped (M3)
+src/points/platonic.js  shipped (M3)
+src/bases.js            shipped (M3)
 src/points/random.js    Milestone 5
 src/export/svg.js       Milestone 6
 ```
@@ -360,8 +366,8 @@ optional progressive enhancement.
 2. **Measure, save, and continue:** schema-driven controls, free scaling and
    edge inspection, project open/save, dynamic bounds, URL state, undo/redo,
    and Copy Link.
-3. **Change the family:** Platonic solids, QuickHull/coplanar merge, face-family
-   picker, and presets.
+3. **Change the family:** Platonic solids, QuickHull/coplanar merge, face
+   stepper, and presets — shipped in v0.3.
 4. **Mesh quality:** tessellation presets (Draft / Normal / Fine) via edge and
    fillet sampling; flat-shaded preview that matches STL.
 5. **Distort and invent:** on-sphere jitter, seeded random hulls, density

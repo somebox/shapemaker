@@ -72,16 +72,15 @@ Neither moves the checkpoint; both remain later polish.
 7. Disabled-with-explanation vs hidden for future controls?
 8. Cut anything that does not earn its place.
 
-## Next — Milestone 3: change the family
+## Done — Milestone 3: change the family (v0.3.0)
 
 Goal: reuse the trusted shell workflow across regular shape families.
 
-- Platonic base generators.
-- Vendored QuickHull and size-relative coplanar facet merge.
-- Skeleton invariant checks and SciPy reference fixtures.
-- Grouped resting-face picker.
-- Presets stored as immutable project-like state recipes.
-- Acceptance fixtures for every regular base and supported shell combination.
+- Platonic base generators + icosidodecahedron through shared hull path.
+- Vendored QuickHull, adjacency coplanar merge, deterministic face identity.
+- `assertSkeleton()` at the hull boundary; analytic + one SciPy hull fixture.
+- Compact face stepper; base-change adaptation; versioned presets.
+- Acceptance: 6 bases × 3 shell combos + 6 stress opens (24 STLs).
 
 ## Next — Milestone 4: mesh quality
 

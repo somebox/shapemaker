@@ -53,7 +53,7 @@ export function compile(partial = {}) {
   //    rather than fail, so shared links survive shape changes.
   let faceIndex = state.faceIndex;
   if (!Number.isInteger(faceIndex) || faceIndex < 0 || faceIndex >= skeleton.faces.length) {
-    const fallback = defaultRestingFace(skeleton.faces);
+    const fallback = defaultRestingFace(skeleton);
     if (Number.isInteger(faceIndex) && faceIndex >= 0) {
       validation.warnings.push({
         stage: "orient",

@@ -1,11 +1,8 @@
 #!/usr/bin/env bash
 # Acceptance: headless STL export → prototype/meshcheck.py.
 #
-# Topological checks alone are not enough — the prototype shipped a mesh that
-# was watertight, winding-consistent and genus-correct while 1542 triangle
-# pairs passed through each other. So this gate fails on ALL of:
-#   watertight · winding consistent · single body · no degenerate faces ·
-#   positive volume · zero self-intersections
+# Matrix (Milestone 3): 6 bases × 3 supported shell combos = 18 core, plus
+# one near-limit hollow-open stress case per base = 24 STLs.
 #
 # Requires: node, and .venv with prototype/requirements.txt installed.
 set -euo pipefail
@@ -23,38 +20,60 @@ rm -rf "$OUT"
 mkdir -p "$OUT"
 EXPORT=(node scripts/export-stl.mjs)
 
-echo "== defaults =="
-"${EXPORT[@]}" "$OUT/defaults.stl"
+while IFS=$'\t' read -ra parts; do
+  [[ ${#parts[@]} -gt 0 ]] || continue
+  name="${parts[0]}"
+  flags=("${parts[@]:1}")
+  echo "== $name =="
+  "${EXPORT[@]}" "$OUT/$name" "${flags[@]}"
+done < <(node --input-type=module - <<'JS'
+import { compile } from "./src/compile.js";
+import { clearPipelineCache } from "./src/pipeline.js";
+import { BASE_IDS } from "./src/bases.js";
 
-echo "== thick wall =="
-"${EXPORT[@]}" "$OUT/thick_wall.stl" --wall=2.5
+const combos = [
+  { tag: "solid_closed", depth: "solid", openings: false },
+  { tag: "hollow_closed", depth: "hollow", openings: false },
+  { tag: "hollow_open", depth: "hollow", openings: true },
+];
 
-echo "== large fillet =="
-"${EXPORT[@]}" "$OUT/large_fillet.stl" --fillet=8
-
-echo "== fillet 0 =="
-"${EXPORT[@]}" "$OUT/fillet0.stl" --fillet=0
-
-echo "== border near clamp (8.5 mm; triangles cap ~8.92 @ Ø100) =="
-"${EXPORT[@]}" "$OUT/border_near_clamp.stl" --border=8.5
-
-echo "== edge_div 2 =="
-"${EXPORT[@]}" "$OUT/edge_div2.stl" --edge-div=2
-
-echo "== solid, closed faces =="
-"${EXPORT[@]}" "$OUT/solid_closed.stl" --depth=solid --openings=false
-
-echo "== hollow, closed faces =="
-"${EXPORT[@]}" "$OUT/hollow_closed.stl" --openings=false
+for (const base of BASE_IDS) {
+  for (const c of combos) {
+    const name = `${base}__${c.tag}.stl`;
+    console.log(
+      [name, `--base=${base}`, `--depth=${c.depth}`, `--openings=${c.openings}`].join("\t"),
+    );
+  }
+  clearPipelineCache();
+  const probe = compile({ base, depth: "hollow", openings: true });
+  if (!probe.validation.ok) {
+    console.error("probe failed", base, probe.validation.errors);
+    process.exit(1);
+  }
+  const border =
+    Math.floor(probe.metrics.limits.borderMmMax * 0.92 * 10) / 10;
+  const name = `${base}__stress_open.stl`;
+  console.log(
+    [
+      name,
+      `--base=${base}`,
+      `--depth=hollow`,
+      `--openings=true`,
+      `--border=${border}`,
+    ].join("\t"),
+  );
+}
+JS
+)
 
 echo
 echo "== meshcheck =="
 fail=0
+count=0
 for stl in "$OUT"/*.stl; do
   name="$(basename "$stl")"
-  # A hollow shell with no openings is two nested closed surfaces, so it is
-  # legitimately 2 bodies; everything else must be a single body.
-  if [[ "$name" == "hollow_closed.stl" ]]; then expect_bodies=2; else expect_bodies=1; fi
+  count=$((count + 1))
+  if [[ "$name" == *hollow_closed* ]]; then expect_bodies=2; else expect_bodies=1; fi
 
   if ! STL="$stl" NAME="$name" EXPECT_BODIES="$expect_bodies" "$PY" - <<'PY'; then
 import os, sys
@@ -79,7 +98,7 @@ checks = {
 }
 bad = [k for k, ok in checks.items() if not ok]
 status = 'FAIL' if bad else 'ok'
-print(f"{name:24s} {status:4s}  {len(m.faces):6d} tris  {m.volume/1000:8.2f} cm^3  "
+print(f"{name:40s} {status:4s}  {len(m.faces):6d} tris  {m.volume/1000:8.2f} cm^3  "
       f"bodies={m.body_count} degenerate={degenerate} self-int={nbad}")
 if bad:
     print(f"  failed: {', '.join(bad)}", file=sys.stderr)
@@ -90,8 +109,13 @@ PY
   fi
 done
 
+if [[ "$count" -ne 24 ]]; then
+  echo "acceptance FAILED — expected 24 STLs, got $count" >&2
+  exit 1
+fi
+
 if [[ "$fail" -ne 0 ]]; then
   echo "acceptance FAILED" >&2
   exit 1
 fi
-echo "acceptance OK — all STLs meet every mesh requirement"
+echo "acceptance OK — all 24 STLs meet every mesh requirement"

@@ -8,12 +8,12 @@ laser-cut, PCB, and model-making workflows.
 
 **Live app:** [somebox.github.io/shapemaker](https://somebox.github.io/shapemaker/)
 
-![Shapemaker v0.2 — instrument panel with live Form controls and dimension
-strip beside the icosidodecahedron frame](media/screenshot-v0.2.png)
+![Shapemaker v0.3 — family selector, presets, and open icosidodecahedron
+frame](media/screenshot-v0.3.png)
 
-Version **0.2.0** (Milestone 2) — live Shape/Form/Inspect/Make panel, dynamic
-bounds, project Save/Open, URL state with undo/redo and Copy Link, and edge
-hover/select measurement. See [`docs/CHANGELOG.md`](docs/CHANGELOG.md).
+Version **0.3.0** (Milestone 3) — regular shape families (five Platonic solids
+plus icosidodecahedron) through a shared hull pipeline, base-change adaptation,
+face stepper, and two presets. See [`docs/CHANGELOG.md`](docs/CHANGELOG.md).
 
 ## Requirements
 
@@ -67,12 +67,17 @@ project files, the URL hash, and dirty tracking:
 
 | key | default | meaning |
 |---|---|---|
+| `base` | `icosidodeca` | shape family id (`BASES` in `src/bases.js`) |
 | `circumdiameterMm` | 100 | outer diameter across opposite vertices |
 | `borderMm` | 3.2 | frame width at edge midpoints |
-| `wallMm` | 1.4 | minimum wall thickness (pentagons) |
+| `wallMm` | 1.4 | minimum wall thickness |
 | `filletMm` | 4.5 | requested opening corner radius; clamped per face |
 | `edgeDiv` | 10 | segments per polyhedron edge (internal, not a panel control) |
-| `faceIndex` | first pentagon | resting face |
+| `faceIndex` | auto (−1) | resting face; default is max-area face |
+
+```bash
+node scripts/export-stl.mjs out.stl --base=dodecahedron --depth=solid --openings=false
+```
 
 ## Example
 
@@ -89,12 +94,17 @@ North-star numbers (Ø100 prototype defaults): **7200 triangles**,
 ```
 index.html          entry (import map → ./vendor/…, vendored fonts, tokens)
 vendor/three/       Three.js r170 ESM + OrbitControls (+ LICENSE, README)
+vendor/quickhull3d/ QuickHull ESM bundle (MIT)
 vendor/fonts/       Archivo + IBM Plex Mono WOFF2 subsets (+ OFL licences)
+presets.json        versioned preset recipes (M3)
 src/
   main.js           session owner: draft state, history, save/open, export
   ui.js             panel — owns DOM, emits patches, never owns state
   schema.js         DEFAULT_STATE, control defs, canonical codec
-                    (normalizeState / serializeState / statesEqual)
+  bases.js          flat BASES registry (ids, labels, point generators)
+  hull.js           QuickHull wrapper + coplanar merge + face identity
+  adapt-base.js     pure base-change Form adaptation
+  presets.js        presets.json envelope loader
   hashcodec.js      versioned URL hash over canonical state
   history.js        pure push/replace policy for live vs committed edits
   session.js        pure Save/Open eligibility rules
@@ -102,11 +112,11 @@ src/
   limits.js         proactive wall/border/fillet ceilings from the skeleton
   compile.js        THE regeneration API — never throws for bad input
   validate.js       parameter checks; validationError() for the stages
-  pipeline.js       stage runner + per-stage cache instance
+  pipeline.js       points → hull → scale → shell caches
   types.js          Skeleton / Mesh types; re-exports DEFAULT_STATE
   skeleton.js       edgeList, inradiusRange, assertSkeleton  ← shape-agnostic
   faceframe.js      toFaceFrame / fromFaceFrame              ← face-local 2D
-  points/           icosidodeca (platonic M3, random M5)
+  points/           platonic + icosidodeca (random M5)
   geom/             poly2, edgesub, annulus
   solid/shell.js    depth × OpeningGenerator
   mesh.js           structural + manifold invariants

@@ -11,9 +11,38 @@ onward every release gets a full entry here, and breaking changes to the
 
 ### Notes
 
-- Fillet remains authored as `filletMm` (millimetres) in project format v1.
-  Relative fillet was explored briefly and rejected without a format bump.
 - Mesh quality / tessellation presets are scheduled as Milestone 4.
+- Random / jittered hulls are scheduled as Milestone 5.
+
+## [0.3.0] — 2026-07-31
+
+Milestone 3: change the family. Regular Platonic bases and the icosidodecahedron
+share one hull → merge → face-identity → shell pipeline.
+
+### Added
+
+- Vendored QuickHull (`vendor/quickhull3d/`) behind `src/hull.js` with adjacency
+  coplanar merge, named tolerances, and deterministic face identity.
+- `assertSkeleton()` at the hull boundary in production.
+- Normalized point generators for five Platonic solids + icosidodecahedron;
+  flat `BASES` registry; pipeline caches points / hull / solid (size changes
+  do not re-run QuickHull).
+- Combinatorial `icosidodecahedronDirect()` kept as geometric oracle; production
+  uses the hull path and still hits the v0.2 reference volume / triangle count.
+- Base-change adaptation (`adaptStateForBase`) with one-line warning; resting
+  face resets; wall/border clamp only when invalid; fillet never auto-clamped.
+- Compact face stepper (family + k of N); screen-space edge pick threshold.
+- Versioned `presets.json` (Prototype TPU + Solid Dodecahedron) applied through
+  the project-open path.
+- Acceptance matrix: 6 bases × 3 shell combos + 6 stress opens = 24 STLs.
+
+### Changed
+
+- Face sort is sides-ascending first (triangles then pentagons on the
+  icosidodecahedron). Saved `faceIndex` values from v0.2 may rest on a different
+  face within the same family after upgrade — no migration (changelog note only).
+- Default resting face is max area (then most sides).
+- Export filenames use `${base}_${size}mm.stl`.
 
 ## [0.2.0] — 2026-07-30
 

@@ -5,7 +5,7 @@
  *
  * Usage: node scripts/export-stl.mjs <outfile> [--wall=1.4] [--border=3.2]
  *          [--fillet=4.5] [--edge-div=10] [--diameter=100] [--face=N]
- *          [--openings=true|false] [--depth=hollow|solid]
+ *          [--openings=true|false] [--depth=hollow|solid] [--base=icosidodeca]
  */
 import { writeFileSync } from "node:fs";
 import { compile } from "../src/compile.js";
@@ -23,6 +23,7 @@ const FLAGS = {
   face: ["faceIndex", Number],
   openings: ["openings", (v) => v !== "0" && v !== "false"],
   depth: ["depth", String],
+  base: ["base", String],
 };
 
 const args = process.argv.slice(2);

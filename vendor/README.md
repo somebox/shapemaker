@@ -32,6 +32,17 @@ in three.js documentation.
 
 Import-map entries must stay `./`-relative — see SPEC.md § Deployment.
 
+## quickhull3d
+
+| | |
+|---|---|
+| version | **3.1.2** |
+| upstream | https://github.com/mauriciopoppe/quickhull3d |
+| license | MIT — see [`quickhull3d/LICENSE`](quickhull3d/LICENSE) |
+
+Single-file ESM bundle at `quickhull3d/quickhull3d.js` (see
+[`quickhull3d/README.md`](quickhull3d/README.md)). Only `src/hull.js` imports it.
+
 ## Fonts
 
 Latin WOFF2 subsets only (no CDN). Declared in `index.html` via `@font-face`.

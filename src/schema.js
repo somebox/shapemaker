@@ -3,6 +3,8 @@
  * state codec shared by projects, hash, presets, and dirty comparison.
  */
 
+import { baseSelectOptions } from "./bases.js";
+
 /** @typedef {{ key: string, group: string, label: string, type: string, unit?: string, min?: number, max?: number, step?: number, options?: {value:string,label:string,disabled?:boolean}[], hideWhen?: (s:object)=>boolean }} ControlDef */
 
 /** Canonical geometry keys in documented order. */
@@ -38,15 +40,8 @@ export const CONTROL_DEFS = [
     group: "shape",
     label: "Base",
     type: "select",
-    options: [
-      { value: "icosidodeca", label: "Icosidodecahedron" },
-      { value: "tetrahedron", label: "Tetrahedron — in development", disabled: true },
-      { value: "cube", label: "Cube — in development", disabled: true },
-      { value: "octahedron", label: "Octahedron — in development", disabled: true },
-      { value: "dodecahedron", label: "Dodecahedron — in development", disabled: true },
-      { value: "icosahedron", label: "Icosahedron — in development", disabled: true },
-      { value: "random", label: "Random hull — in development", disabled: true },
-    ],
+    // Enabled family only — random / failing bases are omitted, not disabled.
+    options: baseSelectOptions(),
   },
   {
     key: "circumdiameterMm",
@@ -54,6 +49,7 @@ export const CONTROL_DEFS = [
     label: "Size",
     type: "range",
     unit: "mm",
+    // Slider convenience bounds; typed values may exceed (free scale).
     min: 20,
     max: 300,
     step: 0.5,

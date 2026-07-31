@@ -13,7 +13,7 @@
  * file, not a validation result.
  */
 
-const BASES = new Set(["icosidodeca"]); // M3 adds the platonic family
+import { isKnownBase } from "./bases.js";
 const DEPTHS = new Set(["solid", "hollow"]);
 
 /**
@@ -40,7 +40,7 @@ export function validateState(state) {
   const err = (stage, key, message, extra = {}) =>
     errors.push({ stage, key, message, ...extra });
 
-  if (!BASES.has(state.base)) {
+  if (!isKnownBase(state.base)) {
     err("points", "base", `Unknown base shape "${state.base}"`, {
       clampTo: "icosidodeca",
     });

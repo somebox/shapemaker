@@ -416,6 +416,60 @@
       font-size: 0.75rem;
       color: var(--text-dim);
     }
+    .face-stepper {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin-bottom: 4px;
+    }
+    .btn-quiet {
+      appearance: none;
+      border: 1px solid var(--line);
+      background: transparent;
+      color: var(--text-dim);
+      padding: 0.25rem 0.45rem;
+      border-radius: 2px;
+      font: 500 11px var(--font-mono);
+      cursor: pointer;
+    }
+    .btn-quiet:hover {
+      color: var(--text);
+      border-color: var(--text-dim);
+    }
+    .base-warn {
+      color: var(--warn, #c4a882);
+      margin: 0 0 6px;
+    }
+    .preset-strip {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin: 0 0 12px;
+    }
+    .preset-chip {
+      appearance: none;
+      border: 1px solid var(--line);
+      background: transparent;
+      color: var(--text-dim);
+      padding: 0.3rem 0.55rem;
+      border-radius: 2px;
+      font: 500 10px var(--font-ui);
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      cursor: pointer;
+    }
+    .preset-chip[data-active="1"] {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+    .preset-chip[data-edited="1"] {
+      border-style: dashed;
+      color: var(--text);
+    }
+    .preset-chip:hover {
+      color: var(--text);
+    }
 
     .version {
       font-family: var(--font-mono);

@@ -226,11 +226,24 @@ export function createViewer(container, opts = {}) {
     }, 400);
   }
 
+  function updateEdgeThreshold() {
+    // ~6 px in screen space → world units at the orbit target distance.
+    const dist = camera.position.distanceTo(controls.target);
+    const fov = (camera.fov * Math.PI) / 180;
+    const height = Math.max(renderer.domElement.clientHeight, 1);
+    const worldPerPixel = (2 * dist * Math.tan(fov / 2)) / height;
+    raycaster.params.Line.threshold = Math.min(
+      Math.max(worldPerPixel * 6, 0.2),
+      dist * 0.05,
+    );
+  }
+
   function pickEdge(ev) {
     if (!edgePick || !edgeLengths) return null;
     const rect = renderer.domElement.getBoundingClientRect();
     pointer.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
     pointer.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
+    updateEdgeThreshold();
     raycaster.setFromCamera(pointer, camera);
     const hits = raycaster.intersectObject(edgePick, false);
     if (!hits.length) return null;

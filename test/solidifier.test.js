@@ -1,5 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { icosidodecahedron, inradii } from "../src/points/icosidodeca.js";
 import { buildShell } from "../src/solid/shell.js";
 import { assertMeshInvariants } from "../src/mesh.js";
@@ -76,6 +77,24 @@ describe("buildShell at prototype defaults", () => {
     const { r3, r5 } = inradii(50);
     assert.ok(Math.abs(info.inradiusMm.min - r5) < 1e-9, "min = pentagon inradius");
     assert.ok(Math.abs(info.inradiusMm.max - r3) < 1e-9, "max = triangle inradius");
+  });
+});
+
+describe("shell stays base-agnostic (locked decision 8)", () => {
+  it("solid/shell.js contains no base-specific branches or imports", () => {
+    const src = readFileSync(
+      new URL("../src/solid/shell.js", import.meta.url),
+      "utf8",
+    );
+    // Everything shell knows about the polyhedron arrives via skeleton.js /
+    // faceframe.js. A base name or registry import here means the M3 seam
+    // failed and irregular hulls (M5) will break it.
+    assert.ok(!/from\s+"\.\.\/bases/.test(src), "shell imports the base registry");
+    assert.ok(!/from\s+"\.\.\/points\//.test(src), "shell imports a point generator");
+    assert.ok(
+      !/\bbase\s*===|===\s*"(tetrahedron|cube|octahedron|dodecahedron|icosahedron|icosidodeca)"/.test(src),
+      "shell branches on a base id",
+    );
   });
 });
 

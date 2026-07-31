@@ -10,3 +10,4 @@ __pycache__/
 *.stl
 !prototype/icosidodecahedron_100mm_TPU.stl
 test/out/
+.claude/scheduled_tasks.lock
