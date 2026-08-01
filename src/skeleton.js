@@ -111,8 +111,8 @@ export function assertSkeleton(skeleton, opts = {}) {
     }
 
     // Planarity, via Newell's normal through the face centroid.
-    const { normal, centroid } = newell(positions, ring);
-    if (!Number.isFinite(normal[0])) throw new Error(`face ${f} has a degenerate normal`);
+    const { normal, centroid, area } = newell(positions, ring);
+    if (!(area > 0)) throw new Error(`face ${f} has a degenerate normal`);
     for (const vi of ring) {
       const dev = Math.abs(
         (positions[vi * 3] - centroid[0]) * normal[0] +
@@ -138,7 +138,16 @@ export function assertSkeleton(skeleton, opts = {}) {
   return true;
 }
 
-function newell(positions, ring) {
+/**
+ * Newell's method over one face ring: unit plane normal, vertex-mean
+ * centroid, and planar polygon area (Newell magnitude / 2). A degenerate
+ * ring (zero area) yields a zero normal rather than NaN.
+ *
+ * @param {Float64Array} positions
+ * @param {number[]} ring
+ * @returns {{ normal: number[], centroid: number[], area: number }}
+ */
+export function newell(positions, ring) {
   const n = ring.length;
   let nx = 0, ny = 0, nz = 0, cx = 0, cy = 0, cz = 0;
   for (let k = 0; k < n; k++) {
@@ -149,7 +158,11 @@ function newell(positions, ring) {
     cx += positions[a]; cy += positions[a + 1]; cz += positions[a + 2];
   }
   const L = Math.hypot(nx, ny, nz);
-  return { normal: [nx / L, ny / L, nz / L], centroid: [cx / n, cy / n, cz / n] };
+  return {
+    normal: L > 0 ? [nx / L, ny / L, nz / L] : [0, 0, 0],
+    centroid: [cx / n, cy / n, cz / n],
+    area: L / 2,
+  };
 }
 
 /** Circumradius = distance from origin to the farthest vertex. */

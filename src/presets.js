@@ -68,7 +68,7 @@ export function parsePresetsEnvelope(raw) {
     if (!result.validation.ok) {
       return {
         ok: false,
-        error: `Preset "${p.id}" failed to compile: ${result.validation.errors[0]?.message}`,
+        error: `Preset "${p.id}" failed to compile: ${result.validation.errors.map((e) => e.message).join("; ")}`,
       };
     }
     out.push({

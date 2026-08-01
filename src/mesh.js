@@ -4,7 +4,7 @@
  */
 
 /**
- * @typedef {{ positions: Float64Array|Float32Array, indices: Uint32Array, faceId: Uint32Array }} Mesh
+ * @typedef {{ positions: Float32Array, indices: Uint32Array, faceId: Uint32Array, positions64?: Float64Array }} Mesh
  */
 
 /**

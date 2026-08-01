@@ -14,6 +14,7 @@ import { transformPoint } from "./orient.js";
  * @param {{ positions: Float64Array, faces: number[][], edges: number[][] }} args.skeleton
  * @param {{ triangleCount: number, volume: number, wall: {min: number|null, max: number|null}, borderMm: object }} args.info
  * @param {{ matrix: Float64Array }} args.orientation
+ * @param {boolean} args.watertight
  * @param {{ wallMmMax: number|null, borderMmMax: number|null, filletMmMax: number|null }} [args.limits]
  */
 export function computeMetrics({ skeleton, info, orientation, watertight, limits }) {

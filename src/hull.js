@@ -9,7 +9,7 @@
  */
 
 import quickhull from "../vendor/quickhull3d/quickhull3d.js";
-import { assertSkeleton, edgeList, circumradius } from "./skeleton.js";
+import { assertSkeleton, edgeList, circumradius, newell } from "./skeleton.js";
 
 /** Cache / fixture tag for the merge policy implemented below. */
 export const MERGE_POLICY_ID = "adj-v1";
@@ -440,23 +440,4 @@ function compareFaceKeys(a, b) {
     if (d) return d;
   }
   return 0;
-}
-
-function newell(positions, ring) {
-  const n = ring.length;
-  let nx = 0, ny = 0, nz = 0, cx = 0, cy = 0, cz = 0;
-  for (let k = 0; k < n; k++) {
-    const a = ring[k] * 3, b = ring[(k + 1) % n] * 3;
-    nx += (positions[a + 1] - positions[b + 1]) * (positions[a + 2] + positions[b + 2]);
-    ny += (positions[a + 2] - positions[b + 2]) * (positions[a] + positions[b]);
-    nz += (positions[a] - positions[b]) * (positions[a + 1] + positions[b + 1]);
-    cx += positions[a];
-    cy += positions[a + 1];
-    cz += positions[a + 2];
-  }
-  const L = Math.hypot(nx, ny, nz);
-  return {
-    normal: L > 0 ? [nx / L, ny / L, nz / L] : [0, 0, 0],
-    centroid: [cx / n, cy / n, cz / n],
-  };
 }

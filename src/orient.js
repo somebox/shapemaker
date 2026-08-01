@@ -5,6 +5,7 @@
  */
 
 import { toFaceFrame } from "./faceframe.js";
+import { newell } from "./skeleton.js";
 
 /**
  * @param {{ positions: Float64Array, faces: number[][] }} skeleton
@@ -99,14 +100,7 @@ export function defaultRestingFace(skeleton) {
 
 /** Planar polygon area via Newell magnitude / 2. */
 function faceArea(positions, ring) {
-  let nx = 0, ny = 0, nz = 0;
-  for (let k = 0; k < ring.length; k++) {
-    const a = ring[k] * 3, b = ring[(k + 1) % ring.length] * 3;
-    nx += (positions[a + 1] - positions[b + 1]) * (positions[a + 2] + positions[b + 2]);
-    ny += (positions[a + 2] - positions[b + 2]) * (positions[a] + positions[b]);
-    nz += (positions[a] - positions[b]) * (positions[a + 1] + positions[b + 1]);
-  }
-  return Math.hypot(nx, ny, nz) / 2;
+  return newell(positions, ring).area;
 }
 
 /**

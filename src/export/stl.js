@@ -6,6 +6,8 @@
  * Each record is 50 bytes → file size = 84 + 50 * nTris.
  */
 
+import { transformPoint } from "../orient.js";
+
 /**
  * @param {{ positions: Float32Array|Float64Array, indices: Uint32Array|number[] }} mesh
  * @param {{ header?: string, matrix?: Float64Array|number[]|null }} [opts]
@@ -36,9 +38,9 @@ export function writeBinaryStl(mesh, opts = {}) {
     let cx = positions[i2], cy = positions[i2 + 1], cz = positions[i2 + 2];
 
     if (M) {
-      ;[ax, ay, az] = xform(M, ax, ay, az);
-      ;[bx, by, bz] = xform(M, bx, by, bz);
-      ;[cx, cy, cz] = xform(M, cx, cy, cz);
+      ;[ax, ay, az] = transformPoint(M, ax, ay, az);
+      ;[bx, by, bz] = transformPoint(M, bx, by, bz);
+      ;[cx, cy, cz] = transformPoint(M, cx, cy, cz);
     }
 
     // Geometric normal from winding (STL normals are often ignored by slicers,
@@ -67,13 +69,4 @@ export function writeBinaryStl(mesh, opts = {}) {
   }
 
   return buf;
-}
-
-/** Apply column-major 4×4 affine transform to a point. */
-function xform(M, x, y, z) {
-  return [
-    M[0] * x + M[4] * y + M[8] * z + M[12],
-    M[1] * x + M[5] * y + M[9] * z + M[13],
-    M[2] * x + M[6] * y + M[10] * z + M[14],
-  ];
 }

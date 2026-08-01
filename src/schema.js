@@ -5,7 +5,7 @@
 
 import { BASES } from "./bases.js";
 
-/** @typedef {{ key: string, group: string, label: string, type: string, unit?: string, min?: number, max?: number, step?: number, options?: {value:string,label:string,disabled?:boolean}[], hideWhen?: (s:object)=>boolean, inertWhen?: (s:object)=>boolean }} ControlDef */
+/** @typedef {{ key: string, group: string, label: string, type: string, unit?: string, min?: number, max?: number, step?: number, options?: {value:string,label:string,disabled?:boolean}[], numeric?: boolean, boolean?: boolean, customTag?: boolean, hideWhen?: (s:object)=>boolean, inertWhen?: (s:object)=>boolean }} ControlDef */
 
 /** Canonical geometry keys in documented order. */
 export const STATE_KEYS = Object.freeze([
@@ -105,6 +105,8 @@ export const CONTROL_DEFS = [
     step: 0.5,
   },
   {
+    // UI-only derived field — not in STATE_KEYS. The panel converts edits
+    // into a circumdiameterMm patch via the mean-edge ratio (see ui.js).
     key: "edgeLengthMm",
     group: "shape",
     label: "Edge",
@@ -212,6 +214,7 @@ export const CONTROL_DEFS = [
     group: "form",
     label: "Faces",
     type: "segments",
+    boolean: true,
     options: [
       { value: "true", label: "Open" },
       { value: "false", label: "Closed" },

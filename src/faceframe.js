@@ -7,6 +7,8 @@
  * OpeningGenerators never touch 3D at all.
  */
 
+import { newell } from "./skeleton.js";
+
 /**
  * @typedef {{
  *   faceIndex: number,
@@ -46,26 +48,9 @@ export function toFaceFrame(skeleton, faceIndex) {
   const ring = faces[faceIndex];
   const n = ring.length;
 
-  let cx = 0, cy = 0, cz = 0;
-  for (const vi of ring) {
-    cx += positions[vi * 3];
-    cy += positions[vi * 3 + 1];
-    cz += positions[vi * 3 + 2];
-  }
-  cx /= n; cy /= n; cz /= n;
-
-  // Newell's method: robust plane normal for any (planar) polygon.
-  let nx = 0, ny = 0, nz = 0;
-  for (let k = 0; k < n; k++) {
-    const a = ring[k] * 3, b = ring[(k + 1) % n] * 3;
-    const ax = positions[a], ay = positions[a + 1], az = positions[a + 2];
-    const bx = positions[b], by = positions[b + 1], bz = positions[b + 2];
-    nx += (ay - by) * (az + bz);
-    ny += (az - bz) * (ax + bx);
-    nz += (ax - bx) * (ay + by);
-  }
-  let nl = Math.hypot(nx, ny, nz);
-  nx /= nl; ny /= nl; nz /= nl;
+  const frame = newell(positions, ring);
+  let [cx, cy, cz] = frame.centroid;
+  let [nx, ny, nz] = frame.normal;
   // Orient outward (origin is inside the convex solid).
   if (nx * cx + ny * cy + nz * cz < 0) { nx = -nx; ny = -ny; nz = -nz; }
 

@@ -15,8 +15,6 @@ import { BASES, BASE_IDS } from "./bases.js";
 import { recipeForBase } from "./starts.js";
 import { startThumbSvg } from "./start-thumbs.js";
 
-export { CONTROL_DEFS };
-
 const GROUPS = [
   { id: "shape", title: "Shape" },
   { id: "form", title: "Form" },
@@ -262,7 +260,7 @@ export function createPanel(panelEl, handlers) {
       const key = btn.getAttribute("data-seg-key");
       const def = CONTROL_DEFS.find((c) => c.key === key);
       let value = btn.getAttribute("data-seg-value");
-      if (key === "openings") value = value === "true";
+      if (def?.boolean) value = value === "true";
       else if (def?.numeric) value = Number(value);
       queuePatch({ [key]: value }, true);
     });

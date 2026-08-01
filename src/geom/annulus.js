@@ -63,29 +63,6 @@ export function quadToTris(p0, p1, p2, p3) {
   return [p0, p1, p2, p0, p2, p3];
 }
 
-/**
- * Build annulus quads between an outer ring of vertex indices and an inner
- * ring of equal length. Emits outer annulus, and optionally callers append
- * rim / inner separately.
- *
- * @param {number[]} outerIdx  length m
- * @param {number[]} innerIdx  length m
- * @param {boolean} [flip=false]  reverse winding (for inner shell looking inward)
- * @returns {number[][]} list of [p0,p1,p2,p3] quads
- */
-export function annulusQuads(outerIdx, innerIdx, flip = false) {
-  const m = outerIdx.length;
-  const quads = [];
-  for (let k = 0; k < m; k++) {
-    const k2 = (k + 1) % m;
-    if (flip) {
-      quads.push([outerIdx[k2], outerIdx[k], innerIdx[k], innerIdx[k2]]);
-    } else {
-      quads.push([outerIdx[k], outerIdx[k2], innerIdx[k2], innerIdx[k]]);
-    }
-  }
-  return quads;
-}
 
 function toPairs(poly) {
   if (Array.isArray(poly) && Array.isArray(poly[0])) return poly;

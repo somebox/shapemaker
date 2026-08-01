@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Acceptance: headless STL export → prototype/meshcheck.py.
 #
-# Matrix: 7 bases × 3 supported shell combos (21) + one near-limit stress
-# open per base (7) + Draft/Fine quality on the default solid (2, M4) +
-# jittered random (1) + 3 random seeds × Draft/Fine (6, M5) = 37 STLs.
+# Matrix: 8 bases × 3 supported shell combos (24) + one near-limit stress
+# open per base (8) + Draft/Fine quality on the default solid (2, M4) +
+# jittered random (1) + 3 random seeds × Draft/Fine (6, M5) = 41 STLs.
 #
 # Requires: node, and .venv with prototype/requirements.txt installed.
 set -euo pipefail
@@ -183,8 +183,8 @@ PY
   fi
 done
 
-if [[ "$count" -ne 37 ]]; then
-  echo "acceptance FAILED — expected 37 STLs, got $count" >&2
+if [[ "$count" -ne 41 ]]; then
+  echo "acceptance FAILED — expected 41 STLs, got $count" >&2
   exit 1
 fi
 
@@ -192,4 +192,4 @@ if [[ "$fail" -ne 0 ]]; then
   echo "acceptance FAILED" >&2
   exit 1
 fi
-echo "acceptance OK — all 37 STLs meet every mesh requirement"
+echo "acceptance OK — all 41 STLs meet every mesh requirement"

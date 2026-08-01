@@ -7,7 +7,7 @@
  * stale URL hash or an out-of-range preset degrades instead of blanking.
  */
 
-import { DEFAULT_STATE } from "./types.js";
+import { DEFAULT_STATE } from "./schema.js";
 import { runPipeline } from "./pipeline.js";
 import { computeOrientation, defaultRestingFace } from "./orient.js";
 import { computeMetrics } from "./metrics.js";

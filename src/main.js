@@ -399,14 +399,11 @@ function regenerate({
     const mapped = nearestFaceByNormal(next.skeleton, prevN);
     if (mapped !== next.state.faceIndex) {
       const orientation = computeOrientation(next.skeleton, mapped);
+      // Limits and orientation-dependent metrics deliberately stay from compile.
       stable = {
         ...next,
         orientation,
         state: { ...next.state, faceIndex: mapped },
-        metrics: {
-          ...next.metrics,
-          // limits unchanged; orientation-dependent metrics stay from compile
-        },
       };
     }
   }
