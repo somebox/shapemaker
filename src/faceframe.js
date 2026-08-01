@@ -69,6 +69,45 @@ export function toFaceFrame(skeleton, faceIndex) {
   // Orient outward (origin is inside the convex solid).
   if (nx * cx + ny * cy + nz * cz < 0) { nx = -nx; ny = -ny; nz = -nz; }
 
+  // Frame origin = polygon AREA centroid, not the ring-vertex average. The
+  // two agree on regular polygons and triangles, but vertex-split jitter adds
+  // near-coincident ring vertices whose double weight would drag a vertex
+  // average toward them — off-centering the opening and crushing edgeDistMin
+  // and the fillet headroom. Area weighting is immune to ring multiplicity.
+  {
+    // Provisional in-plane basis about the vertex mean, then 2D shoelace.
+    let ux0 = positions[ring[0] * 3] - cx;
+    let uy0 = positions[ring[0] * 3 + 1] - cy;
+    let uz0 = positions[ring[0] * 3 + 2] - cz;
+    const ul0 = Math.hypot(ux0, uy0, uz0);
+    ux0 /= ul0; uy0 /= ul0; uz0 /= ul0;
+    const wx0 = ny * uz0 - nz * uy0;
+    const wy0 = nz * ux0 - nx * uz0;
+    const wz0 = nx * uy0 - ny * ux0;
+    let A2 = 0, gx = 0, gy = 0;
+    let px = 0, py = 0;
+    for (let k = 0; k <= n; k++) {
+      const vi = ring[k % n] * 3;
+      const dx = positions[vi] - cx, dy = positions[vi + 1] - cy, dz = positions[vi + 2] - cz;
+      const x = dx * ux0 + dy * uy0 + dz * uz0;
+      const y = dx * wx0 + dy * wy0 + dz * wz0;
+      if (k > 0) {
+        const cross = px * y - x * py;
+        A2 += cross;
+        gx += (px + x) * cross;
+        gy += (py + y) * cross;
+      }
+      px = x; py = y;
+    }
+    if (Math.abs(A2) > 1e-30) {
+      gx /= 3 * A2;
+      gy /= 3 * A2;
+      cx += gx * ux0 + gy * wx0;
+      cy += gx * uy0 + gy * wy0;
+      cz += gx * uz0 + gy * wz0;
+    }
+  }
+
   // In-plane basis: u toward the first ring vertex, w = normal × u.
   let ux = positions[ring[0] * 3] - cx;
   let uy = positions[ring[0] * 3 + 1] - cy;

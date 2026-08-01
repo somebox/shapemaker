@@ -7,11 +7,13 @@ import { VERSION } from "./version.js";
 import {
   CONTROL_DEFS,
   qualityLevelFor,
-  DENSITY_LEVELS,
-  densityLevelFor,
+  separationForPoints,
   edgeInputReadOnly,
 } from "./schema.js";
 import { faceFamilies, locateFace } from "./face-families.js";
+import { BASES, BASE_IDS } from "./bases.js";
+import { recipeForBase } from "./starts.js";
+import { startThumbSvg } from "./start-thumbs.js";
 
 export { CONTROL_DEFS };
 
@@ -31,6 +33,10 @@ export function normalizePatch(patch) {
   const next = { ...patch };
   if (next.depth === "solid") next.openings = false;
   if (next.openings === true) next.depth = "hollow";
+  // Density slider writes the canonical pair: separation follows the count.
+  if (next.points != null && next.separation == null) {
+    next.separation = separationForPoints(next.points);
+  }
   return next;
 }
 
@@ -42,7 +48,8 @@ export function normalizePatch(patch) {
  *   onExport: () => void,
  *   onOpen?: () => void,
  *   onCopyLink?: () => void,
- *   onPreset?: (id: string) => void,
+ *   onStart?: (id: string) => void,
+ *   onUndo?: () => void,
  *   onNameChange: (name: string) => void,
  * }} handlers
  */
@@ -68,10 +75,56 @@ export function createPanel(panelEl, handlers) {
   identity.append(nameInput, dirtyDot, dirtyLabel);
   scroll.appendChild(identity);
 
-  const presetStrip = el("div", { className: "preset-strip" });
+  // Start-from chooser — thumbnail cards for built-in shapes and presets.
+  // Starts are recipes to load and modify, not a lasting Base mode.
+  const startSection = el("section", { className: "group start-group" });
+  const startHeader = el("div", { className: "group-header start-header" });
+  startHeader.appendChild(el("span", { textContent: "Start from" }));
+  const sessionMode = el("span", {
+    className: "session-mode",
+    textContent: "Browse",
+  });
+  sessionMode.setAttribute("data-mode", "browse");
+  sessionMode.setAttribute("aria-live", "polite");
+  const undoBtn = el("button", {
+    type: "button",
+    className: "preset-chip undo-chip",
+    textContent: "Undo",
+    title: "Restore previous session snapshot",
+  });
+  undoBtn.addEventListener("click", () => handlers.onUndo?.());
+  startHeader.append(sessionMode, undoBtn);
+  startSection.appendChild(startHeader);
+
+  const startStrip = el("div", { className: "start-strip" });
+  const baseCards = el("div", { className: "start-cards" });
+  baseCards.setAttribute("role", "group");
+  baseCards.setAttribute("aria-label", "Built-in starting shapes");
+  for (const id of BASE_IDS) {
+    const def = BASES[id];
+    baseCards.appendChild(
+      startCard({
+        id,
+        label: def.shortLabel || def.label,
+        title: `${def.label} — load as starting points`,
+        svg: safeThumb(recipeForBase(id)),
+        onStart: handlers.onStart,
+      }),
+    );
+  }
+  const presetHead = el("div", {
+    className: "start-subhead",
+    textContent: "Presets",
+    hidden: true,
+  });
+  const presetStrip = el("div", { className: "start-cards start-presets" });
   presetStrip.setAttribute("data-preset-strip", "");
+  presetStrip.setAttribute("role", "group");
+  presetStrip.setAttribute("aria-label", "Preset starting recipes");
   presetStrip.hidden = true;
-  scroll.appendChild(presetStrip);
+  startStrip.append(baseCards, presetHead, presetStrip);
+  startSection.appendChild(startStrip);
+  scroll.appendChild(startSection);
 
   nameInput.addEventListener("input", () => {
     handlers.onNameChange(nameInput.value.trim() || "Untitled");
@@ -99,9 +152,6 @@ export function createPanel(panelEl, handlers) {
         controlRoots.set(def.key, root);
         section.appendChild(root);
       }
-      if (g.id === "shape") {
-        section.appendChild(buildFutureBlock());
-      }
     } else if (g.id === "inspect") {
       section.appendChild(buildInspect());
     } else if (g.id === "make") {
@@ -112,10 +162,16 @@ export function createPanel(panelEl, handlers) {
   const version = el("div", { className: "version", textContent: `v${VERSION}` });
   scroll.appendChild(version);
 
-  const strip = el("div", { id: "dimension-strip" });
-  strip.setAttribute("aria-live", "polite");
-  strip.textContent = "compiling…";
-  panelEl.appendChild(strip);
+  // Stats and Export live in the persistent bar under the view.
+  const strip = document.getElementById("dimension-strip");
+  const barEl = document.getElementById("bottombar");
+  const exportBtn = el("button", {
+    type: "button",
+    className: "btn btn-accent",
+    id: "btn-export",
+    textContent: "Export STL",
+  });
+  barEl?.appendChild(exportBtn);
 
   let lastStrip = "";
   let edgeMean = null;
@@ -179,12 +235,12 @@ export function createPanel(panelEl, handlers) {
         }
         queuePatch({ [key]: uiToState(def, n) }, true);
       });
-    } else if (def.type === "select") {
-      input.addEventListener("change", () => {
-        queuePatch({ [key]: input.value }, true);
-      });
     }
   }
+
+  // Heavy-config mode (compile exceeds the perf threshold): slider drags
+  // only update the number readout; the recompile lands on release.
+  let heavyMode = false;
 
   for (const [key, range] of ranges) {
     const def = CONTROL_DEFS.find((c) => c.key === key);
@@ -192,6 +248,7 @@ export function createPanel(panelEl, handlers) {
       const n = Number(range.value);
       const num = inputs.get(key);
       if (num) num.value = fmtInput(n);
+      if (heavyMode) return;
       queuePatch({ [key]: uiToState(def, n) }, false);
     });
     range.addEventListener("change", () => {
@@ -205,14 +262,6 @@ export function createPanel(panelEl, handlers) {
       const key = btn.getAttribute("data-seg-key");
       const def = CONTROL_DEFS.find((c) => c.key === key);
       let value = btn.getAttribute("data-seg-value");
-      if (key === "density") {
-        // Density is UI vocabulary writing the canonical pair.
-        const level = DENSITY_LEVELS.find((d) => d.id === value);
-        if (level) {
-          queuePatch({ points: level.points, separation: level.separation }, true);
-        }
-        return;
-      }
       if (key === "openings") value = value === "true";
       else if (def?.numeric) value = Number(value);
       queuePatch({ [key]: value }, true);
@@ -248,7 +297,6 @@ export function createPanel(panelEl, handlers) {
   const faceStepper = panelEl.querySelector("[data-face-stepper]");
   const warnLine = panelEl.querySelector("[data-base-warn]");
   const saveBtn = panelEl.querySelector("#btn-save");
-  const exportBtn = panelEl.querySelector("#btn-export");
   const openBtn = panelEl.querySelector("#btn-open");
   const copyBtn = panelEl.querySelector("#btn-copy-link");
 
@@ -307,19 +355,13 @@ export function createPanel(panelEl, handlers) {
         setSegment("depth", state.depth);
         setSegment("openings", String(!!state.openings));
         setSegment("edgeDiv", state.edgeDiv);
+        setSegment("subdiv", state.subdiv);
+        setSegment("jitterMode", state.jitterMode);
         const customTag = panelEl.querySelector('[data-custom-key="edgeDiv"]');
         if (customTag) {
           const custom = qualityLevelFor(state.edgeDiv) == null;
           customTag.hidden = !custom;
           customTag.textContent = custom ? `custom · ${state.edgeDiv}` : "";
-        }
-        const densityId = densityLevelFor(state.points, state.separation);
-        setSegment("density", densityId ?? "");
-        const densityTag = panelEl.querySelector('[data-custom-key="density"]');
-        if (densityTag) {
-          densityTag.hidden = densityId != null;
-          densityTag.textContent =
-            densityId == null ? `custom · ${state.points} pts` : "";
         }
         const edgeInput = inputs.get("edgeLengthMm");
         if (edgeInput) {
@@ -371,13 +413,21 @@ export function createPanel(panelEl, handlers) {
       }
     },
 
-    setProjectStatus({ name, dirty, canSave }) {
+    /** Compile cost crossed the threshold: sliders commit on release only. */
+    setHeavy(on) {
+      heavyMode = !!on;
+    },
+
+    setProjectStatus({ name, dirty, canSave, canUndo }) {
       if (name != null && document.activeElement !== nameInput) {
         nameInput.value = name;
       }
       dirtyDot.setAttribute("data-on", dirty ? "1" : "0");
       dirtyLabel.setAttribute("data-on", dirty ? "1" : "0");
+      sessionMode.textContent = dirty ? "Edit" : "Browse";
+      sessionMode.setAttribute("data-mode", dirty ? "edit" : "browse");
       if (saveBtn) saveBtn.disabled = !canSave;
+      undoBtn.disabled = !canUndo;
     },
 
     setSelectedEdge(lengthMm) {
@@ -395,25 +445,27 @@ export function createPanel(panelEl, handlers) {
       presetStrip.innerHTML = "";
       if (!list?.length) {
         presetStrip.hidden = true;
+        presetHead.hidden = true;
         return;
       }
       presetStrip.hidden = false;
+      presetHead.hidden = false;
       for (const p of list) {
-        const btn = el("button", {
-          type: "button",
-          className: "preset-chip",
-          textContent: p.name,
-        });
-        btn.setAttribute("data-preset-id", p.id);
-        btn.title = p.description || p.name;
-        btn.addEventListener("click", () => handlers.onPreset?.(p.id));
-        presetStrip.appendChild(btn);
+        presetStrip.appendChild(
+          startCard({
+            id: p.id,
+            label: p.name,
+            title: p.description || `${p.name} — load as starting points`,
+            svg: safeThumb(p.resolved || p.state),
+            onStart: handlers.onStart,
+          }),
+        );
       }
     },
 
-    setPresetStatus(statuses) {
+    setStartStatus(statuses) {
       for (const s of statuses || []) {
-        const btn = presetStrip.querySelector(`[data-preset-id="${s.id}"]`);
+        const btn = startStrip.querySelector(`[data-start-id="${s.id}"]`);
         if (!btn) continue;
         btn.setAttribute("data-active", s.active ? "1" : "0");
         btn.setAttribute("data-edited", s.edited ? "1" : "0");
@@ -422,21 +474,35 @@ export function createPanel(panelEl, handlers) {
   };
 }
 
+/**
+ * Thumbnail card for one start (built-in shape or preset).
+ * @param {{ id: string, label: string, title: string, svg: string, onStart?: (id: string) => void }} args
+ */
+function startCard({ id, label, title, svg, onStart }) {
+  const btn = el("button", { type: "button", className: "start-card" });
+  btn.setAttribute("data-start-id", id);
+  btn.title = title;
+  const thumb = el("span", { className: "start-thumb" });
+  thumb.setAttribute("aria-hidden", "true");
+  thumb.innerHTML = svg;
+  btn.append(thumb, el("span", { className: "start-card-label", textContent: label }));
+  btn.addEventListener("click", () => onStart?.(id));
+  return btn;
+}
+
+/** A card without a thumbnail beats a panel that fails to build. */
+function safeThumb(state) {
+  try {
+    return startThumbSvg(state);
+  } catch {
+    return "";
+  }
+}
+
 function buildControl(def, _handlers, inputs, ranges, errNodes, limitLabels) {
   const root = el("div", { className: "control", dataset: { key: def.key } });
 
-  if (def.type === "select") {
-    const lab = el("label", { textContent: def.label });
-    lab.htmlFor = `ctrl-${def.key}`;
-    const sel = el("select", { className: "base-select", id: `ctrl-${def.key}` });
-    for (const opt of def.options || []) {
-      const o = el("option", { value: opt.value, textContent: opt.label });
-      if (opt.disabled) o.disabled = true;
-      sel.appendChild(o);
-    }
-    inputs.set(def.key, sel);
-    root.append(lab, sel);
-  } else if (def.type === "segments") {
+  if (def.type === "segments") {
     const lab = el("div", { className: "control-row" });
     lab.appendChild(el("label", { textContent: def.label }));
     root.appendChild(lab);
@@ -601,29 +667,9 @@ function buildMake(handlers) {
     textContent: "Copy Link",
     hidden: true,
   });
-  const exp = el("button", {
-    type: "button",
-    className: "btn btn-accent",
-    id: "btn-export",
-    textContent: "Export STL",
-  });
-  box.append(save, open, copy, exp);
+  // Export STL lives in the persistent bar under the view, not in Make.
+  box.append(save, open, copy);
   return box;
-}
-
-function buildFutureBlock() {
-  const block = el("div", { className: "future-block" });
-  block.appendChild(el("span", { className: "tag", textContent: "M5 — density / seed / jitter" }));
-  for (const label of ["Density", "Seed", "Jitter"]) {
-    const row = el("div", { className: "control-row" });
-    row.append(
-      el("label", { textContent: label }),
-      el("input", { type: "number", disabled: true, value: "—" }),
-      el("span", { className: "unit", textContent: "" }),
-    );
-    block.appendChild(row);
-  }
-  return block;
 }
 
 function applyStateToControls(state, inputs, ranges, controlRoots) {
@@ -632,14 +678,20 @@ function applyStateToControls(state, inputs, ranges, controlRoots) {
     if (root && def.hideWhen) {
       root.setAttribute("data-hidden", def.hideWhen(state) ? "1" : "0");
     }
+    if (root && def.inertWhen) {
+      const inert = !!def.inertWhen(state);
+      root.setAttribute("data-inert", inert ? "1" : "0");
+      root.querySelectorAll("input, select, button").forEach((node) => {
+        node.disabled = inert;
+      });
+    }
     if (def.key === "edgeLengthMm") continue;
     const v = state[def.key];
     if (v === undefined) continue;
     const uiVal = stateToUi(def, v);
     const input = inputs.get(def.key);
     if (input && document.activeElement !== input) {
-      if (input.tagName === "SELECT") input.value = String(v);
-      else input.value = fmtInput(uiVal);
+      input.value = fmtInput(uiVal);
     }
     const range = ranges.get(def.key);
     if (range && document.activeElement !== range) {
@@ -665,14 +717,25 @@ function applyLimits(lim, ranges, limitLabels, defs) {
     const range = ranges.get(key);
     const labels = limitLabels.get(key);
     const def = defs.find((d) => d.key === key);
+    // Tiny-face ceilings (deep subdivision, high jitter) can drop below the
+    // control's default minimum or below one-decimal precision; the range
+    // auto-adjusts so the slider always spans valid values.
+    const ceil = max >= 1 ? round1(max) : Math.max(0.01, Math.floor(max * 100) / 100);
+    const defMin = def?.min ?? 0;
+    const floor =
+      ceil > defMin ? defMin : Math.max(0.01, Math.floor((ceil / 2) * 100) / 100);
     if (range) {
-      range.max = String(round1(max));
+      range.min = String(floor);
+      range.max = String(ceil);
       const num = range.ownerDocument.getElementById(`ctrl-${key}`);
-      if (num) num.max = String(round1(max));
+      if (num) {
+        num.min = String(floor);
+        num.max = String(ceil);
+      }
     }
     if (labels) {
-      labels.min.textContent = fmt(def?.min ?? 0);
-      labels.max.textContent = fmt(max);
+      labels.min.textContent = fmt2(floor);
+      labels.max.textContent = fmt2(ceil);
     }
   }
 }
@@ -781,6 +844,11 @@ function el(tag, props = {}) {
 
 function fmt(n) {
   return Number.isFinite(n) ? (Math.round(n * 10) / 10).toFixed(1).replace(/\.0$/, "") : "—";
+}
+/** Like fmt but keeps two decimals alive for sub-0.1 limit values. */
+function fmt2(n) {
+  if (!Number.isFinite(n)) return "—";
+  return n < 1 ? String(Math.round(n * 100) / 100) : fmt(n);
 }
 function fmtInput(n) {
   return Number.isFinite(n) ? String(Math.round(n * 100) / 100) : "";

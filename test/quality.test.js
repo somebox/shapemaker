@@ -82,17 +82,10 @@ describe("quality levels compile to valid meshes with expected density", () => {
 
 describe("Unit 4 policy helpers", () => {
   it("edge input is read-only exactly when the bijection breaks", async () => {
-    const { edgeInputReadOnly, densityLevelFor, DENSITY_LEVELS } = await import(
-      "../src/schema.js"
-    );
+    const { edgeInputReadOnly } = await import("../src/schema.js");
     assert.equal(edgeInputReadOnly({ base: "cube", jitter: 0 }), false);
     assert.equal(edgeInputReadOnly({ base: "random", jitter: 0 }), true);
+    assert.equal(edgeInputReadOnly({ base: "sphere", jitter: 0 }), true);
     assert.equal(edgeInputReadOnly({ base: "cube", jitter: 5 }), true);
-
-    // Density levels resolve exactly and only on the locked pairs.
-    for (const d of DENSITY_LEVELS) {
-      assert.equal(densityLevelFor(d.points, d.separation), d.id);
-    }
-    assert.equal(densityLevelFor(24, 0.4), null);
   });
 });

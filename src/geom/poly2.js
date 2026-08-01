@@ -18,6 +18,62 @@ export function insetScale(poly, borderFraction) {
   return out;
 }
 
+/** An edge is "micro" when shorter than this fraction of the longest edge. */
+const MICRO_EDGE_RATIO = 0.5;
+
+/**
+ * Collapse short edges — well under the face's longest edge — to their
+ * midpoint, repeatedly, worst first. Plane-perturbation jitter splits
+ * high-valence vertices into micro edges (valence 5 splits into *chains* of
+ * them); left in, a single micro edge clamps the face's whole fillet to
+ * roughly 1.5× its own length, so the fillet visibly vanishes at the first
+ * jitter step. Rounding across the collapsed corner restores the intended
+ * arc. Only the 2D opening path uses this — the 3D skeleton keeps its exact
+ * planar faces and outer boundary.
+ *
+ * The ratio rule is scale-free and a no-op on clean polygons (all edges
+ * comparable; triangles are never touched). By the time a split edge
+ * outgrows the ratio, its own corner clamp already allows radii beyond
+ * typical requests, so the handoff between swallowed and kept is not
+ * visible in practice.
+ *
+ * @param {Float64Array|number[][]} poly  Nx2 convex polygon
+ * @returns {number[][]} pair list (new arrays; input untouched)
+ */
+export function collapseMicroEdges(poly) {
+  let pts = toPairs(poly).map((p) => [p[0], p[1]]);
+  while (pts.length > 3) {
+    const n = pts.length;
+    const len = new Array(n);
+    let longest = 0;
+    for (let k = 0; k < n; k++) {
+      const a = pts[k], b = pts[(k + 1) % n];
+      len[k] = Math.hypot(b[0] - a[0], b[1] - a[1]);
+      if (len[k] > longest) longest = len[k];
+    }
+    if (!(longest > 0)) break;
+    let worst = -1;
+    let worstRatio = MICRO_EDGE_RATIO;
+    for (let k = 0; k < n; k++) {
+      const ratio = len[k] / longest;
+      if (ratio < worstRatio) {
+        worstRatio = ratio;
+        worst = k;
+      }
+    }
+    if (worst < 0) break;
+    const a = pts[worst], b = pts[(worst + 1) % n];
+    const mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+    if (worst + 1 === n) {
+      pts = pts.slice(1, worst);
+      pts.push(mid);
+    } else {
+      pts.splice(worst, 2, mid);
+    }
+  }
+  return pts;
+}
+
 /**
  * Round every corner of a convex 2D polygon with a tangent circular arc.
  * Straight edge midpoints are preserved (border exact at mid-edge).
@@ -56,11 +112,13 @@ export function filletRmax(poly) {
 }
 
 export function filletPolygon(poly, radius, segments = 64) {
-  const pts = toPairs(poly);
-  const n = pts.length;
   if (radius <= 1e-9) {
-    return { polyline: flatten(pts), radius: 0.0 };
+    return { polyline: flatten(toPairs(poly)), radius: 0.0 };
   }
+  // Micro edges (vertex-split jitter) must not clamp the whole face's
+  // radius; the arc rounds across the virtual corner instead.
+  const pts = collapseMicroEdges(poly);
+  const n = pts.length;
 
   const rmax = filletRmax(pts);
   const r = Math.min(radius, rmax * 0.999);

@@ -3,9 +3,9 @@
  * state codec shared by projects, hash, presets, and dirty comparison.
  */
 
-import { baseSelectOptions } from "./bases.js";
+import { BASES } from "./bases.js";
 
-/** @typedef {{ key: string, group: string, label: string, type: string, unit?: string, min?: number, max?: number, step?: number, options?: {value:string,label:string,disabled?:boolean}[], hideWhen?: (s:object)=>boolean }} ControlDef */
+/** @typedef {{ key: string, group: string, label: string, type: string, unit?: string, min?: number, max?: number, step?: number, options?: {value:string,label:string,disabled?:boolean}[], hideWhen?: (s:object)=>boolean, inertWhen?: (s:object)=>boolean }} ControlDef */
 
 /** Canonical geometry keys in documented order. */
 export const STATE_KEYS = Object.freeze([
@@ -21,6 +21,9 @@ export const STATE_KEYS = Object.freeze([
   "seed",
   "separation",
   "jitter",
+  "jitterMode",
+  "subdiv",
+  "soften",
   "faceIndex",
 ]);
 
@@ -43,6 +46,9 @@ export const DEFAULT_STATE = Object.freeze({
   seed: 1337,
   separation: 0.5,
   jitter: 0,
+  jitterMode: "surface",
+  subdiv: 0,
+  soften: 0,
   faceIndex: -1,
 });
 
@@ -63,42 +69,30 @@ export function qualityLevelFor(edgeDiv) {
 }
 
 /**
- * Density levels — same idiom as Quality: UI vocabulary writing the canonical
- * (points, separation) pair for the random base. Values are the phase plan's
- * locked mapping; tune only at the review stop.
+ * Separation for a point count — the coupled write behind the Density
+ * slider. Matches the retired Sparse/Medium/Dense chip anchors at 12/24/48
+ * (0.6/0.5/0.4) and clamps to a workable band elsewhere.
+ * @param {number} points
+ * @returns {number}
  */
-export const DENSITY_LEVELS = Object.freeze([
-  Object.freeze({ id: "sparse", label: "Sparse", points: 12, separation: 0.6 }),
-  Object.freeze({ id: "medium", label: "Medium", points: 24, separation: 0.5 }),
-  Object.freeze({ id: "dense", label: "Dense", points: 48, separation: 0.4 }),
-]);
-
-/** @returns {string|null} level id, or null = custom */
-export function densityLevelFor(points, separation) {
-  return (
-    DENSITY_LEVELS.find((d) => d.points === points && d.separation === separation)
-      ?.id ?? null
-  );
+export function separationForPoints(points) {
+  const s = 0.6 - 0.1 * Math.log2(points / 12);
+  return Math.round(Math.min(0.7, Math.max(0.3, s)) * 100) / 100;
 }
 
 /**
  * The mean-edge ↔ scale link is a bijection only on exact regular shapes;
- * on random hulls or under jitter the Edge field becomes a readout.
+ * on parametric hulls (sphere, random) or under jitter the Edge field
+ * becomes a readout.
  */
 export function edgeInputReadOnly(state) {
-  return state.base === "random" || state.jitter > 0;
+  return !BASES[state.base]?.regular || state.jitter > 0;
 }
 
 /** @type {ControlDef[]} */
 export const CONTROL_DEFS = [
-  {
-    key: "base",
-    group: "shape",
-    label: "Base",
-    type: "select",
-    // Enabled family only — random / failing bases are omitted, not disabled.
-    options: baseSelectOptions(),
-  },
+  // `base` stays canonical (STATE_KEYS) but is chosen via the Start strip,
+  // not a Shape-group mode dropdown — starts load point packs to modify.
   {
     key: "circumdiameterMm",
     group: "shape",
@@ -121,34 +115,87 @@ export const CONTROL_DEFS = [
     step: 0.1,
   },
   {
-    // Writes the canonical (points, separation) pair — see DENSITY_LEVELS.
-    key: "density",
+    // Direct point-count slider for parametric hulls (sphere, random);
+    // separation derives from the count (see separationForPoints), applied
+    // as a coupled write in normalizePatch. Replaced the Sparse/Medium/Dense
+    // chips after the start-from playtest.
+    key: "points",
     group: "shape",
     label: "Density",
-    type: "segments",
-    customTag: true,
-    options: DENSITY_LEVELS.map((d) => ({ value: d.id, label: d.label })),
-    hideWhen: (s) => s.base !== "random",
+    type: "range",
+    unit: "pts",
+    min: 4,
+    max: 60,
+    step: 1,
+    inertWhen: (s) => !BASES[s.base]?.parametric,
   },
   {
     key: "seed",
     group: "shape",
     label: "Seed",
     type: "seed",
-    hideWhen: (s) => s.base !== "random",
+    // Active for random placement or whenever jitter is on. The sphere
+    // lattice is deterministic, so its seed only matters under jitter.
+    inertWhen: (s) => s.base !== "random" && !(s.jitter > 0),
   },
   {
-    // Random-base only in v0.4: on merged regular bases point-jitter is a
-    // topology cliff, not a gradual change (plane-jitter is on the roadmap).
+    // Always shown; allowed on every base. Regular bases perturb face
+    // planes (polygons kept, faces may vanish at extremes); parametric
+    // bases jitter points on the sphere.
     key: "jitter",
     group: "shape",
     label: "Jitter",
     type: "range",
     unit: "%",
     min: 0,
-    max: 20,
+    max: 50,
     step: 0.5,
-    hideWhen: (s) => s.base !== "random",
+  },
+  {
+    // Direction of the random displacement. Surface slides along the
+    // sphere / tilts planes; Radial scales center-to-surface distance
+    // (parametric points can sink inside the hull and vanish — accepted).
+    key: "jitterMode",
+    group: "shape",
+    label: "Direction",
+    type: "segments",
+    options: [
+      { value: "surface", label: "Surface" },
+      { value: "radial", label: "Radial" },
+      { value: "both", label: "Both" },
+    ],
+    inertWhen: (s) => !(s.jitter > 0),
+  },
+  {
+    // Surface subdivision (skeleton operator): triangles split 4:1,
+    // polygons fan over midpoint-split edges. Applied after the hull,
+    // before jitter. Smooth controls how far new vertices rise to the
+    // circumsphere.
+    key: "subdiv",
+    group: "shape",
+    label: "Subdivide",
+    type: "segments",
+    numeric: true,
+    options: [
+      { value: "0", label: "None" },
+      { value: "1", label: "Once" },
+      { value: "2", label: "Twice" },
+    ],
+  },
+  {
+    // Outer-edge fillet by sphere clip: 0 keeps the exact flat solid,
+    // rising values round corners and edges onto a shrinking sphere while
+    // flat face interiors hold, 100 reaches the inscribed ball. Needs
+    // Subdivide for resolution; most pronounced on cube and tetra.
+    key: "soften",
+    group: "shape",
+    label: "Smooth",
+    type: "range",
+    unit: "%",
+    min: 0,
+    max: 100,
+    step: 1,
+    inertWhen: (s) => !(s.subdiv > 0),
   },
   {
     key: "depth",

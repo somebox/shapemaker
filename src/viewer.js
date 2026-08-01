@@ -174,8 +174,12 @@ export function createViewer(container, opts = {}) {
     if (!meshObj) return;
     const box = new THREE.Box3().setFromObject(modelGroup);
     const center = box.getCenter(new THREE.Vector3());
-    const size = box.getSize(new THREE.Vector3());
-    const dist = Math.max(size.x, size.y, size.z) * 1.8;
+    // Frame by the bounding sphere, not the box max-dimension: a cube's box
+    // edge is 58% of its corner diagonal, so box framing zoomed cubes (and
+    // tetrahedra) in far past round solids of the same circumdiameter.
+    meshObj.geometry.computeBoundingSphere();
+    const radius = meshObj.geometry.boundingSphere?.radius || 50;
+    const dist = radius * 3.6;
     controls.target.copy(center);
     camera.position.set(center.x + dist * 0.7, center.y - dist * 0.8, center.z + dist * 0.55);
     controls.update();

@@ -14,6 +14,8 @@ import { buildShell } from "./solid/shell.js";
 import { validationError } from "./validate.js";
 import { DEFAULT_STATE } from "./schema.js";
 import { jitterPoints } from "./points/jitter.js";
+import { perturbSkeletonPlanes } from "./plane-perturb.js";
+import { subdivideSkeleton } from "./subdivide.js";
 
 /**
  * Generator + jitter params for a base — minimal, so cache keys stay small.
@@ -21,7 +23,19 @@ import { jitterPoints } from "./points/jitter.js";
  */
 function generatorParams(base, state) {
   const jitter = state.jitter ?? DEFAULT_STATE.jitter;
-  const out = jitter > 0 ? { jitter, seed: state.seed ?? DEFAULT_STATE.seed } : {};
+  const subdiv = state.subdiv ?? DEFAULT_STATE.subdiv;
+  const out = {
+    ...(jitter > 0
+      ? {
+          jitter,
+          seed: state.seed ?? DEFAULT_STATE.seed,
+          mode: state.jitterMode ?? DEFAULT_STATE.jitterMode,
+        }
+      : {}),
+    ...(subdiv > 0
+      ? { subdiv, soften: state.soften ?? DEFAULT_STATE.soften }
+      : {}),
+  };
   if (!BASES[base]?.parametric) return out;
   return {
     ...out,
@@ -32,21 +46,54 @@ function generatorParams(base, state) {
 }
 
 /**
- * Merge policy — coplanar merge runs ONLY for exact regular generators at
- * jitter 0. Random bases and any nonzero jitter skip it: jittered points are
- * almost never coplanar, so merging would be a no-op with over-merge risk
- * (Phase 4 locked decision; supersedes the earlier tighter-tolerance idea).
+ * Merge policy — coplanar merge runs for exact regular generators; jittered
+ * regulars keep it too, because their jitter is applied to face *planes*
+ * after the merge (vertices re-derived via the dual hull, polygons kept).
+ * Random bases with nonzero jitter still skip: jittered random points are
+ * almost never coplanar, so merging would be a no-op with over-merge risk.
  */
 function mergePolicy(base, params) {
   if (BASES[base]?.merge === false) return MERGE_SKIP_ID;
-  if (params.jitter > 0) return MERGE_SKIP_ID;
+  if (params.jitter > 0 && !BASES[base]?.regular) return MERGE_SKIP_ID;
   return MERGE_POLICY_ID;
 }
 
-/** Apply on-sphere jitter when requested; identity (fresh copy) at jitter 0. */
-function withJitter(cloud, params) {
+/**
+ * On-sphere point jitter for non-regular bases; identity elsewhere. Regular
+ * bases jitter after the hull stage via plane perturbation instead.
+ */
+function withJitter(base, cloud, params) {
   if (!(params.jitter > 0)) return cloud;
-  return jitterPoints(cloud, { seed: params.seed, jitter: params.jitter });
+  if (BASES[base]?.regular) return cloud;
+  return jitterPoints(cloud, {
+    seed: params.seed,
+    jitter: params.jitter,
+    mode: params.mode,
+  });
+}
+
+/**
+ * Hull stage for one base. Operation order is load-bearing:
+ * jitter (distort the form) → subdivide (add resolution) → smooth (fillet).
+ * Plane perturbation must run on the simple base solid — perturbing the
+ * near-coplanar plane families a subdivision creates makes most of them
+ * non-binding, silently discarding the subdivision and its smoothing. The
+ * parametric bases follow the same order naturally (points jitter before
+ * the hull).
+ */
+function buildUnitSkeleton(base, cloud, merge, params) {
+  let sk = hullToSkeleton(cloud, merge === MERGE_SKIP_ID ? { merge: false } : {});
+  if (BASES[base]?.regular && params.jitter > 0) {
+    sk = perturbSkeletonPlanes(sk, {
+      seed: params.seed,
+      jitter: params.jitter,
+      mode: params.mode,
+    });
+  }
+  if (params.subdiv > 0) {
+    sk = subdivideSkeleton(sk, params.subdiv, (params.soften ?? 0) / 100);
+  }
+  return sk;
 }
 
 /** Two slots per stage: enough for the preview/export pair, no unbounded growth. */
@@ -77,12 +124,12 @@ export function createPipeline() {
       const params = generatorParams(base, state);
       const pointsKey = JSON.stringify({ base, ...params });
       const cloud = remember(points, pointsKey, () =>
-        withJitter(BASES[base].points(params), params),
+        withJitter(base, BASES[base].points(params), params),
       );
       const merge = mergePolicy(base, params);
       const hullKey = JSON.stringify({ pointsKey, merge });
       return remember(hulls, hullKey, () =>
-        hullToSkeleton(cloud, merge === MERGE_SKIP_ID ? { merge: false } : {}),
+        buildUnitSkeleton(base, cloud, merge, params),
       );
     },
 
@@ -94,13 +141,13 @@ export function createPipeline() {
       const params = generatorParams(state.base, state);
       const pointsKey = JSON.stringify({ base: state.base, ...params });
       const cloud = remember(points, pointsKey, () =>
-        withJitter(BASES[state.base].points(params), params),
+        withJitter(state.base, BASES[state.base].points(params), params),
       );
 
       const merge = mergePolicy(state.base, params);
       const hullKey = JSON.stringify({ pointsKey, merge });
       const unitSkeleton = remember(hulls, hullKey, () =>
-        hullToSkeleton(cloud, merge === MERGE_SKIP_ID ? { merge: false } : {}),
+        buildUnitSkeleton(state.base, cloud, merge, params),
       );
 
       const solidKey = JSON.stringify({

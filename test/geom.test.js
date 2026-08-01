@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { edgeParams } from "../src/geom/edgesub.js";
-import { filletPolygon } from "../src/geom/poly2.js";
+import { filletPolygon, collapseMicroEdges } from "../src/geom/poly2.js";
 import { radialSample } from "../src/geom/annulus.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -53,6 +53,50 @@ describe("filletPolygon", () => {
       almostEqualArrays([...polyline], flatExpected, 1e-8);
     });
   }
+});
+
+describe("collapseMicroEdges", () => {
+  it("is a no-op on clean polygons", () => {
+    const square = [[1, 1], [-1, 1], [-1, -1], [1, -1]];
+    assert.deepEqual(collapseMicroEdges(square), square);
+    const tri = [[0, 1], [-1, -1], [1, -1]];
+    assert.deepEqual(collapseMicroEdges(tri), tri);
+  });
+
+  it("collapses a split corner to its midpoint", () => {
+    // Square with one corner split by a micro edge.
+    const e = 0.01;
+    const poly = [[1, 1 - e], [1 - e, 1], [-1, 1], [-1, -1], [1, -1]];
+    const out = collapseMicroEdges(poly);
+    assert.equal(out.length, 4);
+    const mid = out.find((p) => Math.abs(p[0] - (1 - e / 2)) < 1e-12);
+    assert.ok(mid, "midpoint vertex present");
+    assert.ok(Math.abs(mid[1] - (1 - e / 2)) < 1e-12);
+  });
+
+  it("collapses chains of adjacent micro edges (valence-5 splits)", () => {
+    // Triangle-ish polygon where one corner split into three vertices.
+    const e = 0.02;
+    const poly = [
+      [0, 1],
+      [-1, -1],
+      [1 - 2 * e, -1],
+      [1 - e, -1 + e / 2],
+      [1, -1 + e],
+    ];
+    const out = collapseMicroEdges(poly);
+    assert.equal(out.length, 3, "chain collapsed to a single corner");
+  });
+
+  it("restores the full fillet on a polygon with a micro edge", () => {
+    const e = 0.01;
+    const clean = [[1, 1], [-1, 1], [-1, -1], [1, -1]];
+    const split = [[1, 1 - e], [1 - e, 1], [-1, 1], [-1, -1], [1, -1]];
+    const rClean = filletPolygon(clean, 0.5, 8).radius;
+    const rSplit = filletPolygon(split, 0.5, 8).radius;
+    assert.ok(Math.abs(rClean - 0.5) < 1e-9);
+    assert.ok(Math.abs(rSplit - 0.5) < 1e-9, `micro edge clamped radius to ${rSplit}`);
+  });
 });
 
 describe("radialSample", () => {

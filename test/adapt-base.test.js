@@ -5,12 +5,12 @@ import { hullSkeletonForBase, scaleSkeleton, clearPipelineCache } from "../src/p
 import { computeLimits } from "../src/limits.js";
 import { compile } from "../src/compile.js";
 import { encodeHash, decodeHash } from "../src/hashcodec.js";
-import { BASE_IDS } from "../src/bases.js";
+import { BASES, BASE_IDS } from "../src/bases.js";
 import { serializeProjectV1, parseProject } from "../src/project-format.js";
 import { defaultRestingFace } from "../src/orient.js";
 
 describe("adaptStateForBase", () => {
-  it("resets faceIndex and preserves size", () => {
+  it("resets faceIndex and preserves size when the base changes", () => {
     const { patch, warnings } = adaptStateForBase({
       currentState: {
         base: "icosidodeca",
@@ -27,6 +27,45 @@ describe("adaptStateForBase", () => {
     assert.equal(patch.faceIndex, -1);
     assert.equal(patch.circumdiameterMm, undefined);
     assert.deepEqual(warnings, []);
+  });
+
+  it("does not clear faceIndex when the base is unchanged (jitter reshape)", () => {
+    const { patch } = adaptStateForBase({
+      currentState: {
+        base: "icosidodeca",
+        wallMm: 1.4,
+        borderMm: 3.2,
+        openings: true,
+        faceIndex: 20,
+        jitter: 2,
+      },
+      nextBase: "icosidodeca",
+      nextLimits: { wallMmMax: 30, borderMmMax: 8, filletMmMax: null },
+    });
+    assert.equal(patch.base, "icosidodeca");
+    assert.equal(patch.faceIndex, undefined);
+  });
+
+  it("clamping to a sub-0.1mm ceiling never produces zero (stuck-state trap)", () => {
+    // Deep subdivision + high jitter can push borderMmMax below 0.1; the old
+    // one-decimal floor rounded the adapted border to an invalid 0.
+    const { patch } = adaptStateForBase({
+      currentState: { base: "cube", wallMm: 1.4, borderMm: 3.2, openings: true, subdiv: 2 },
+      nextBase: "cube",
+      nextLimits: { wallMmMax: 30, borderMmMax: 0.04, filletMmMax: null },
+    });
+    assert.ok(patch.borderMm > 0, `border ${patch.borderMm} must stay positive`);
+    assert.ok(patch.borderMm <= 0.04, "and within the ceiling");
+  });
+
+  it("heals a non-positive border back into the valid range", () => {
+    const { patch, warnings } = adaptStateForBase({
+      currentState: { base: "cube", wallMm: 1.4, borderMm: 0, openings: true },
+      nextBase: "cube",
+      nextLimits: { wallMmMax: 30, borderMmMax: 8, filletMmMax: null },
+    });
+    assert.ok(patch.borderMm > 0 && patch.borderMm <= 8);
+    assert.ok(warnings.length >= 1);
   });
 
   it("clamps wall and border but never fillet", () => {
@@ -87,13 +126,14 @@ describe("defaultRestingFace max-area", () => {
     dodecahedron: 5,
     icosahedron: 3,
     icosidodeca: 5,
+    sphere: 3, // merge-skip skeleton: every face is a triangle
     random: 3, // merge-skip skeleton: every face is a triangle
   };
 
   for (const base of BASE_IDS) {
     it(`${base}: rests on a ${EXPECTED_SIDES[base]}-sided face`, () => {
       clearPipelineCache();
-      const fit = base === "random" ? { borderMm: 1.5, filletMm: 2 } : {};
+      const fit = BASES[base].parametric ? { borderMm: 1.5, filletMm: 2 } : {};
       const { skeleton, validation } = compile({ base, ...fit });
       assert.equal(validation.ok, true);
       const i = defaultRestingFace(skeleton);
@@ -115,7 +155,7 @@ describe("project/hash round-trips across bases", () => {
   for (const base of BASE_IDS) {
     it(`${base} survives hash and project codec`, () => {
       clearPipelineCache();
-      const fit = base === "random" ? { borderMm: 1.5, filletMm: 2 } : {};
+      const fit = BASES[base].parametric ? { borderMm: 1.5, filletMm: 2 } : {};
       const { state, validation } = compile({ base, ...fit, faceIndex: 0 });
       assert.equal(validation.ok, true);
       const hash = encodeHash(state);

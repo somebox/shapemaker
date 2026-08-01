@@ -82,7 +82,7 @@ Goal: reuse the trusted shell workflow across regular shape families.
 - Compact face stepper; base-change adaptation; versioned presets.
 - Acceptance: 6 bases × 3 shell combos + 6 stress opens (24 STLs).
 
-## Next — Milestone 4: mesh quality
+## Shipped in tree — Milestone 4: mesh quality
 
 Goal: let users choose how finely the shell is tessellated so smoother-looking
 fillets and frames are real geometry in both the preview and the STL — not a
@@ -102,21 +102,34 @@ as a small preset rather than raw internals.
 - Acceptance: each preset exports watertight; Normal remains the default and
   keeps current parity anchors unless explicitly re-baselined.
 
-### Milestone 4 exit criteria
+### Milestone 4 exit criteria — met
 
-- Changing the preset regenerates preview and STL with visibly finer (or
-  coarser) facets on fillet arcs; dimensions and topology stay valid.
-- Flat shading remains on; there is no smooth-normal mode that makes the
-  preview diverge from the export.
-- Preset round-trips through project save/open and URL state.
+All verified in tree (`test/quality.test.js` + live playtest): Draft / Normal
+/ Fine map to `edgeDiv` 4 / 10 / 20 with derived fillet-arc segments; each
+preset compiles watertight at the expected density (icosidodeca ~×0.4 / ×1 /
+×2 triangles, sphere-48 6.6k / 16.6k / 33k tris, interactive); Normal keeps
+the parity anchors; flat shading everywhere; `edgeDiv` round-trips through
+project files and URL state.
 
 ## Next — Milestone 5: distort and invent
 
 Goal: provide expressive irregular forms without adding a modeling language.
 
-- Seeded random-on-sphere point generation.
-- Density presets that coordinate point count and separation.
-- On-sphere jitter.
+**Locked from UX start-from playtest (browse → edit):**
+
+- Choosing a start (base or named preset) **hard-resets** the full recipe;
+  Browse vs Edit chrome; no confirm on switch; Undo is the safety net.
+- Jitter is **allowed on all bases**; soft amplitude; no camera reframe on
+  jitter/seed-only edits. Regular bases now use **plane-perturbation** (faces
+  stay polygons); the random base keeps on-sphere point jitter.
+- Density / seed / jitter stay visible; inert knobs dim rather than hide.
+- User preset Save/delete (“Yours”) is later; project Save stays project files.
+
+Still in M5 scope / follow-through:
+
+- Seeded random-on-sphere point generation (shipped in tree; harden acceptance).
+- Density: shipped as a direct point-count slider (4–60) with separation
+  derived from the count; the Sparse/Medium/Dense chips are retired.
 - Per-face opening, border, and fillet metrics for non-congruent faces.
 - Irregular-hull acceptance matrix across representative seeds and extremes.
 - Re-evaluate whether fixed millimetre borders remain sufficient on small,
@@ -170,24 +183,47 @@ and require a defined assembly workflow before implementation.
 
 ## Later — shape vocabulary
 
-- **Plane-perturbation jitter for regular bases.** v0.4 scoped jitter to the
-  random base because point-jitter on merged faces is a topology cliff (the
-  first slider step shatters pentagons into triangle frames while points move
-  fractions of a millimetre). The gradual mechanism for regular bases:
-  perturb each face *plane* (small tilt/offset) and recompute vertices by
-  re-intersecting planes via the dual hull — faces stay planar convex
-  polygons, so a jittered cube is six wobbly quad frames and every solidifier
-  guarantee holds. Known work items: vertices with 4+ faces (all 30 on the
-  icosidodecahedron) split into short edges that need cleanup so per-face
-  fillets don't collapse; acceptance seeds for the new path.
+- **Plane-perturbation jitter follow-through.** The mechanism is shipped
+  (`src/plane-perturb.js`): perturbed face planes re-intersected via the dual
+  hull; faces stay planar convex polygons and face count survives. Vertices
+  with 4+ faces split into short edges — kept in the skeleton (exact
+  planarity), swallowed in the 2D opening path so fillets round across the
+  virtual corner; face frames use the area centroid so split rings don't
+  off-center openings. Remaining: wider acceptance seeds beyond the test
+  matrix; calibrate the shared soft amplitude.
 - Additional opening generators such as circle or mirrored-face openings.
-- Fixed-order skeleton operators: truncate, subdivide/spherify, and dual.
+- Fixed-order skeleton operators: **subdivide is shipped**
+  (`src/subdivide.js`, levels 0–2, applied after jitter — order is
+  jitter → subdivide → smooth) with
+  Smooth — an outer-edge fillet by sphere clip (0 exact flat split, 100
+  inscribed ball; flats hold their planes so dimensions never change);
+  truncate and dual remain. Possible follow-up: higher levels behind a
+  performance check; a geodesic (outward spherify) mode if wanted — the
+  Sphere base covers most of that ground.
 - Scale-to-target mean edge for irregular forms.
 - Separate jitter seed.
-- Radial/free-space jitter with explicit handling of points swallowed by the
-  hull.
+- **Radial jitter is shipped** as the jitter Direction mode
+  (surface/radial/both); swallowed parametric points vanish gradually
+  (accepted), and radial clouds renormalize to keep Size = circumdiameter.
+- User preset store (“Yours”) separate from immutable built-ins; Save-as-preset
+  and delete only for user presets.
 
 There will be no editable operator stack unless a compelling workflow appears.
+
+## Refactor backlog (from start-from lock)
+
+Driven by the locked session model; not blocking the thin slice already in tree.
+
+- Always-dim control system for all groups (Form hideWhen → inert where it
+  helps).
+- Calibrate or replace `JITTER_AMPLITUDE_SCALE` (plane-perturbation shipped).
+- Stable orientation under distort (resting face / focus across face-identity
+  reorder; merge-skip remains on the random base).
+- Retire or narrow `adaptStateForBase` preserve-Form path (starts own reset;
+  adaptation remains for wall/border clamp on reshape).
+- Session Undo that restores name + clean baseline with geometry (URL today
+  encodes authoring state only).
+- Align or supersede older Phase 4 plan units with this model.
 
 ## Backlog — true struts and node joints
 

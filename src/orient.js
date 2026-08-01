@@ -45,6 +45,30 @@ export function computeOrientation(skeleton, faceIndex) {
 }
 
 /**
+ * Face whose outward normal best matches `normal` (largest dot product).
+ * Used to keep resting orientation stable when jitter/seed rebuilds the face
+ * list (merge-skip changes indices; the geometric underside should not jump).
+ *
+ * @param {{ positions: Float64Array, faces: number[][] }} skeleton
+ * @param {[number, number, number]|number[]} normal
+ * @returns {number} faceIndex
+ */
+export function nearestFaceByNormal(skeleton, normal) {
+  const [tx, ty, tz] = normal;
+  let best = 0;
+  let bestDot = -Infinity;
+  for (let i = 0; i < skeleton.faces.length; i++) {
+    const [nx, ny, nz] = toFaceFrame(skeleton, i).normal;
+    const d = nx * tx + ny * ty + nz * tz;
+    if (d > bestDot) {
+      bestDot = d;
+      best = i;
+    }
+  }
+  return best;
+}
+
+/**
  * Default resting face: maximum area, then most sides, then lowest index
  * (face identity already sorted the list).
  *

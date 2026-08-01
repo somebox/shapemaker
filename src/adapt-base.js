@@ -15,16 +15,15 @@ export function adaptStateForBase({ currentState, nextBase, nextLimits }) {
   /** @type {Record<string, unknown>} */
   const patch = {
     base: nextBase,
-    faceIndex: -1,
   };
+  // Only clear resting face when the family actually changes. Jitter/seed
+  // reshape must not reset faceIndex — that re-picks orientation and jumps.
+  if (currentState.base !== nextBase) {
+    patch.faceIndex = -1;
+  }
   let reduced = false;
 
-  // Jitter is random-base-only in v0.4; leaving a regular base's state
-  // carrying jitter would fail validation, so adaptation zeroes it.
-  if (nextBase !== "random" && currentState.jitter > 0) {
-    patch.jitter = 0;
-    reduced = true;
-  }
+  // Start-from hard-reset owns jitter zeroing. Adaptation only clamps wall/border.
 
   const wallMax = nextLimits.wallMmMax;
   if (
@@ -39,15 +38,16 @@ export function adaptStateForBase({ currentState, nextBase, nextLimits }) {
 
   // Border ceiling depends on openings; when closed, leave border as portable intent.
   const borderMax = nextLimits.borderMmMax;
-  if (
-    currentState.openings &&
-    borderMax != null &&
-    Number.isFinite(borderMax) &&
-    Number.isFinite(currentState.borderMm) &&
-    currentState.borderMm > borderMax
-  ) {
-    patch.borderMm = floor1(borderMax);
-    reduced = true;
+  if (currentState.openings && borderMax != null && Number.isFinite(borderMax)) {
+    if (Number.isFinite(currentState.borderMm) && currentState.borderMm > borderMax) {
+      patch.borderMm = positiveClamp(borderMax);
+      reduced = true;
+    } else if (!(currentState.borderMm > 0)) {
+      // Heal a non-positive border (a past over-eager clamp could round to
+      // exactly 0 and leave the state stuck invalid).
+      patch.borderMm = positiveClamp(Math.min(1, borderMax));
+      reduced = true;
+    }
   }
 
   return {
@@ -61,4 +61,16 @@ export function adaptStateForBase({ currentState, nextBase, nextLimits }) {
 /** One-decimal clamp that never exceeds the geometric ceiling. */
 function floor1(n) {
   return Math.floor(n * 10) / 10;
+}
+
+/**
+ * Clamp to the ceiling without ever producing zero: tiny faces (deep
+ * subdivision, high jitter) can push the ceiling below 0.1 mm, where a
+ * one-decimal floor would round to an invalid 0.
+ */
+function positiveClamp(max) {
+  const one = floor1(max);
+  if (one > 0) return one;
+  const two = Math.floor(max * 100) / 100;
+  return two > 0 ? two : max * 0.9;
 }

@@ -103,27 +103,64 @@ check.
 ### Base points and jitter
 
 Base generators produce normalized points on a sphere: Platonic solids, the
-default icosidodecahedron, or seeded random points with a minimum angular
-separation. Random point count initially tops out near 60 until interactive
-performance is measured.
+default icosidodecahedron, a deterministic fibonacci-lattice sphere, or
+seeded random points with a minimum angular separation. Parametric point
+count (sphere and random) tops out near 60 until interactive performance is
+measured; the sphere's density sets how faceted it is, while Quality only
+refines the shell tessellation.
 
-Jitter moves points along the sphere by 0–20% of circumradius. Keeping points on
-the sphere prevents vertices from silently disappearing inside the hull. One
-seed controls random placement and jitter in version 1.
+The jitter UI exposes 0–50%; an experimental soft amplitude scale maps that
+range so low-slider values stay subtle (jitter 0 remains identity — exact
+bases stay exact). At high amplitudes on regular bases a perturbed face
+plane can stop bounding the solid; that face simply vanishes (dropping a
+non-binding half-space is exact), so extreme jitter deforms gradually
+instead of failing. On the random base, jitter moves points along the
+sphere; staying on the sphere prevents vertices from silently disappearing
+inside the hull. One seed controls random placement and jitter in version 1.
 
-**Jitter is scoped to the random base.** On merged regular bases, point
-jitter cannot be gradual: any nonzero value un-merges the polygonal faces
-into hull triangles — a topology cliff at the first slider step, while the
-points themselves barely move. Random hulls are already triangulated, so
-jitter there is genuinely continuous. Bringing jitter to regular bases needs
-a different mechanism (perturbing face *planes* so faces stay planar
-polygons); that design is tracked in the roadmap.
+**Jitter direction** is a mode: *Surface* (default) slides points along the
+sphere / tilts face planes; *Radial* randomizes the center-to-surface
+distance (scaling point radii or offsetting planes along their normals —
+parametric points can sink inside the hull and vanish, accepted as gradual);
+*Both* applies both. Every mode draws the same random sequence per element,
+so switching modes reworks the same randomness instead of rerolling. Radial
+point clouds renormalize so Size still means circumdiameter.
+
+**Density** is a direct point-count slider (4–60) for parametric bases;
+separation derives from the count (matching the retired Sparse / Medium /
+Dense anchors at 12/24/48). **Subdivide** (0/1/2) is the first fixed-order
+skeleton operator: each level splits every face flat, in its own plane —
+4:1 for triangles, centroid fans over midpoint-split edges for larger
+polygons — so mixed-face solids stay closed and level alone only adds
+resolution (grids of openings). **Smooth** (0–100%) is an outer-edge
+fillet by sphere clip: vertices outside a shrinking clip radius pull onto
+it, rounding corners and edges while flat face interiors keep their planes
+— overall dimensions hold, only sharpness melts (most pronounced on cube
+and tetra). At 100 the clip reaches the nearest face plane and the solid
+becomes the inscribed ball.
+
+Operation order is fixed and load-bearing: **jitter → subdivide → smooth**.
+Jitter distorts the simple base form (plane perturbation on regulars, point
+jitter before the hull on parametric bases), subdivision adds resolution to
+the distorted solid, and smooth fillets its edges. Running jitter after
+subdivision would perturb families of near-coplanar sub-face planes, most
+of which stop binding — silently discarding the subdivision and smoothing.
+
+**Jitter is available on every base.** On regular bases it perturbs face
+*planes* (small tilt and offset) and rebuilds vertices by re-intersecting the
+planes through the dual hull — faces stay planar convex polygons, so a
+jittered cube is six wobbly quad frames and every solidifier guarantee holds.
+Vertices where four or more faces meet split into short edges that grow
+gradually from zero with amplitude. On the random base jitter moves the
+points themselves on the sphere; those hulls are already triangulated, so
+face count is continuous there too.
 
 ### Hull, skeleton, and scale
 
 QuickHull closes the point cloud. Coplanar facets are merged using a
-size-relative tolerance **only for exact regular generators at jitter zero**.
-Random bases and any nonzero jitter skip the merge entirely — jittered points
+size-relative tolerance for regular generators (jittered regulars keep the
+merge: their jitter perturbs the merged faces' planes afterwards). Random
+bases with nonzero jitter skip the merge entirely — jittered points
 are almost never coplanar, so merging would be a no-op with over-merge risk —
 and the hull triangles become the faces.
 
@@ -218,6 +255,27 @@ silently overwritten.
 URL state is the compact sharing format, while project files are the durable
 and human-readable format. Optional local recovery may retain an unsaved
 session, but does not replace explicit project files.
+
+### Session model (browse → edit)
+
+Choosing a **starting point** (Platonic / icosidodeca / random / named preset)
+fills the whole panel with that recipe — a hard reset of Form and distort
+defaults, not a mode switch that preserves Form intent. Built-in starts and
+presets share one apply path with project Open. In the UI they appear together
+in a **Start-from chooser**: thumbnail cards (wireframe previews projected
+from each start's skeleton) grouped as built-in shapes and presets. Selecting
+a card loads its points (and Form pack) to modify; it is not a lasting Base
+mode. Shape controls are size, edge, density, seed, and jitter.
+
+- **Browse:** the draft matches a clean start (or its clean baseline). Clicking
+  other starts is frictionless viewing.
+- **Edit:** any tweak marks the session modified. The user is drafting from
+  that start.
+- **Switch while modified:** load the new start and discard the draft with no
+  confirm dialog. Safety net is Undo (browser-history snapshots of canonical
+  state). Undo must not navigate away from the app.
+- Project **Save** remains project files. User-owned preset Save/delete is out
+  of scope until a separate “Yours” store is specified.
 ## Architecture
 
 ### Implemented in Phase 1
@@ -264,7 +322,13 @@ src/limits.js           proactive slider ceilings
 src/hull.js             shipped (M3)
 src/points/platonic.js  shipped (M3)
 src/bases.js            shipped (M3)
-src/points/random.js    Milestone 5
+src/points/random.js    shipped (M5 path)
+src/starts.js           start-from recipes
+src/start-thumbs.js     chooser wireframe thumbnails (SVG)
+src/points/jitter.js    on-sphere jitter (parametric bases)
+src/points/sphere.js    fibonacci-lattice sphere points
+src/plane-perturb.js    plane-perturbation jitter (regular bases)
+src/subdivide.js        spherified surface subdivision (skeleton operator)
 src/export/svg.js       Milestone 6
 ```
 
@@ -327,8 +391,22 @@ Additional principles:
 - Clicking a face is the primary way to choose a resting face; a grouped picker
   is the accessible alternative.
 - The reference grid uses 10 mm squares and emphasized 50 mm lines.
+- Sliders recompile live while compiles stay under the performance
+  threshold (`HEAVY_COMPILE_MS`, 100 ms). Above it, drags update only the
+  number readout and the recompile lands on release; a busy badge is
+  painted before heavy blocking work so the UI never looks locked.
+  Subdivision clicks are predicted heavy from the projected face count
+  before any slow compile has been measured.
 - Ordinary parameter changes preserve the camera view. Reframing occurs on
-  first load, explicit reset, or a major size/base change.
+  first load, explicit reset, or a major size/base change — not on jitter-only
+  or seed-only edits. Framing fits the bounding *sphere*, so solids of equal
+  circumdiameter occupy equal screen presence (box framing zoomed cubes far
+  past round solids).
+- A persistent status bar under the view carries the dimension/mesh stats,
+  the busy badge, and Export STL — always visible regardless of panel
+  scroll.
+- Controls that do not apply stay visible and dimmed (`inert`), not hidden, for
+  Shape distort knobs (density / seed / jitter) at minimum.
 - Dynamic control limits prevent invalid geometry where possible; structured
   validation is the fallback.
 - Printing overlays are optional tools, not the default appearance, and never
@@ -336,8 +414,8 @@ Additional principles:
 - Status separates dimensional/fabrication information from mesh diagnostics.
 - Equal canonical state produces an equal versioned URL. Only committed changes
   create history entries.
-- The UI visibly distinguishes unsaved project changes and shows the current
-  project name.
+- The UI visibly distinguishes Browse vs Edit (modified draft) and unsaved
+  project changes, and shows the current project name.
 
 ## Deployment
 
@@ -380,8 +458,9 @@ optional progressive enhancement.
    stepper, and presets — shipped in v0.3.
 4. **Mesh quality:** tessellation presets (Draft / Normal / Fine) via edge and
    fillet sampling; flat-shaded preview that matches STL.
-5. **Distort and invent:** on-sphere jitter, seeded random hulls, density
-   presets, and irregular-shape acceptance.
+5. **Distort and invent:** on-sphere jitter (all bases), seeded random hulls,
+   density presets, start-from browse/edit session, and irregular-shape
+   acceptance.
 6. **Share, draw, and judge:** unit-aware SVG and honest print-risk overlays.
 
 Priorities and uncommitted future ideas are maintained in

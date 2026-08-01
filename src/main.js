@@ -20,6 +20,10 @@ import { adaptStateForBase } from "./adapt-base.js";
 import { hullSkeletonForBase, scaleSkeleton } from "./pipeline.js";
 import { computeLimits } from "./limits.js";
 import { parsePresetsEnvelope } from "./presets.js";
+import { startFromRecipe, startStatuses } from "./starts.js";
+import { computeOrientation, nearestFaceByNormal } from "./orient.js";
+import { toFaceFrame } from "./faceframe.js";
+import { HEAVY_COMPILE_MS, predictedCompileMs } from "./perf.js";
 
 const canvasHost = document.getElementById("canvas-host");
 const panelEl = document.getElementById("panel");
@@ -44,10 +48,8 @@ let draftValid = false;
 let lastWrittenHash = "";
 /** @type {{ id: string, name: string, state: object, resolved: object }[]} */
 let presets = [];
-
-if (new URLSearchParams(location.search).get("mock") === "future") {
-  document.body.classList.add("mock-future");
-}
+/** Same-document push depth — Undo must not leave the app. */
+let sessionPushDepth = 0;
 
 const fileInput = document.createElement("input");
 fileInput.type = "file";
@@ -95,15 +97,11 @@ ui = createPanel(panelEl, {
     fileInput.value = "";
     fileInput.click();
   },
-  onPreset(id) {
-    const preset = presets.find((p) => p.id === id);
-    if (!preset) return;
-    // Same path as Open: project bytes from immutable app data.
-    const text = serializeProjectV1({
-      name: preset.name,
-      state: preset.state,
-    });
-    openProjectText(text);
+  onStart(id) {
+    applyStart(id);
+  },
+  onUndo() {
+    if (sessionPushDepth > 0) history.back();
   },
   onCopyLink() {
     // Ensure the URL reflects the current valid state without adding history.
@@ -162,7 +160,22 @@ fileInput.addEventListener("change", async () => {
 });
 
 /**
- * Open / preset apply — shared session mutation path.
+ * Start strip (built-in point packs + named presets) — full recipe hard reset.
+ * Same session path as Open; one history push via regenerate(commit).
+ * @param {string} id  base id or preset id
+ */
+function applyStart(id) {
+  const start = startFromRecipe(id, presets);
+  if (!start) return;
+  const text = serializeProjectV1({
+    name: start.name,
+    state: start.state,
+  });
+  openProjectText(text);
+}
+
+/**
+ * Open / start apply — shared session mutation path.
  * @param {string} text
  */
 function openProjectText(text) {
@@ -222,18 +235,52 @@ function openProjectText(text) {
 
 window.addEventListener("popstate", () => {
   if (applyingHistory) return;
+  if (sessionPushDepth > 0) sessionPushDepth -= 1;
   const decoded = decodeHash(location.hash);
   if (!decoded.ok) return;
   liveHistoryEdit = false;
   draft = decoded.state;
   regenerate({ forceFrame: false, fromHistory: true });
+  updateProjectStatus();
 });
 
 /** Keys that change the skeleton itself — edits to them re-run adaptation. */
-const SKELETON_KEYS = ["base", "seed", "points", "separation", "jitter"];
+const SKELETON_KEYS = [
+  "base",
+  "seed",
+  "points",
+  "separation",
+  "jitter",
+  "jitterMode",
+  "subdiv",
+  "soften",
+];
 
 function applyPatch(patch, commit) {
-  let normalized = normalizePatch(patch);
+  const normalized = normalizePatch(patch);
+  // Predict cost BEFORE the adaptation probe: the probe builds the real next
+  // skeleton, which for heavy configs is most of the freeze — the busy badge
+  // must cover it too, not appear after it. Reshape edits pay for both the
+  // probe and the compile, so their estimate doubles.
+  const prospective = { ...draft, ...normalized };
+  const reshapes = SKELETON_KEYS.some(
+    (k) => normalized[k] != null && normalized[k] !== draft[k],
+  );
+  const est =
+    predictedCompileMs(
+      lastCompileMs,
+      last?.state,
+      prospective,
+      last?.skeleton?.faces?.length ?? 0,
+    ) * (reshapes ? 2 : 1);
+  const run = () => applyEdit(normalized, commit);
+  if (est > HEAVY_COMPILE_MS) deferBehindBadge(run);
+  else run();
+}
+
+/** Probe limits, adapt, mutate the draft, and rebuild — the whole edit. */
+function applyEdit(patchIn, commit) {
+  let normalized = patchIn;
   let warnings = [];
 
   // Any skeleton-shaping edit (base switch, seed reroll, density, jitter)
@@ -243,16 +290,19 @@ function applyPatch(patch, commit) {
   const reshapes = SKELETON_KEYS.some(
     (k) => normalized[k] != null && normalized[k] !== draft[k],
   );
-  if (reshapes) {
+  // A draft carrying an invalid border (e.g. an old URL where a clamp
+  // rounded to 0) heals on the next edit of any kind, not only reshapes.
+  const brokenBorder =
+    draft.openings && !((normalized.borderMm ?? draft.borderMm) > 0);
+  if (reshapes || brokenBorder) {
+    const nextBase = normalized.base ?? draft.base;
     const probe = { ...draft, ...normalized, faceIndex: -1 };
     const unit = hullSkeletonForBase(probe.base, probe);
     const sk = scaleSkeleton(unit, (probe.circumdiameterMm ?? 100) / 2);
-    // Limits from skeleton (no solidifier). Border max does not depend on
-    // the current border value; fillet ceiling is unused by adaptation.
     const limits = computeLimits(sk, probe);
     const adapted = adaptStateForBase({
       currentState: { ...draft, ...normalized },
-      nextBase: probe.base,
+      nextBase,
       nextLimits: limits,
     });
     normalized = normalizePatch({ ...normalized, ...adapted.patch });
@@ -263,12 +313,56 @@ function applyPatch(patch, commit) {
   regenerate({ commit, warnings });
 }
 
+/** Last measured valid-compile duration; drives the heavy-config policy. */
+let lastCompileMs = 0;
+/** @type {Array<() => void>|null} edits queued behind the busy badge */
+let heavyQueue = null;
+const busyEl = document.getElementById("busy");
+
+function setBusy(on) {
+  if (busyEl) busyEl.hidden = !on;
+}
+
+/**
+ * Show the busy badge, let it paint, then run the queued work. Edits that
+ * arrive while a launch is pending run in order in the same batch. rAF lands
+ * before the paint and the timeout inside launch() lands behind one, so the
+ * badge is visible before the blocking work; rAF never fires in hidden
+ * tabs, so a plain timeout backstops it.
+ */
+function deferBehindBadge(run) {
+  if (heavyQueue) {
+    heavyQueue.push(run);
+    return;
+  }
+  heavyQueue = [run];
+  setBusy(true);
+  let launched = false;
+  const launch = () => {
+    if (launched) return;
+    launched = true;
+    setTimeout(() => {
+      const queue = heavyQueue;
+      heavyQueue = null;
+      try {
+        for (const fn of queue) fn();
+      } finally {
+        setBusy(false);
+      }
+    }, 0);
+  };
+  requestAnimationFrame(launch);
+  setTimeout(launch, 150);
+}
+
+/** Synchronous rebuild — callers read `last`/`draftValid` right after. */
 function regenerate({
   forceFrame = false,
   commit = true,
   fromHistory = false,
   warnings = [],
 } = {}) {
+  const t0 = performance.now();
   const next = compile(draft);
   if (!next.validation.ok) {
     draftValid = false;
@@ -277,24 +371,66 @@ function regenerate({
     // Do not write an invalid hash.
     return;
   }
+  // Only valid compiles carry geometry cost; invalid ones return early and
+  // must not clear heavy mode.
+  lastCompileMs = performance.now() - t0;
+  ui.setHeavy(lastCompileMs > HEAVY_COMPILE_MS);
 
-  const reframe =
+  // Do not reframe on jitter/seed-only edits. Reframe on force, first mesh,
+  // base change, or size change.
+  const shouldFrame =
     forceFrame ||
     !last ||
     last.state.base !== next.state.base ||
     last.state.circumdiameterMm !== next.state.circumdiameterMm;
 
+  // Keep the underside stable when distort rebuilds the face list (merge-skip
+  // reindexes faces; keeping faceIndex by number rotates the model).
+  let stable = next;
+  if (
+    !forceFrame &&
+    last?.skeleton &&
+    last.state.base === next.state.base &&
+    Number.isInteger(last.state.faceIndex) &&
+    last.state.faceIndex >= 0 &&
+    last.state.faceIndex < last.skeleton.faces.length
+  ) {
+    const prevN = toFaceFrame(last.skeleton, last.state.faceIndex).normal;
+    const mapped = nearestFaceByNormal(next.skeleton, prevN);
+    if (mapped !== next.state.faceIndex) {
+      const orientation = computeOrientation(next.skeleton, mapped);
+      stable = {
+        ...next,
+        orientation,
+        state: { ...next.state, faceIndex: mapped },
+        metrics: {
+          ...next.metrics,
+          // limits unchanged; orientation-dependent metrics stay from compile
+        },
+      };
+    }
+  }
+
   draftValid = true;
-  last = next;
-  draft = { ...next.state };
-  lastLimits = next.metrics.limits;
-  viewer.setMesh(next.mesh, next.orientation, {
-    frame: reframe,
-    skeleton: next.skeleton,
+  const prevFace = last?.state?.faceIndex;
+  const prevJitter = last?.state?.jitter;
+  const prevSeed = last?.state?.seed;
+  last = stable;
+  draft = { ...stable.state };
+  lastLimits = stable.metrics.limits;
+  viewer.setMesh(stable.mesh, stable.orientation, {
+    frame: shouldFrame,
+    skeleton: stable.skeleton,
   });
-  ui.setResult(next, { limits: lastLimits, warnings });
-  if (next.state.faceIndex >= 0) {
-    viewer.setFocusFaces([next.state.faceIndex]);
+  ui.setResult(stable, { limits: lastLimits, warnings });
+  // Focus on frame or deliberate face pick — not on distort remaps.
+  const facePick =
+    prevFace != null &&
+    stable.state.faceIndex !== prevFace &&
+    stable.state.jitter === prevJitter &&
+    stable.state.seed === prevSeed;
+  if (stable.state.faceIndex >= 0 && (shouldFrame || facePick)) {
+    viewer.setFocusFaces([stable.state.faceIndex]);
   }
   updateProjectStatus();
 
@@ -323,8 +459,12 @@ function syncHistory(commit) {
 function writeUrl(hash, action) {
   const url = `${location.pathname}${location.search}#${hash}`;
   applyingHistory = true;
-  if (action === "push") history.pushState({ shapemaker: true }, "", url);
-  else history.replaceState({ shapemaker: true }, "", url);
+  if (action === "push") {
+    history.pushState({ shapemaker: true }, "", url);
+    sessionPushDepth += 1;
+  } else {
+    history.replaceState({ shapemaker: true }, "", url);
+  }
   lastWrittenHash = hash;
   applyingHistory = false;
 }
@@ -336,16 +476,11 @@ function updateProjectStatus() {
     name: projectName,
     dirty,
     canSave: canSaveProject({ draftValid, last }),
+    canUndo: sessionPushDepth > 0,
   });
-  if (presets.length) {
-    ui.setPresetStatus(
-      presets.map((p) => ({
-        id: p.id,
-        active: statesEqual(draft, p.resolved),
-        edited: projectName === p.name && !statesEqual(draft, p.resolved),
-      })),
-    );
-  }
+  ui.setStartStatus(
+    startStatuses({ draft, projectName, presets }),
+  );
 }
 
 function downloadText(text, filename) {

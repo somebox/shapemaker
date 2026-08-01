@@ -14,20 +14,33 @@ import { sfc32 } from "./random.js";
 const JITTER_STREAM = 0x5f356495;
 
 /**
+ * Experimental soft mapping for the UX start-from prototype: slider percent
+ * is scaled down so mid-range values stay subtle. jitter 0 stays identity.
+ * Revisit when locking SPEC (may restore 1.0 or switch to plane-perturbation).
+ */
+export const JITTER_AMPLITUDE_SCALE = 0.25;
+
+/**
  * @param {Float64Array} points  normalized flat xyz (unit circumradius)
- * @param {{ seed: number, jitter: number }} params
- *   jitter: percent of circumradius (0–20) — max arc displacement; each
- *   point moves by a uniform random fraction of it in a uniform random
- *   tangent direction.
+ * @param {{ seed: number, jitter: number, mode?: "surface"|"radial"|"both" }} params
+ *   jitter: UI percent 0–50 — budget after JITTER_AMPLITUDE_SCALE (arc for
+ *   surface displacement, relative radius for radial).
+ *   mode: "surface" slides along the sphere (default, no swallowed points);
+ *   "radial" scales center-to-surface distance — points can sink inside the
+ *   hull and vanish (accepted, gradual); "both" applies both.
+ *   Every mode draws the same RNG sequence per point, so switching modes
+ *   reworks the same underlying randomness rather than rerolling.
  * @returns {Float64Array} new array; input untouched. jitter 0 returns a
  *   bit-identical copy (no RNG draws), so exact bases stay exact.
  */
-export function jitterPoints(points, { seed, jitter }) {
+export function jitterPoints(points, { seed, jitter, mode = "surface" }) {
   const out = Float64Array.from(points);
   if (!(jitter > 0)) return out;
 
   const rng = sfc32((seed >>> 0) ^ JITTER_STREAM);
-  const maxAngle = (jitter / 100); // arc length on the unit sphere = angle
+  const budget = (jitter / 100) * JITTER_AMPLITUDE_SCALE;
+  const surface = mode !== "radial";
+  const radial = mode !== "surface";
 
   for (let i = 0; i < out.length; i += 3) {
     let px = out[i], py = out[i + 1], pz = out[i + 2];
@@ -41,16 +54,35 @@ export function jitterPoints(points, { seed, jitter }) {
       len = Math.hypot(tx, ty, tz);
     }
     tx /= len; ty /= len; tz /= len;
+    const arc = budget * rng();
+    const dr = budget * (2 * rng() - 1);
 
-    // Rotate p toward t by a random arc within the budget.
-    const a = maxAngle * rng();
-    const cos = Math.cos(a), sin = Math.sin(a);
-    px = px * cos + tx * sin;
-    py = py * cos + ty * sin;
-    pz = pz * cos + tz * sin;
-    // Renormalize against float drift — points must stay on the sphere.
-    const r = Math.hypot(px, py, pz);
-    out[i] = px / r; out[i + 1] = py / r; out[i + 2] = pz / r;
+    if (surface) {
+      // Rotate p toward t by the arc, renormalized against float drift.
+      const cos = Math.cos(arc), sin = Math.sin(arc);
+      px = px * cos + tx * sin;
+      py = py * cos + ty * sin;
+      pz = pz * cos + tz * sin;
+      const r = Math.hypot(px, py, pz);
+      px /= r; py /= r; pz /= r;
+    }
+    if (radial) {
+      const s = 1 + dr;
+      px *= s; py *= s; pz *= s;
+    }
+    out[i] = px; out[i + 1] = py; out[i + 2] = pz;
+  }
+
+  if (radial) {
+    // Radial scaling leaves the cloud off unit circumradius; renormalize so
+    // the Size slider still means circumdiameter.
+    let maxR2 = 0;
+    for (let i = 0; i < out.length; i += 3) {
+      const r2 = out[i] ** 2 + out[i + 1] ** 2 + out[i + 2] ** 2;
+      if (r2 > maxR2) maxR2 = r2;
+    }
+    const inv = 1 / Math.sqrt(maxR2);
+    for (let i = 0; i < out.length; i++) out[i] *= inv;
   }
   return out;
 }

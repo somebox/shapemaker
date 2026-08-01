@@ -9,10 +9,93 @@ onward every release gets a full entry here, and breaking changes to the
 
 ## [Unreleased]
 
+### Added
+
+- **Sphere base** (`src/points/sphere.js`): deterministic fibonacci-lattice
+  points; density sets how faceted the sphere is, seed only matters under
+  jitter. Appears in the start chooser with its own wireframe thumbnail;
+  Form pack matches the random hull (border 1, fillet 1.5).
+- **Subdivide** (`src/subdivide.js`): spherified surface subdivision, levels
+  0/1/2, canonical `subdiv` key. Triangles split 4:1, polygons fan over
+  midpoint-split edges (mixed-face solids stay closed); new vertices land on
+  the circumsphere. Applied after the hull and before jitter, so
+  plane-perturbation operates on the subdivided planes — subdivide + high
+  jitter yields organic Voronoi-like balls.
+
+- **Jitter Direction** (surface / radial / both): radial randomizes the
+  center-to-surface distance — point radii on parametric bases (swallowed
+  points vanish gradually, cloud renormalized to keep Size honest), plane
+  offsets on regulars. All modes share one random sequence per seed.
+- **Smooth** (0–100%) on subdivision: an outer-edge fillet by sphere clip —
+  corners and edges round onto a shrinking sphere while flat face interiors
+  keep their planes, so overall dimensions hold (a smoothed cube is a die,
+  not a scaled balloon). 100 reaches the inscribed ball. Subdivision itself
+  splits flat, so level alone only adds opening resolution. Sliver faces
+  produced by extreme perturbation drop their hole fillet per-face instead
+  of failing to compile.
+
+### Changed
+
+- Operation order fixed and documented as **jitter → subdivide → smooth**:
+  jitter distorts the simple base form, subdivision adds resolution to it,
+  smooth fillets its edges. Previously plane perturbation ran after
+  subdivision, where the near-coplanar sub-face planes it perturbed mostly
+  stopped binding — turning on jitter silently discarded subdivision and
+  smoothing.
+- Camera framing fits the bounding sphere instead of the box max-dimension,
+  so a cube no longer renders far larger than round solids of the same
+  circumdiameter.
+- Persistent status bar under the view: dimension/mesh stats, the busy
+  badge, and Export STL moved out of the panel; the panel itself is more
+  compact (less vertical scrolling).
+- Removed retired UI machinery: density chip levels and the unused select
+  control path.
+- Border clamping can no longer strand the session at 0 mm: adaptation
+  clamps with sub-0.1 mm precision instead of flooring to zero, heals a
+  non-positive border on the next edit of any kind, and the wall/border/
+  fillet slider ranges auto-adjust their minimums when tiny faces push the
+  ceiling below the default floor.
+- The busy badge covers the whole heavy edit: cost is predicted before the
+  adaptation probe (doubled for reshape edits, which pay probe + compile),
+  so the badge paints before any blocking work instead of after the probe.
+- Interactive-performance policy (`src/perf.js`): compiles are timed; above
+  a 100 ms threshold sliders switch to commit-on-release (the number readout
+  stays live during the drag) and a busy badge is painted before the
+  blocking compile starts. Subdivision clicks are predicted heavy from the
+  projected face count, and deferred runs launch via rAF with a timeout
+  backstop so hidden tabs never hang.
+- Session model: Base and named presets hard-reset the full recipe (start-from);
+  Browse / Edit chrome; no confirm when switching starts; Undo gated to
+  same-document history.
+- Start-from chooser: built-in point packs and named presets appear as
+  thumbnail cards (SVG wireframes projected from each start's skeleton);
+  Shape no longer has a Base dropdown (starts load points to modify).
+- Jitter allowed on every base, always visible, soft amplitude; density/seed
+  dim when inert; no camera reframe on jitter/seed-only edits.
+- Density is a direct point-count slider (4–60 pts) for parametric bases;
+  separation derives from the count (retired Sparse/Medium/Dense anchors
+  preserved at 12/24/48). Jitter range extended to 0–50%; at extreme
+  amplitudes on regular bases a fully-cut face vanishes gracefully instead
+  of failing the compile.
+- Plane-perturbation jitter on regular bases (`src/plane-perturb.js`): face
+  planes tilt/offset and vertices rebuild via the dual hull, so faces stay
+  planar convex polygons — a jittered cube is six wobbly quads and the
+  icosidodecahedron keeps its 32 faces. High-valence vertices split into
+  short edges that grow gradually from zero. The random base keeps on-sphere
+  point jitter (already triangulated).
+- Fillets hold under jitter: the 2D opening path collapses vertex-split micro
+  edges before filleting (arc rounds across the virtual corner) and the face
+  frame origin is the polygon *area* centroid, immune to split-vertex ring
+  multiplicity. Previously the first jitter step clamped a face's fillet and
+  the fillet slider ceiling to ~1.5× a micro edge (≈0.01 mm).
+- Binding docs updated for browse→edit, jitter scope, and refactor backlog
+  (`SPEC.md`, `ROADMAP.md`).
+
 ### Notes
 
-- Mesh quality / tessellation presets are scheduled as Milestone 4.
-- Random / jittered hulls are scheduled as Milestone 5.
+- Mesh quality / tessellation presets (Draft / Normal / Fine → `edgeDiv`
+  4/10/20) are shipped and verified — Milestone 4 exit criteria met.
+- User presets (“Yours”) stay Later.
 
 ## [0.3.0] — 2026-07-31
 

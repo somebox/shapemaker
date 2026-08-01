@@ -5,7 +5,7 @@
 
 import { faceFrames, projectToFrame } from "./faceframe.js";
 import { inradiusRange } from "./skeleton.js";
-import { filletRmax, insetScale } from "./geom/poly2.js";
+import { filletRmax, insetScale, collapseMicroEdges } from "./geom/poly2.js";
 /**
  * @param {{ positions: Float64Array, faces: number[][] }} skeleton
  * @param {{
@@ -48,7 +48,12 @@ export function computeLimits(skeleton, state) {
         ? state.borderMm / frame.edgeDistMin
         : state.borderFraction;
       if (Number.isFinite(fraction) && fraction >= 0 && fraction < 1) {
-        minFillet = Math.min(minFillet, filletRmax(insetScale(corners, fraction)) * 0.999);
+        // Micro edges are swallowed by the fillet path, so they must not
+        // drag the slider ceiling down either.
+        minFillet = Math.min(
+          minFillet,
+          filletRmax(collapseMicroEdges(insetScale(corners, fraction))) * 0.999,
+        );
       }
     }
     borderMmMax = minEdgeDist * 0.95;

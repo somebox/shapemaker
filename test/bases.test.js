@@ -70,7 +70,7 @@ function edgeLengthMultiset(positions, faces, digits = 6) {
 }
 
 describe("BASES registry", () => {
-  it("lists six regular bases plus the parametric random hull", () => {
+  it("lists six regular bases plus the parametric sphere and random hull", () => {
     assert.deepEqual([...BASE_IDS].sort(), [
       "cube",
       "dodecahedron",
@@ -78,15 +78,16 @@ describe("BASES registry", () => {
       "icosidodeca",
       "octahedron",
       "random",
+      "sphere",
       "tetrahedron",
     ]);
     for (const id of BASE_IDS) {
       assert.equal(isKnownBase(id), true);
       assert.ok(BASES[id].label);
-      if (id === "random") {
+      if (id === "random" || id === "sphere") {
         assert.equal(BASES[id].regular, false);
         assert.equal(BASES[id].parametric, true);
-        assert.equal(BASES[id].merge, false, "random skips coplanar merge");
+        assert.equal(BASES[id].merge, false, `${id} skips coplanar merge`);
       } else {
         assert.equal(BASES[id].regular, true);
       }

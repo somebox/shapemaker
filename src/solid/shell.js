@@ -224,7 +224,7 @@ export function buildShell(skeleton, opts) {
       corner2d[k * 2 + 1] = B2y[idx];
     }
 
-    const { opening, radiusUsed } = openingGenerator.generate(
+    let { opening, radiusUsed } = openingGenerator.generate(
       corner2d,
       frac,
       filletMm,
@@ -236,7 +236,17 @@ export function buildShell(skeleton, opts) {
     // angular order and consecutive rays bound exactly one quad.
     const ang = new Float64Array(m);
     for (let k = 0; k < m; k++) ang[k] = Math.atan2(B2y[k], B2x[k]);
-    const rad = radialSample(opening, ang);
+    let rad;
+    try {
+      rad = radialSample(opening, ang);
+    } catch {
+      // Sliver faces (perturbed subdivision can produce them): a near-max
+      // fillet approaches a circle about the incenter, which can exclude
+      // the area centroid. The unfilleted inset ring is star-shaped about
+      // the centroid by construction — drop the fillet on this face only.
+      ({ opening, radiusUsed } = openingGenerator.generate(corner2d, frac, 0, 1));
+      rad = radialSample(opening, ang);
+    }
 
     let minR = Infinity;
     const OO = [];

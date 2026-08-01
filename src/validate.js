@@ -74,18 +74,20 @@ export function validateState(state) {
   if (!(Number.isFinite(state.separation) && state.separation >= 0 && state.separation <= 1)) {
     err("points", "separation", "Separation must be between 0 and 1");
   }
-  if (!(Number.isFinite(state.jitter) && state.jitter >= 0 && state.jitter <= 20)) {
-    err("points", "jitter", "Jitter must be between 0 and 20 % of the size");
+  if (!(Number.isFinite(state.jitter) && state.jitter >= 0 && state.jitter <= 50)) {
+    err("points", "jitter", "Jitter must be between 0 and 50 % of the size");
   }
-  // Jitter is scoped to the random base in v0.4: on merged regular bases any
-  // nonzero jitter shatters faces into triangles (a topology cliff, not a
-  // gradual change). Plane-perturbation jitter for regular bases is on the
-  // roadmap; until then this is a clean refusal rather than a surprise.
-  if (state.jitter > 0 && state.base !== "random") {
-    err("points", "jitter", "Jitter is available on the random base in this version", {
-      clampTo: 0,
-    });
+  if (!["surface", "radial", "both"].includes(state.jitterMode)) {
+    err("points", "jitterMode", "Jitter direction must be surface, radial, or both");
   }
+  if (!(Number.isInteger(state.subdiv) && state.subdiv >= 0 && state.subdiv <= 2)) {
+    err("points", "subdiv", "Subdivide must be 0, 1, or 2");
+  }
+  if (!(Number.isFinite(state.soften) && state.soften >= 0 && state.soften <= 100)) {
+    err("points", "soften", "Smooth must be between 0 and 100 %");
+  }
+  // Jitter is allowed on every base (locked session model). Regular bases
+  // perturb face planes (polygons kept); random jitters points on the sphere.
 
   if (state.openings) {
     // Openings need an inner surface to close the rim against. A solid body
