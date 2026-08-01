@@ -6,6 +6,34 @@
 import { faceFrames, projectToFrame } from "./faceframe.js";
 import { inradiusRange } from "./skeleton.js";
 import { filletRmax, insetScale, collapseMicroEdges } from "./geom/poly2.js";
+
+/** Practical FDM floor (≈ 6 lines at 0.4 mm nozzle); see docs/BORDER_EVIDENCE.md. */
+export const PRINTABLE_BORDER_MM = 2.5;
+
+/**
+ * Printability guidance when this shape cannot reach the FDM border floor —
+ * derived from state + limits, so it fires on every entry path (edit, URL
+ * hash, preset, project open), not only when an edit clamps the value.
+ * The single emitting site for border printability wording.
+ *
+ * @param {{ openings?: boolean }} state
+ * @param {{ borderMmMax: number|null }} limits
+ * @returns {{ stage: string, key: string, message: string } | null}
+ */
+export function borderPrintabilityWarning(state, limits) {
+  if (state.openings === false) return null;
+  const max = limits.borderMmMax;
+  if (max == null || !Number.isFinite(max) || max >= PRINTABLE_BORDER_MM) {
+    return null;
+  }
+  return {
+    stage: "limits",
+    key: "borderMm",
+    message:
+      `Borders on this shape are limited to ${max.toFixed(1)} mm — below the ` +
+      `≈${PRINTABLE_BORDER_MM} mm printable floor. Scale up or reduce density to print this.`,
+  };
+}
 /**
  * @param {{ positions: Float64Array, faces: number[][] }} skeleton
  * @param {{

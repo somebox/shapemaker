@@ -3,7 +3,8 @@
 #
 # Matrix: 8 bases × 3 supported shell combos (24) + one near-limit stress
 # open per base (8) + Draft/Fine quality on the default solid (2, M4) +
-# jittered random (1) + 3 random seeds × Draft/Fine (6, M5) = 41 STLs.
+# jittered random (1) + 3 random seeds × Draft/Fine (6) + M5 irregular
+# extremes (8) = 49 STLs.
 #
 # Requires: node, and .venv with prototype/requirements.txt installed.
 set -euo pipefail
@@ -20,6 +21,7 @@ OUT="${ROOT}/test/out/acceptance"
 rm -rf "$OUT"
 mkdir -p "$OUT"
 EXPORT=(node scripts/export-stl.mjs)
+EXPECTED=49
 
 while IFS=$'\t' read -ra parts; do
   [[ ${#parts[@]} -gt 0 ]] || continue
@@ -38,9 +40,41 @@ const combos = [
   { tag: "hollow_open", depth: "hollow", openings: true },
 ];
 
+/** The one border-fit formula: 85% of the probed ceiling, floor 0.8 mm. */
+function fitBorder(borderMmMax) {
+  return Math.max(0.8, Math.floor(borderMmMax * 0.85 * 10) / 10);
+}
+
+/** Probe hollow_open limits and return a fitted border. */
+function probedBorder(opts) {
+  clearPipelineCache();
+  const probe = compile({
+    depth: "hollow",
+    openings: true,
+    borderMm: 0.8,
+    filletMm: 2,
+    ...opts,
+  });
+  if (!probe.validation.ok) {
+    console.error("probe failed", opts, probe.validation.errors);
+    process.exit(1);
+  }
+  return fitBorder(probe.metrics.limits.borderMmMax);
+}
+
+/** Canonical state keys forward generically — kebab-cased to CLI flags. */
+const kebab = (k) => k.replace(/([A-Z])/g, "-$1").toLowerCase();
+
+function emitHollowOpen(name, opts) {
+  const border = probedBorder(opts);
+  const flags = Object.entries({ depth: "hollow", openings: true, ...opts })
+    .map(([k, v]) => `--${kebab(k)}=${v}`);
+  console.log([name, ...flags, `--border=${border}`, "--fillet=2"].join("\t"));
+}
+
 for (const base of BASE_IDS) {
-  // Parametric bases (random) can have faces where the default 3.2 mm border
-  // does not fit — probe limits first and fit every open combo.
+  // Parametric bases can have faces where the default 3.2 mm border does
+  // not fit — probe limits first and fit every open combo.
   const parametric = Boolean(BASES[base].parametric);
   clearPipelineCache();
   const probe = compile({
@@ -53,14 +87,12 @@ for (const base of BASE_IDS) {
     console.error("probe failed", base, probe.validation.errors);
     process.exit(1);
   }
-  const fitBorder = parametric
-    ? Math.max(0.8, Math.floor(probe.metrics.limits.borderMmMax * 0.85 * 10) / 10)
-    : null;
+  const fitted = parametric ? fitBorder(probe.metrics.limits.borderMmMax) : null;
 
   for (const c of combos) {
     const name = `${base}__${c.tag}.stl`;
     const flags = [`--base=${base}`, `--depth=${c.depth}`, `--openings=${c.openings}`];
-    if (c.openings && fitBorder != null) flags.push(`--border=${fitBorder}`, "--fillet=2");
+    if (c.openings && fitted != null) flags.push(`--border=${fitted}`, "--fillet=2");
     console.log([name, ...flags].join("\t"));
   }
 
@@ -92,8 +124,8 @@ for (const [tag, edgeDiv] of [["draft", 4], ["fine", 20]]) {
   );
 }
 
-// Jittered random hull (M5). Jitter is scoped to the random base in v0.4 —
-// on merged regular bases point-jitter is a topology cliff, not gradual.
+// Jitter applies to any base (plane-perturb on regulars, point jitter on
+// parametric). Keep one seeded random case as a stability anchor.
 console.log(
   [
     "random_s1337_j10__hollow_open.stl",
@@ -107,21 +139,9 @@ console.log(
   ].join("\t"),
 );
 
-// Random hulls (M5): three fixed seeds, hollow-open, Draft + Fine each.
-// Border probed per seed — small irregular faces can cap it under 2 mm.
+// Random hulls: three fixed seeds, hollow-open, Draft + Fine each.
 for (const seed of [1, 1337, 90210]) {
-  clearPipelineCache();
-  const probe = compile({
-    base: "random", seed, depth: "hollow", openings: true, borderMm: 0.8, filletMm: 2,
-  });
-  if (!probe.validation.ok) {
-    console.error("random probe failed", seed, probe.validation.errors);
-    process.exit(1);
-  }
-  const border = Math.max(
-    0.8,
-    Math.floor(probe.metrics.limits.borderMmMax * 0.85 * 10) / 10,
-  );
+  const border = probedBorder({ base: "random", seed });
   for (const [tag, edgeDiv] of [["draft", 4], ["fine", 20]]) {
     console.log(
       [
@@ -137,6 +157,32 @@ for (const seed of [1, 1337, 90210]) {
     );
   }
 }
+
+// M5 irregular extremes — all hollow_open with probed border.
+emitHollowOpen("cube_s1337_j10__hollow_open.stl", {
+  base: "cube", seed: 1337, jitter: 10,
+});
+emitHollowOpen("icosidodeca_s1337_j10__hollow_open.stl", {
+  base: "icosidodeca", seed: 1337, jitter: 10,
+});
+emitHollowOpen("sphere_s1337_j10__hollow_open.stl", {
+  base: "sphere", seed: 1337, jitter: 10,
+});
+emitHollowOpen("random_s1337_j10_radial__hollow_open.stl", {
+  base: "random", seed: 1337, jitter: 10, jitterMode: "radial",
+});
+emitHollowOpen("random_s1337_j10_both__hollow_open.stl", {
+  base: "random", seed: 1337, jitter: 10, jitterMode: "both",
+});
+emitHollowOpen("cube_subdiv1__hollow_open.stl", {
+  base: "cube", subdiv: 1, soften: 0,
+});
+emitHollowOpen("cube_subdiv2_soften100__hollow_open.stl", {
+  base: "cube", subdiv: 2, soften: 100,
+});
+emitHollowOpen("cube_s1337_j10_subdiv1__hollow_open.stl", {
+  base: "cube", seed: 1337, jitter: 10, subdiv: 1, soften: 0,
+});
 JS
 )
 
@@ -183,8 +229,8 @@ PY
   fi
 done
 
-if [[ "$count" -ne 41 ]]; then
-  echo "acceptance FAILED — expected 41 STLs, got $count" >&2
+if [[ "$count" -ne "$EXPECTED" ]]; then
+  echo "acceptance FAILED — expected $EXPECTED STLs, got $count" >&2
   exit 1
 fi
 
@@ -192,4 +238,4 @@ if [[ "$fail" -ne 0 ]]; then
   echo "acceptance FAILED" >&2
   exit 1
 fi
-echo "acceptance OK — all 41 STLs meet every mesh requirement"
+echo "acceptance OK — all $EXPECTED STLs meet every mesh requirement"

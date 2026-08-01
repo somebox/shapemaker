@@ -111,7 +111,7 @@ preset compiles watertight at the expected density (icosidodeca ~×0.4 / ×1 /
 the parity anchors; flat shading everywhere; `edgeDiv` round-trips through
 project files and URL state.
 
-## Next — Milestone 5: distort and invent
+## Done — Milestone 5: distort and invent (v0.4.0)
 
 Goal: provide expressive irregular forms without adding a modeling language.
 
@@ -125,24 +125,38 @@ Goal: provide expressive irregular forms without adding a modeling language.
 - Density / seed / jitter stay visible; inert knobs dim rather than hide.
 - User preset Save/delete (“Yours”) is later; project Save stays project files.
 
-Still in M5 scope / follow-through:
+### Milestone 5 exit criteria — met
 
-- Seeded random-on-sphere point generation (shipped in tree; harden acceptance).
-- Density: shipped as a direct point-count slider (4–60) with separation
-  derived from the count; the Sparse/Medium/Dense chips are retired.
+- Seeded random-on-sphere point generation; density as a direct point-count
+  slider (4–60); Sparse/Medium/Dense chips retired.
 - Per-face opening, border, and fillet metrics for non-congruent faces.
-- Irregular-hull acceptance matrix across representative seeds and extremes.
-- Re-evaluate whether fixed millimetre borders remain sufficient on small,
-  irregular faces.
+- Irregular-hull acceptance matrix across representative seeds and extremes
+  (`scripts/acceptance.sh` 49 STLs + `test/m5-matrix.test.js`).
+- Fixed millimetre borders retained after evidence
+  ([`BORDER_EVIDENCE.md`](BORDER_EVIDENCE.md)); clamp warnings guide scale-up
+  / reduce-density when below ~2.5 mm.
 
 ## Next — Milestone 6: share, draw, and judge
 
 Goal: improve communication and downstream fabrication handoff.
 
-- Unit-aware SVG projection from the current camera.
-- Approximate overhang and near-horizontal-edge overlays.
-- Material-density presets and mass estimate.
-- Export naming that includes relevant seed and size information.
+- Camera-matched SVG line drawing — **shipped** in v0.4
+  (`src/export/svg.js`): perspective hidden-line export of the visible
+  silhouette/crease edges; scale annotations dropped after playtest.
+- Approximate overhang and near-horizontal-edge overlays — **shipped** in
+  v0.4 (`src/metrics.js`, `metrics.printRisk`).
+- Export naming that includes relevant seed and size information — **shipped**
+  for STL and SVG.
+- Material-density presets and mass estimate (remaining).
+- Section plane along the bed axis (remaining): a render-only clipping plane
+  the user sweeps up Z to inspect wall structure and cavities alongside the
+  overhang overlay. Preview-only (Three.js clipping) — no mesh booleans,
+  export unchanged. Open cross-sections on hollow shells are accepted;
+  capping is not in scope.
+- Scale legibility in the viewer (remaining): millimetre labels on the plate
+  grid's major lines, and a prominent in-view dimension callout near the
+  model while Size (or any size-affecting control) is adjusted. Today the
+  grid is unlabeled and dimensions appear only in the Inspect panel.
 
 ## Later — fabrication workflows
 
@@ -189,8 +203,7 @@ and require a defined assembly workflow before implementation.
   with 4+ faces split into short edges — kept in the skeleton (exact
   planarity), swallowed in the 2D opening path so fillets round across the
   virtual corner; face frames use the area centroid so split rings don't
-  off-center openings. Remaining: wider acceptance seeds beyond the test
-  matrix; calibrate the shared soft amplitude.
+  off-center openings. Remaining: calibrate the shared soft amplitude.
 - Additional opening generators such as circle or mirrored-face openings.
 - Fixed-order skeleton operators: **subdivide is shipped**
   (`src/subdivide.js`, levels 0–2, applied after jitter — order is
@@ -214,15 +227,11 @@ There will be no editable operator stack unless a compelling workflow appears.
 
 Driven by the locked session model; not blocking the thin slice already in tree.
 
-- Always-dim control system for all groups (Form hideWhen → inert where it
-  helps).
 - Calibrate or replace `JITTER_AMPLITUDE_SCALE` (plane-perturbation shipped).
 - Stable orientation under distort (resting face / focus across face-identity
   reorder; merge-skip remains on the random base).
 - Retire or narrow `adaptStateForBase` preserve-Form path (starts own reset;
   adaptation remains for wall/border clamp on reshape).
-- Session Undo that restores name + clean baseline with geometry (URL today
-  encodes authoring state only).
 - Align or supersede older Phase 4 plan units with this model.
 
 ## Backlog — true struts and node joints
@@ -258,8 +267,10 @@ performance budget, and export guarantees before promoting it from backlog.
 - **Free uniform scaling is the default.** Edge-length constraints are optional
   workflows, not a competing size model.
 - **Border is authored in millimetres for version 1.** Relative openness is a
-  readout; proportional authoring may be reconsidered with irregular-hull
-  evidence.
+  readout. **Retained after irregular-hull evidence (v0.4):** proportional
+  authoring would not rescue dense Ø100 lace balls (physics, not units);
+  clamp warnings guide scale-up or lower density when the fitted border falls
+  below ~2.5 mm. See [`BORDER_EVIDENCE.md`](BORDER_EVIDENCE.md).
 - **Projects are portable files.** URL state is for sharing; local recovery is
   convenience; neither replaces `.shapemaker.json`.
 - **Copy Link is part of Milestone 2** (with URL state), not Milestone 6.

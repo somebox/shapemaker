@@ -51,6 +51,7 @@ export function createViewer(container, opts = {}) {
   let focusMesh = null;
   let edgePick = null;
   let edgeHighlight = null;
+  let riskGroup = null;
   let faceIdAttr = null;
   let edgeLengths = null;
   let selectedEdge = null;
@@ -66,20 +67,45 @@ export function createViewer(container, opts = {}) {
    * @param {object} orientation
    * @param {{ frame?: boolean, skeleton?: { positions: Float64Array, edges: number[][] } }} [opts]
    */
-  function setMesh(mesh, orientation, { frame = false, skeleton = null } = {}) {
-    while (modelGroup.children.length) {
-      const c = modelGroup.children[0];
-      modelGroup.remove(c);
+  /** Dispose every geometry/material at or below `obj` (Groups included). */
+  function disposeObject3D(obj) {
+    obj.traverse((c) => {
       c.geometry?.dispose?.();
       if (c.material) {
         if (Array.isArray(c.material)) c.material.forEach((m) => m.dispose());
         else c.material.dispose();
       }
+    });
+  }
+
+  /** Triangle-soup positions for mesh triangles whose faceId is in `ids`. */
+  function trianglesForFaceIds(ids) {
+    if (!meshObj || !faceIdAttr) return [];
+    const pos = meshObj.geometry.getAttribute("position");
+    const idx = meshObj.geometry.getIndex();
+    const verts = [];
+    const set = new Set(ids);
+    for (let t = 0; t < faceIdAttr.length; t++) {
+      if (!set.has(faceIdAttr[t])) continue;
+      for (let k = 0; k < 3; k++) {
+        const vi = idx.getX(t * 3 + k);
+        verts.push(pos.getX(vi), pos.getY(vi), pos.getZ(vi));
+      }
+    }
+    return verts;
+  }
+
+  function setMesh(mesh, orientation, { frame = false, skeleton = null } = {}) {
+    while (modelGroup.children.length) {
+      const c = modelGroup.children[0];
+      modelGroup.remove(c);
+      disposeObject3D(c);
     }
     meshObj = null;
     focusMesh = null;
     edgePick = null;
     edgeHighlight = null;
+    riskGroup = null;
     faceIdAttr = mesh.faceId;
 
     const geo = new THREE.BufferGeometry();
@@ -185,6 +211,81 @@ export function createViewer(container, opts = {}) {
     controls.update();
   }
 
+  /**
+   * Draw approximate print-risk overlays (flat edges + overhang faces).
+   * @param {{
+   *   skeleton: { positions: Float64Array, edges: number[][] },
+   *   flatEdgeIndices?: number[],
+   *   overhangFaceIndices?: number[],
+   * } | null} risk
+   */
+  function setPrintRisk(risk) {
+    if (riskGroup) {
+      modelGroup.remove(riskGroup);
+      disposeObject3D(riskGroup);
+      riskGroup = null;
+    }
+    if (!risk || !meshObj) return;
+    const group = new THREE.Group();
+    const { skeleton, flatEdgeIndices = [], overhangFaceIndices = [] } = risk;
+
+    if (flatEdgeIndices.length && skeleton?.edges && skeleton?.positions) {
+      const pts = [];
+      for (const ei of flatEdgeIndices) {
+        const e = skeleton.edges[ei];
+        if (!e) continue;
+        const [a, b] = e;
+        pts.push(
+          skeleton.positions[a * 3],
+          skeleton.positions[a * 3 + 1],
+          skeleton.positions[a * 3 + 2],
+          skeleton.positions[b * 3],
+          skeleton.positions[b * 3 + 1],
+          skeleton.positions[b * 3 + 2],
+        );
+      }
+      if (pts.length) {
+        const g = new THREE.BufferGeometry();
+        g.setAttribute("position", new THREE.Float32BufferAttribute(pts, 3));
+        group.add(
+          new THREE.LineSegments(
+            g,
+            new THREE.LineBasicMaterial({ color: 0xd9a05b }),
+          ),
+        );
+      }
+    }
+
+    if (overhangFaceIndices.length) {
+      const verts = trianglesForFaceIds(overhangFaceIndices);
+      if (verts.length) {
+        const g = new THREE.BufferGeometry();
+        g.setAttribute("position", new THREE.Float32BufferAttribute(verts, 3));
+        group.add(
+          new THREE.Mesh(
+            g,
+            new THREE.MeshBasicMaterial({
+              color: 0xd97b6c,
+              transparent: true,
+              opacity: 0.35,
+              side: THREE.DoubleSide,
+              depthTest: true,
+              // Coplanar with the flagged faces — pull toward the camera so
+              // the persistent overlay does not z-fight while orbiting.
+              polygonOffset: true,
+              polygonOffsetFactor: -2,
+              polygonOffsetUnits: -2,
+            }),
+          ),
+        );
+      }
+    }
+
+    if (!group.children.length) return;
+    riskGroup = group;
+    modelGroup.add(riskGroup);
+  }
+
   function setFocusFaces(ids) {
     if (focusMesh) {
       modelGroup.remove(focusMesh);
@@ -194,18 +295,7 @@ export function createViewer(container, opts = {}) {
     }
     if (!meshObj || !ids?.length || !faceIdAttr) return;
 
-    const src = meshObj.geometry;
-    const pos = src.getAttribute("position");
-    const idx = src.getIndex();
-    const verts = [];
-    const set = new Set(ids);
-    for (let t = 0; t < faceIdAttr.length; t++) {
-      if (!set.has(faceIdAttr[t])) continue;
-      for (let k = 0; k < 3; k++) {
-        const vi = idx.getX(t * 3 + k);
-        verts.push(pos.getX(vi), pos.getY(vi), pos.getZ(vi));
-      }
-    }
+    const verts = trianglesForFaceIds(ids);
     if (!verts.length) return;
     const g = new THREE.BufferGeometry();
     g.setAttribute("position", new THREE.Float32BufferAttribute(verts, 3));
@@ -217,6 +307,9 @@ export function createViewer(container, opts = {}) {
         opacity: 0.55,
         side: THREE.DoubleSide,
         depthTest: true,
+        polygonOffset: true,
+        polygonOffsetFactor: -2,
+        polygonOffsetUnits: -2,
       }),
     );
     modelGroup.add(focusMesh);
@@ -332,6 +425,7 @@ export function createViewer(container, opts = {}) {
   return {
     setMesh,
     setFocusFaces,
+    setPrintRisk,
     frameObject,
     camera,
     controls,

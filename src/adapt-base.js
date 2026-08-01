@@ -1,6 +1,8 @@
 /**
  * Pure base-change adaptation: one patch, optional one-line warning.
  * Clamps only values that make validation fail (wall, border) — never fillet.
+ * Printability guidance lives in limits.js (borderPrintabilityWarning),
+ * where every entry path passes through — not here on the edit path.
  */
 
 /**
@@ -52,9 +54,7 @@ export function adaptStateForBase({ currentState, nextBase, nextLimits }) {
 
   return {
     patch,
-    warnings: reduced
-      ? ["Some settings were reduced to fit this shape"]
-      : [],
+    warnings: reduced ? ["Some settings were reduced to fit this shape"] : [],
   };
 }
 

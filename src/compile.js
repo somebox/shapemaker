@@ -11,7 +11,7 @@ import { DEFAULT_STATE } from "./schema.js";
 import { runPipeline } from "./pipeline.js";
 import { computeOrientation, defaultRestingFace } from "./orient.js";
 import { computeMetrics } from "./metrics.js";
-import { computeLimits } from "./limits.js";
+import { computeLimits, borderPrintabilityWarning } from "./limits.js";
 import { validateState } from "./validate.js";
 
 /** Result when nothing could be built. */
@@ -68,12 +68,17 @@ export function compile(partial = {}) {
   let orientation, metrics;
   try {
     orientation = computeOrientation(skeleton, faceIndex);
+    const limits = computeLimits(skeleton, state);
+    // State-derived, so shared links / presets / project opens see it too —
+    // not only the edit that clamped a border.
+    const guidance = borderPrintabilityWarning(state, limits);
+    if (guidance) validation.warnings.push(guidance);
     metrics = computeMetrics({
       skeleton,
       info: solid.info,
       orientation,
       watertight: solid.info.watertight,
-      limits: computeLimits(skeleton, state),
+      limits,
     });
   } catch (err) {
     validation.ok = false;

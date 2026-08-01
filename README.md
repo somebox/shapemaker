@@ -11,9 +11,9 @@ laser-cut, PCB, and model-making workflows.
 ![Shapemaker v0.3 — family selector, presets, and open icosidodecahedron
 frame](media/screenshot-v0.3.png)
 
-Version **0.3.0** (Milestone 3) — regular shape families (five Platonic solids
-plus icosidodecahedron) through a shared hull pipeline, base-change adaptation,
-face stepper, and two presets. See [`docs/CHANGELOG.md`](docs/CHANGELOG.md).
+Version **0.4.0** (Milestone 5) — start-from chooser, sphere and random bases,
+jitter on every base, subdivide/smooth, irregular acceptance, unit-aware SVG
+export, and print-risk overlays. See [`docs/CHANGELOG.md`](docs/CHANGELOG.md).
 
 ## Requirements
 
@@ -49,7 +49,9 @@ Serving the repo root at `/` also works locally, but hides absolute-path and
 case-sensitivity bugs that break on Pages (`/username.github.io/shapemaker/`).
 
 Click a face on the model to rest on it. **Export STL** downloads an oriented
-binary STL in millimetres.
+binary STL in millimetres; **Export SVG** downloads a camera-projected outline
+with a millimetre scale bar. Filenames include seed and size when the shape
+depends on a seed.
 
 ### Headless export
 
@@ -72,6 +74,8 @@ project files, the URL hash, and dirty tracking:
 | `borderMm` | 3.2 | frame width at edge midpoints |
 | `wallMm` | 1.4 | minimum wall thickness |
 | `filletMm` | 4.5 | requested opening corner radius; clamped per face |
+| `jitter` | 0 | distort amount (plane-perturb on regulars; point jitter on parametric) |
+| `subdiv` / `soften` | 0 | subdivision level and smooth (sphere-clip fillet) |
 | `edgeDiv` | 10 | tessellation density — set by the **Quality** control |
 | `faceIndex` | auto (−1) | resting face; default is max-area face |
 
@@ -127,22 +131,24 @@ src/
   presets.js        presets.json envelope loader
   hashcodec.js      versioned URL hash over canonical state
   history.js        pure push/replace policy for live vs committed edits
-  session.js        pure Save/Open eligibility rules
+  session.js        pure Save/Open eligibility + history restore
   project-format.js .shapemaker.json serialize / parse / migrate
   limits.js         proactive wall/border/fillet ceilings from the skeleton
+  adapt-base.js     wall/border clamp + printability guidance
   compile.js        THE regeneration API — never throws for bad input
   validate.js       parameter checks; validationError() for the stages
-  pipeline.js       points → hull → scale → shell caches
-  types.js          Skeleton / Mesh types; re-exports DEFAULT_STATE
+  pipeline.js       points → jitter → subdivide → smooth → scale → shell
+  types.js          Skeleton / Mesh typedefs (doc module)
   skeleton.js       edgeList, inradiusRange, assertSkeleton  ← shape-agnostic
   faceframe.js      toFaceFrame / fromFaceFrame              ← face-local 2D
-  points/           platonic + icosidodeca (random M5)
+  points/           platonic, icosidodeca, sphere, random, jitter
   geom/             poly2, edgesub, annulus
   solid/shell.js    depth × OpeningGenerator
   mesh.js           structural + manifold invariants
   orient.js         resting-face transform (plane normal → −Z, z_min = 0)
   metrics.js        computed once (incl. limits); viewer/UI never re-derive
   export/stl.js     binary STL writer
+  export/svg.js     unit-aware camera-projected SVG
   viewer.js         grid, orbit, face + edge pick ← the only module importing three
 prototype/          Python reference (meshcheck, original generator)
 test/               node --test + fixtures + reference.json

@@ -9,6 +9,12 @@ onward every release gets a full entry here, and breaking changes to the
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-08-01
+
+Milestone 5 close-out (distort and invent) plus the first Milestone 6 share
+slice: hardened irregular acceptance, locked millimetre borders, session UX
+polish, unit-aware SVG export, and print-risk overlays.
+
 ### Added
 
 - **Sphere base** (`src/points/sphere.js`): deterministic fibonacci-lattice
@@ -18,10 +24,8 @@ onward every release gets a full entry here, and breaking changes to the
 - **Subdivide** (`src/subdivide.js`): spherified surface subdivision, levels
   0/1/2, canonical `subdiv` key. Triangles split 4:1, polygons fan over
   midpoint-split edges (mixed-face solids stay closed); new vertices land on
-  the circumsphere. Applied after the hull and before jitter, so
-  plane-perturbation operates on the subdivided planes — subdivide + high
-  jitter yields organic Voronoi-like balls.
-
+  the circumsphere. Applied after jitter (order is jitter → subdivide →
+  smooth) so subdivision resolves the already-distorted solid.
 - **Jitter Direction** (surface / radial / both): radial randomizes the
   center-to-surface distance — point radii on parametric bases (swallowed
   points vanish gradually, cloud renormalized to keep Size honest), plane
@@ -33,6 +37,16 @@ onward every release gets a full entry here, and breaking changes to the
   splits flat, so level alone only adds opening resolution. Sliver faces
   produced by extreme perturbation drop their hole fillet per-face instead
   of failing to compile.
+- **SVG export** (`src/export/svg.js`): a clean hidden-line drawing of the
+  mesh from the live viewer camera — perspective projection, only the
+  visible silhouette and crease segments (no occlusion masks, no scale
+  annotations); Export SVG sits beside Export STL.
+- **Print-risk overlays**: near-horizontal bridge edges and overhang faces
+  computed with the other placed metrics (`src/metrics.js`, exposed as
+  `metrics.printRisk`), drawn in the viewer. Bed-contact geometry is
+  supported by the plate and never flagged.
+- M5 acceptance extremes and a cheap compile matrix
+  (`scripts/acceptance.sh` 49 STLs; `test/m5-matrix.test.js`).
 
 ### Changed
 
@@ -42,6 +56,14 @@ onward every release gets a full entry here, and breaking changes to the
   subdivision, where the near-coplanar sub-face planes it perturbed mostly
   stopped binding — turning on jitter silently discarded subdivision and
   smoothing.
+- Millimetre borders retained after irregular-hull evidence
+  (`docs/BORDER_EVIDENCE.md`); adaptation warnings add printability guidance
+  when a clamped border lands below ~2.5 mm.
+- Session Undo restores project name and clean baseline via `history.state`
+  (hash still carries authoring geometry only).
+- Form Wall / Border / Fillet use `inertWhen` (dim) instead of hiding.
+- Copy Link reports success or failure on the button (no silent failure).
+- Headless export accepts `--subdiv`, `--soften`, and `--jitter-mode`.
 - Camera framing fits the bounding sphere instead of the box max-dimension,
   so a cube no longer renders far larger than round solids of the same
   circumdiameter.
@@ -95,7 +117,9 @@ onward every release gets a full entry here, and breaking changes to the
 
 - Mesh quality / tessellation presets (Draft / Normal / Fine → `edgeDiv`
   4/10/20) are shipped and verified — Milestone 4 exit criteria met.
-- User presets (“Yours”) stay Later.
+- Milestone 5 exit criteria met; separate jitter seed and amplitude
+  calibration stay Later. User presets (“Yours”) stay Later. M6 mass /
+  material-density presets remain open.
 
 ## [0.3.0] — 2026-07-31
 

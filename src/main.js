@@ -6,6 +6,7 @@
 import { compile } from "./compile.js";
 import { createViewer } from "./viewer.js";
 import { writeBinaryStl } from "./export/stl.js";
+import { exportSvg } from "./export/svg.js";
 import { createPanel, normalizePatch } from "./ui.js";
 import { serializeProjectV1, parseProject } from "./project-format.js";
 import { normalizeState, statesEqual } from "./schema.js";
@@ -15,6 +16,9 @@ import {
   canSaveProject,
   classifyOpen,
   shouldEstablishCleanBaseline,
+  sessionHistoryPayload,
+  restoreSessionFromPopstate,
+  depthAfterPopstate,
 } from "./session.js";
 import { adaptStateForBase } from "./adapt-base.js";
 import { hullSkeletonForBase, scaleSkeleton } from "./pipeline.js";
@@ -24,6 +28,7 @@ import { startFromRecipe, startStatuses } from "./starts.js";
 import { computeOrientation, nearestFaceByNormal } from "./orient.js";
 import { toFaceFrame } from "./faceframe.js";
 import { HEAVY_COMPILE_MS, predictedCompileMs } from "./perf.js";
+import { computePrintRisk } from "./metrics.js";
 
 const canvasHost = document.getElementById("canvas-host");
 const panelEl = document.getElementById("panel");
@@ -83,6 +88,7 @@ ui = createPanel(panelEl, {
   },
   onNameChange(name) {
     projectName = name;
+    refreshHistoryPayload();
     updateProjectStatus();
   },
   onSave() {
@@ -91,6 +97,7 @@ ui = createPanel(panelEl, {
     downloadText(text, `${safeName(projectName)}.shapemaker.json`);
     cleanState = normalizeState(last.state);
     cleanName = projectName;
+    refreshHistoryPayload();
     updateProjectStatus();
   },
   onOpen() {
@@ -107,35 +114,76 @@ ui = createPanel(panelEl, {
     // Ensure the URL reflects the current valid state without adding history.
     if (draftValid && last?.state) writeUrl(encodeHash(last.state), "replace");
     const url = location.href;
+    const done = (ok) => ui.setCopyFeedback(ok);
     if (navigator.clipboard?.writeText) {
-      navigator.clipboard.writeText(url).catch(() => fallbackCopy(url));
+      navigator.clipboard.writeText(url).then(() => done(true)).catch(() => {
+        done(fallbackCopy(url));
+      });
     } else {
-      fallbackCopy(url);
+      done(fallbackCopy(url));
     }
   },
   onExport() {
-    const result = compile(draft);
-    if (!result.validation.ok || !result.mesh) {
-      ui.setResult(result, { limits: lastLimits, invalid: true });
-      return;
-    }
-    const { base, circumdiameterMm: size, seed, jitter } = result.state;
-    // Seed in the filename whenever the shape depends on one — the
-    // reproducibility story survives outside the URL (spec rule).
-    const seeded = base === "random" || jitter > 0;
-    const stem = seeded ? `${base}_s${seed}_${size}mm` : `${base}_${size}mm`;
-    const buf = writeBinaryStl(result.mesh, {
-      header: `shapemaker_${stem}`,
-      matrix: result.orientation.matrix,
-    });
-    const blob = new Blob([buf], { type: "model/stl" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = `${stem}.stl`;
-    a.click();
-    URL.revokeObjectURL(a.href);
+    exportStl();
+  },
+  onExportSvg() {
+    exportSvgFile();
   },
 });
+
+function exportStem(state) {
+  const { base, circumdiameterMm: size, seed, jitter } = state;
+  // Seed in the filename whenever the shape depends on one — the
+  // reproducibility story survives outside the URL (spec rule).
+  const seeded = base === "random" || jitter > 0;
+  return seeded ? `${base}_s${seed}_${size}mm` : `${base}_${size}mm`;
+}
+
+function exportStl() {
+  const result = compile(draft);
+  if (!result.validation.ok || !result.mesh) {
+    ui.setResult(result, { limits: lastLimits, invalid: true });
+    return;
+  }
+  const stem = exportStem(result.state);
+  const buf = writeBinaryStl(result.mesh, {
+    header: `shapemaker_${stem}`,
+    matrix: result.orientation.matrix,
+  });
+  const blob = new Blob([buf], { type: "model/stl" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `${stem}.stl`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function exportSvgFile() {
+  const result = compile(draft);
+  if (!result.validation.ok || !result.mesh) {
+    ui.setResult(result, { limits: lastLimits, invalid: true });
+    return;
+  }
+  const stem = exportStem(result.state);
+  const cam = viewer.camera;
+  const tgt = viewer.controls.target;
+  const svg = exportSvg({
+    mesh: result.mesh,
+    orientation: result.orientation,
+    camera: {
+      position: { x: cam.position.x, y: cam.position.y, z: cam.position.z },
+      target: { x: tgt.x, y: tgt.y, z: tgt.z },
+      up: { x: cam.up.x, y: cam.up.y, z: cam.up.z },
+    },
+    label: stem,
+  });
+  const blob = new Blob([svg], { type: "image/svg+xml" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `${stem}.svg`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
 
 ui.setActionsVisible({ open: true, copyLink: true });
 
@@ -223,6 +271,8 @@ function openProjectText(text) {
   ) {
     cleanState = normalizeState(last.state);
     cleanName = projectName;
+    // regenerate pushed this entry before the baseline existed — rewrite it.
+    refreshHistoryPayload();
     updateProjectStatus();
     return;
   }
@@ -235,11 +285,22 @@ function openProjectText(text) {
 
 window.addEventListener("popstate", () => {
   if (applyingHistory) return;
-  if (sessionPushDepth > 0) sessionPushDepth -= 1;
-  const decoded = decodeHash(location.hash);
-  if (!decoded.ok) return;
+  sessionPushDepth = depthAfterPopstate({
+    historyState: history.state,
+    previousDepth: sessionPushDepth,
+  });
+  const restored = restoreSessionFromPopstate({
+    decoded: decodeHash(location.hash),
+    historyState: history.state,
+  });
+  if (!restored.ok) return;
   liveHistoryEdit = false;
-  draft = decoded.state;
+  draft = restored.draft;
+  if (restored.projectName != null) {
+    projectName = restored.projectName;
+    cleanName = restored.cleanName;
+    cleanState = normalizeState(restored.cleanState);
+  }
   regenerate({ forceFrame: false, fromHistory: true });
   updateProjectStatus();
 });
@@ -419,6 +480,17 @@ function regenerate({
     frame: shouldFrame,
     skeleton: stable.skeleton,
   });
+  // Risk comes from compile; the face-remap path changed the orientation,
+  // so only there is it re-derived (via the same metrics scan).
+  const printRisk =
+    stable === next
+      ? stable.metrics.printRisk
+      : computePrintRisk(stable.skeleton, stable.orientation.matrix);
+  viewer.setPrintRisk({
+    skeleton: stable.skeleton,
+    flatEdgeIndices: printRisk.flatEdgeIndices,
+    overhangFaceIndices: printRisk.overhangFaceIndices,
+  });
   ui.setResult(stable, { limits: lastLimits, warnings });
   // Focus on frame or deliberate face pick — not on distort remaps.
   const facePick =
@@ -455,14 +527,37 @@ function syncHistory(commit) {
 /** @param {string} hash @param {'push'|'replace'} action */
 function writeUrl(hash, action) {
   const url = `${location.pathname}${location.search}#${hash}`;
+  if (action === "push") sessionPushDepth += 1;
+  const payload = sessionHistoryPayload({
+    projectName,
+    cleanName,
+    cleanState,
+    depth: sessionPushDepth,
+  });
   applyingHistory = true;
-  if (action === "push") {
-    history.pushState({ shapemaker: true }, "", url);
-    sessionPushDepth += 1;
-  } else {
-    history.replaceState({ shapemaker: true }, "", url);
-  }
+  if (action === "push") history.pushState(payload, "", url);
+  else history.replaceState(payload, "", url);
   lastWrittenHash = hash;
+  applyingHistory = false;
+}
+
+/**
+ * Rewrite the current entry's payload after name or baseline changes
+ * (Save, rename, Open) — otherwise Undo/Redo re-entering this entry
+ * restores the stale values captured when it was pushed.
+ */
+function refreshHistoryPayload() {
+  applyingHistory = true;
+  history.replaceState(
+    sessionHistoryPayload({
+      projectName,
+      cleanName,
+      cleanState,
+      depth: sessionPushDepth,
+    }),
+    "",
+    location.href,
+  );
   applyingHistory = false;
 }
 
@@ -493,17 +588,20 @@ function safeName(name) {
   return name.replace(/[^\w\-]+/g, "_") || "shapemaker";
 }
 
+/** @returns {boolean} whether the copy appears to have succeeded */
 function fallbackCopy(url) {
   const ta = document.createElement("textarea");
   ta.value = url;
   document.body.appendChild(ta);
   ta.select();
+  let ok = false;
   try {
-    document.execCommand("copy");
+    ok = document.execCommand("copy");
   } catch {
-    /* ignore */
+    ok = false;
   }
   ta.remove();
+  return ok;
 }
 
 // Boot: prefer URL hash, else defaults. Seed the URL without a live-edit entry.

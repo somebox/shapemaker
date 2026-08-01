@@ -2,6 +2,8 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { compile } from "../src/compile.js";
 import { filletRmax, filletPolygon, insetScale } from "../src/geom/poly2.js";
+import { borderPrintabilityWarning, PRINTABLE_BORDER_MM } from "../src/limits.js";
+import { clearPipelineCache } from "../src/pipeline.js";
 
 describe("filletRmax", () => {
   it("matches the clamp used by filletPolygon", () => {
@@ -60,5 +62,53 @@ describe("metrics.limits", () => {
     );
     assert.ok(metrics.filletMm.max > metrics.limits.filletMmMax);
     assert.ok(metrics.filletMm.max < 100);
+  });
+});
+
+describe("borderPrintabilityWarning", () => {
+  it("warns when the shape's border ceiling is below the printable floor", () => {
+    const w = borderPrintabilityWarning(
+      { openings: true },
+      { borderMmMax: 1.2 },
+    );
+    assert.ok(w);
+    assert.equal(w.key, "borderMm");
+    assert.match(w.message, /printable floor/i);
+    assert.match(w.message, /scale up or reduce density/i);
+  });
+
+  it("stays silent with closed faces, roomy ceilings, or no ceiling", () => {
+    assert.equal(
+      borderPrintabilityWarning({ openings: false }, { borderMmMax: 1.2 }),
+      null,
+    );
+    assert.equal(
+      borderPrintabilityWarning({ openings: true }, { borderMmMax: PRINTABLE_BORDER_MM }),
+      null,
+    );
+    assert.equal(
+      borderPrintabilityWarning({ openings: true }, { borderMmMax: null }),
+      null,
+    );
+  });
+
+  it("fires on a plain compile of a dense shape — load paths see it too", () => {
+    clearPipelineCache();
+    const result = compile({
+      base: "sphere",
+      points: 60,
+      circumdiameterMm: 30,
+      borderMm: 0.8,
+      filletMm: 1,
+    });
+    assert.equal(result.validation.ok, true);
+    assert.ok(result.metrics.limits.borderMmMax < PRINTABLE_BORDER_MM,
+      "test premise: dense sphere's ceiling is below the floor");
+    assert.ok(
+      result.validation.warnings.some(
+        (w) => w.key === "borderMm" && /printable floor/i.test(w.message),
+      ),
+      "compile carries the guidance warning",
+    );
   });
 });

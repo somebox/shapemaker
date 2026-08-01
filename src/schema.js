@@ -170,9 +170,8 @@ export const CONTROL_DEFS = [
   },
   {
     // Surface subdivision (skeleton operator): triangles split 4:1,
-    // polygons fan over midpoint-split edges. Applied after the hull,
-    // before jitter. Smooth controls how far new vertices rise to the
-    // circumsphere.
+    // polygons fan over midpoint-split edges. Order is load-bearing:
+    // jitter → subdivide → smooth. Smooth clips corners inward.
     key: "subdiv",
     group: "shape",
     label: "Subdivide",
@@ -229,7 +228,7 @@ export const CONTROL_DEFS = [
     min: 0.4,
     max: 20,
     step: 0.1,
-    hideWhen: (s) => s.depth === "solid",
+    inertWhen: (s) => s.depth === "solid",
   },
   {
     key: "borderMm",
@@ -240,7 +239,7 @@ export const CONTROL_DEFS = [
     min: 0.5,
     max: 30,
     step: 0.1,
-    hideWhen: (s) => !s.openings,
+    inertWhen: (s) => !s.openings,
   },
   {
     key: "filletMm",
@@ -251,7 +250,7 @@ export const CONTROL_DEFS = [
     min: 0,
     max: 30,
     step: 0.1,
-    hideWhen: (s) => !s.openings,
+    inertWhen: (s) => !s.openings,
   },
   {
     // Quality is UI-only vocabulary over canonical edgeDiv — one tessellation

@@ -92,11 +92,12 @@ Rules:
 ## Geometry pipeline
 
 ```text
-base points -> jitter -> convex hull -> skeleton -> scale -> shell -> orient -> export
+base points -> (jitter) -> convex hull -> (plane-perturb) -> subdivide/smooth -> scale -> shell -> orient -> export
 ```
 
 From Milestone 3 the interactive path is points → hull+merge+face-identity
-(`assertSkeleton`) → scale to mm in the pipeline → shell. Jitter remains M5.
+(`assertSkeleton`) → scale to mm in the pipeline → shell. Jitter, subdivide,
+and smooth are shipped (Milestone 5); order is jitter → subdivide → smooth.
 Origin-centered hull input is required by `assertSkeleton`'s outward-winding
 check.
 
@@ -329,7 +330,7 @@ src/points/jitter.js    on-sphere jitter (parametric bases)
 src/points/sphere.js    fibonacci-lattice sphere points
 src/plane-perturb.js    plane-perturbation jitter (regular bases)
 src/subdivide.js        spherified surface subdivision (skeleton operator)
-src/export/svg.js       Milestone 6
+src/export/svg.js       hidden-line SVG export (M6 path)
 ```
 
 The viewer and UI consume compiled outputs only. Face-local opening geometry is

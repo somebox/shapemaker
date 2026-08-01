@@ -1,8 +1,8 @@
 # Border authoring on irregular hulls — evidence memo (v0.4)
 
-The decision log defers "millimetre vs proportional border authoring" until
-irregular-hull evidence exists. This memo records that evidence, gathered
-during Phase 4 (M5) implementation. **Decision pending the v0.4 review stop.**
+This memo records irregular-hull evidence gathered during Milestone 5.
+**Decision (v0.4): keep millimetre authoring** — locked in the ROADMAP
+decision log.
 
 ## Measurements (Ø100 mm, 5 seeds per density: 1, 7, 42, 1337, 90210)
 
@@ -40,17 +40,15 @@ roughly 2–2.5 mm.
    warning. Constant-mm remains the guaranteed *minimum* per face; Inspect
    shows the per-shape range.
 
-## Recommendation (for the review stop)
+## Recommendation — accepted in v0.4
 
 **Keep millimetre authoring.** The evidence says proportional authoring
 would not rescue the problematic cases (physics, not units), while mm keeps
 the fabrication-first promise: the number on the slider is material width.
 
-Two cheaper follow-ups worth considering instead:
+Shipped follow-up: when adaptation clamps the border below ~2.5 mm, the
+warning adds "scale up or reduce density to print this"
+(`adaptStateForBase` — single emitting site).
 
-- Surface the relationship in the UI: when the border clamps below ~2.5 mm,
-  the existing warning could add "scale up or reduce density to print this"
-  — guidance, not a new authoring model.
-- If a future workflow genuinely wants "openness" as the creative intent
-  (art-first, not print-first), add proportional as a *display/readout*
-  first, per the original decision-log wording.
+Still open if a future workflow wants "openness" as creative intent: add
+proportional as a *display/readout* first, not a second authoring model.

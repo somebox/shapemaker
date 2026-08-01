@@ -86,6 +86,18 @@ describe("adaptStateForBase", () => {
     assert.equal(patch.filletMm, undefined);
     assert.equal(warnings.length, 1);
     assert.match(warnings[0], /reduced to fit/i);
+    assert.doesNotMatch(warnings[0], /scale up/i);
+  });
+
+  it("emits only the generic clamp note — printability guidance lives in limits", () => {
+    const { patch, warnings } = adaptStateForBase({
+      currentState: { base: "cube", wallMm: 1.4, borderMm: 3.2, openings: true },
+      nextBase: "cube",
+      nextLimits: { wallMmMax: 30, borderMmMax: 1.2, filletMmMax: null },
+    });
+    assert.ok(patch.borderMm > 0 && patch.borderMm <= 1.2);
+    assert.match(warnings[0], /reduced to fit/i);
+    assert.doesNotMatch(warnings[0], /scale up/i);
   });
 
   it("live limits from tetrahedron clamp an oversized icosidodeca border", () => {

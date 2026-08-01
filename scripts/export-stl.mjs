@@ -6,29 +6,41 @@
  * Usage: node scripts/export-stl.mjs <outfile> [--wall=1.4] [--border=3.2]
  *          [--fillet=4.5] [--edge-div=10] [--diameter=100] [--face=N]
  *          [--openings=true|false] [--depth=hollow|solid] [--base=icosidodeca]
+ *          [--seed=N] [--jitter=N] [--jitter-mode=surface|radial|both]
+ *          [--subdiv=0|1|2] [--soften=0..100] [--points=N] [--separation=N]
  */
 import { writeFileSync } from "node:fs";
 import { compile } from "../src/compile.js";
 import { writeBinaryStl } from "../src/export/stl.js";
 import { clearPipelineCache } from "../src/pipeline.js";
+import { DEFAULT_STATE } from "../src/schema.js";
 
-/** flag → state key. Unknown flags are an error: a silent typo in the */
-/** acceptance harness would test the defaults and report a false pass.  */
-const FLAGS = {
-  wall: ["wallMm", Number],
-  border: ["borderMm", Number],
-  fillet: ["filletMm", Number],
-  "edge-div": ["edgeDiv", Number],
-  diameter: ["circumdiameterMm", Number],
-  face: ["faceIndex", Number],
-  openings: ["openings", (v) => v !== "0" && v !== "false"],
-  depth: ["depth", String],
-  base: ["base", String],
-  seed: ["seed", Number],
-  points: ["points", Number],
-  separation: ["separation", Number],
-  jitter: ["jitter", Number],
-};
+/**
+ * flag → state key, derived from the canonical schema so every new state
+ * key is immediately settable headlessly (a hand-maintained list here let
+ * jitterMode/subdiv/soften ship unsettable). Casts come from the default's
+ * type. Unknown flags are an error: a silent typo in the acceptance harness
+ * would test the defaults and report a false pass.
+ */
+const kebab = (k) => k.replace(/([A-Z])/g, "-$1").toLowerCase();
+const castFor = (dflt) =>
+  typeof dflt === "boolean"
+    ? (v) => v !== "0" && v !== "false"
+    : typeof dflt === "number"
+      ? Number
+      : String;
+const FLAGS = {};
+for (const [key, dflt] of Object.entries(DEFAULT_STATE)) {
+  FLAGS[kebab(key)] = [key, castFor(dflt)];
+}
+// Legacy short aliases (documented usage + existing callers).
+Object.assign(FLAGS, {
+  wall: FLAGS["wall-mm"],
+  border: FLAGS["border-mm"],
+  fillet: FLAGS["fillet-mm"],
+  diameter: FLAGS["circumdiameter-mm"],
+  face: FLAGS["face-index"],
+});
 
 const args = process.argv.slice(2);
 let outfile = null;

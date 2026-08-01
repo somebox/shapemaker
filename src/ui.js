@@ -44,6 +44,7 @@ export function normalizePatch(patch) {
  *   onPatch: (patch: object, opts: { commit: boolean }) => void,
  *   onSave: () => void,
  *   onExport: () => void,
+ *   onExportSvg?: () => void,
  *   onOpen?: () => void,
  *   onCopyLink?: () => void,
  *   onStart?: (id: string) => void,
@@ -169,7 +170,13 @@ export function createPanel(panelEl, handlers) {
     id: "btn-export",
     textContent: "Export STL",
   });
-  barEl?.appendChild(exportBtn);
+  const exportSvgBtn = el("button", {
+    type: "button",
+    className: "btn",
+    id: "btn-export-svg",
+    textContent: "Export SVG",
+  });
+  barEl?.append(exportBtn, exportSvgBtn);
 
   let lastStrip = "";
   let edgeMean = null;
@@ -302,8 +309,12 @@ export function createPanel(panelEl, handlers) {
   let families = [];
   let familyIndex = 0;
 
+  /** @type {ReturnType<typeof setTimeout>|null} */
+  let copyFeedbackTimer = null;
+
   saveBtn?.addEventListener("click", () => handlers.onSave());
   exportBtn?.addEventListener("click", () => handlers.onExport());
+  exportSvgBtn?.addEventListener("click", () => handlers.onExportSvg?.());
   openBtn?.addEventListener("click", () => handlers.onOpen?.());
   copyBtn?.addEventListener("click", () => handlers.onCopyLink?.());
 
@@ -437,6 +448,21 @@ export function createPanel(panelEl, handlers) {
     setActionsVisible({ open, copyLink }) {
       if (openBtn) openBtn.hidden = !open;
       if (copyBtn) copyBtn.hidden = !copyLink;
+    },
+
+    /** Brief success/failure cue for Copy Link (the only silent failure path). */
+    setCopyFeedback(ok) {
+      if (!copyBtn) return;
+      if (copyFeedbackTimer != null) clearTimeout(copyFeedbackTimer);
+      copyBtn.textContent = ok ? "Link copied" : "Copy failed";
+      copyBtn.setAttribute("data-copy", ok ? "ok" : "err");
+      copyFeedbackTimer = setTimeout(() => {
+        // Fixed restore label: capturing textContent would re-capture the
+        // feedback text itself on rapid repeat clicks and stick forever.
+        copyBtn.textContent = "Copy Link";
+        copyBtn.removeAttribute("data-copy");
+        copyFeedbackTimer = null;
+      }, 1600);
     },
 
     setPresets(list) {
