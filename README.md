@@ -72,12 +72,32 @@ project files, the URL hash, and dirty tracking:
 | `borderMm` | 3.2 | frame width at edge midpoints |
 | `wallMm` | 1.4 | minimum wall thickness |
 | `filletMm` | 4.5 | requested opening corner radius; clamped per face |
-| `edgeDiv` | 10 | segments per polyhedron edge (internal, not a panel control) |
+| `edgeDiv` | 10 | tessellation density — set by the **Quality** control |
 | `faceIndex` | auto (−1) | resting face; default is max-area face |
 
 ```bash
 node scripts/export-stl.mjs out.stl --base=dodecahedron --depth=solid --openings=false
 ```
+
+### Quality (tessellation)
+
+One knob: the **Quality** control writes `edgeDiv`, and fillet arc segments
+derive from it (`round(edgeDiv × 6.4)`), so smoother fillets are real geometry
+in both the preview and the STL — never a shading trick. The preview stays
+flat-shaded so it matches the export. Values other than the three levels
+(e.g. from a project file) show as *custom*.
+
+| level | `edgeDiv` | arc segments | triangles* | regen* |
+|---|---|---|---|---|
+| Draft | 4 | 26 | 2,880 | ~5 ms |
+| **Normal** (default) | 10 | 64 | 7,200 | ~12 ms |
+| Fine | 20 | 128 | 14,400 | ~31 ms |
+
+\* default icosidodecahedron, hollow + open, Apple Silicon dev machine.
+Normal is the historical pairing, so all parity anchors are unchanged.
+Worst measured case (random hull at the 60-point cap, hollow + open):
+Draft ~14 ms, Normal ~33 ms, Fine ~79 ms — all inside the interaction
+target, so every level is enabled for every base.
 
 ## Example
 

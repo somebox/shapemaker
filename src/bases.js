@@ -11,12 +11,15 @@ import {
   icosahedronPoints,
 } from "./points/platonic.js";
 import { icosidodecaPoints } from "./points/icosidodeca.js";
+import { randomSpherePoints } from "./points/random.js";
 
 /**
  * @typedef {{
  *   label: string,
- *   points: () => Float64Array,
+ *   points: (params?: { points: number, seed: number, separation: number }) => Float64Array,
  *   regular: boolean,
+ *   parametric?: boolean,  // points() consumes (points, seed, separation)
+ *   merge?: false,         // false: skip coplanar merge (hull tris = faces)
  * }} BaseDef
  */
 
@@ -51,6 +54,13 @@ export const BASES = Object.freeze({
     label: "Icosidodecahedron",
     points: icosidodecaPoints,
     regular: true,
+  },
+  random: {
+    label: "Random hull",
+    points: randomSpherePoints,
+    regular: false,
+    parametric: true,
+    merge: false,
   },
 });
 

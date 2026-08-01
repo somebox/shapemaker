@@ -335,6 +335,31 @@
       outline-offset: -2px;
       z-index: 1;
     }
+    .seg-custom {
+      align-self: center;
+      padding: 0 0.5rem;
+      font: 500 0.65rem var(--font-mono);
+      color: var(--warn);
+      white-space: nowrap;
+    }
+    .reroll {
+      appearance: none;
+      border: 1px solid var(--line);
+      border-radius: 2px;
+      background: transparent;
+      color: var(--text-dim);
+      font: 500 0.8rem var(--font-mono);
+      width: 1.6rem;
+      height: 1.6rem;
+      cursor: pointer;
+      line-height: 1;
+    }
+    .reroll:hover { color: var(--accent); border-color: var(--accent); }
+    .reroll:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+    input.is-readout {
+      opacity: 0.65;
+      pointer-events: none;
+    }
 
     select.base-select {
       width: 100%;

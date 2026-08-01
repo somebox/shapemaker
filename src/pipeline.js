@@ -8,10 +8,46 @@
  */
 
 import { BASES, isKnownBase } from "./bases.js";
-import { hullToSkeleton, MERGE_POLICY_ID } from "./hull.js";
+import { hullToSkeleton, MERGE_POLICY_ID, MERGE_SKIP_ID } from "./hull.js";
 import { edgeList } from "./skeleton.js";
 import { buildShell } from "./solid/shell.js";
 import { validationError } from "./validate.js";
+import { DEFAULT_STATE } from "./schema.js";
+import { jitterPoints } from "./points/jitter.js";
+
+/**
+ * Generator + jitter params for a base — minimal, so cache keys stay small.
+ * Jitter applies to any base; its seed rides along whenever jitter > 0.
+ */
+function generatorParams(base, state) {
+  const jitter = state.jitter ?? DEFAULT_STATE.jitter;
+  const out = jitter > 0 ? { jitter, seed: state.seed ?? DEFAULT_STATE.seed } : {};
+  if (!BASES[base]?.parametric) return out;
+  return {
+    ...out,
+    points: state.points ?? DEFAULT_STATE.points,
+    seed: state.seed ?? DEFAULT_STATE.seed,
+    separation: state.separation ?? DEFAULT_STATE.separation,
+  };
+}
+
+/**
+ * Merge policy — coplanar merge runs ONLY for exact regular generators at
+ * jitter 0. Random bases and any nonzero jitter skip it: jittered points are
+ * almost never coplanar, so merging would be a no-op with over-merge risk
+ * (Phase 4 locked decision; supersedes the earlier tighter-tolerance idea).
+ */
+function mergePolicy(base, params) {
+  if (BASES[base]?.merge === false) return MERGE_SKIP_ID;
+  if (params.jitter > 0) return MERGE_SKIP_ID;
+  return MERGE_POLICY_ID;
+}
+
+/** Apply on-sphere jitter when requested; identity (fresh copy) at jitter 0. */
+function withJitter(cloud, params) {
+  if (!(params.jitter > 0)) return cloud;
+  return jitterPoints(cloud, { seed: params.seed, jitter: params.jitter });
+}
 
 /** Two slots per stage: enough for the preview/export pair, no unbounded growth. */
 export function createPipeline() {
@@ -32,15 +68,22 @@ export function createPipeline() {
      * Normalized hull skeleton for a base (unit circumradius).
      * Used by base-change adaptation to obtain limits without a full compile.
      * @param {string} base
+     * @param {object} [state]  supplies generator params for parametric bases
      */
-    hullSkeleton(base) {
+    hullSkeleton(base, state = {}) {
       if (!isKnownBase(base)) {
         throw validationError("points", "base", `Unknown base "${base}"`);
       }
-      const pointsKey = JSON.stringify({ base });
-      const cloud = remember(points, pointsKey, () => BASES[base].points());
-      const hullKey = JSON.stringify({ pointsKey, merge: MERGE_POLICY_ID });
-      return remember(hulls, hullKey, () => hullToSkeleton(cloud));
+      const params = generatorParams(base, state);
+      const pointsKey = JSON.stringify({ base, ...params });
+      const cloud = remember(points, pointsKey, () =>
+        withJitter(BASES[base].points(params), params),
+      );
+      const merge = mergePolicy(base, params);
+      const hullKey = JSON.stringify({ pointsKey, merge });
+      return remember(hulls, hullKey, () =>
+        hullToSkeleton(cloud, merge === MERGE_SKIP_ID ? { merge: false } : {}),
+      );
     },
 
     run(state) {
@@ -48,11 +91,17 @@ export function createPipeline() {
         throw validationError("points", "base", `Unknown base "${state.base}"`);
       }
 
-      const pointsKey = JSON.stringify({ base: state.base });
-      const cloud = remember(points, pointsKey, () => BASES[state.base].points());
+      const params = generatorParams(state.base, state);
+      const pointsKey = JSON.stringify({ base: state.base, ...params });
+      const cloud = remember(points, pointsKey, () =>
+        withJitter(BASES[state.base].points(params), params),
+      );
 
-      const hullKey = JSON.stringify({ pointsKey, merge: MERGE_POLICY_ID });
-      const unitSkeleton = remember(hulls, hullKey, () => hullToSkeleton(cloud));
+      const merge = mergePolicy(state.base, params);
+      const hullKey = JSON.stringify({ pointsKey, merge });
+      const unitSkeleton = remember(hulls, hullKey, () =>
+        hullToSkeleton(cloud, merge === MERGE_SKIP_ID ? { merge: false } : {}),
+      );
 
       const solidKey = JSON.stringify({
         hullKey,
@@ -113,8 +162,8 @@ export function runPipeline(state) {
 }
 
 /** Normalized unit hull for a base (shared cache). */
-export function hullSkeletonForBase(base) {
-  return shared.hullSkeleton(base);
+export function hullSkeletonForBase(base, state = {}) {
+  return shared.hullSkeleton(base, state);
 }
 
 /** Clear the shared cache (tests). */

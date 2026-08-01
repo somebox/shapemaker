@@ -170,6 +170,16 @@ and require a defined assembly workflow before implementation.
 
 ## Later — shape vocabulary
 
+- **Plane-perturbation jitter for regular bases.** v0.4 scoped jitter to the
+  random base because point-jitter on merged faces is a topology cliff (the
+  first slider step shatters pentagons into triangle frames while points move
+  fractions of a millimetre). The gradual mechanism for regular bases:
+  perturb each face *plane* (small tilt/offset) and recompute vertices by
+  re-intersecting planes via the dual hull — faces stay planar convex
+  polygons, so a jittered cube is six wobbly quad frames and every solidifier
+  guarantee holds. Known work items: vertices with 4+ faces (all 30 on the
+  icosidodecahedron) split into short edges that need cleanup so per-face
+  fillets don't collapse; acceptance seeds for the new path.
 - Additional opening generators such as circle or mirrored-face openings.
 - Fixed-order skeleton operators: truncate, subdivide/spherify, and dual.
 - Scale-to-target mean edge for irregular forms.

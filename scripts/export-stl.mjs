@@ -24,6 +24,10 @@ const FLAGS = {
   openings: ["openings", (v) => v !== "0" && v !== "false"],
   depth: ["depth", String],
   base: ["base", String],
+  seed: ["seed", Number],
+  points: ["points", Number],
+  separation: ["separation", Number],
+  jitter: ["jitter", Number],
 };
 
 const args = process.argv.slice(2);

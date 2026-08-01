@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Acceptance: headless STL export → prototype/meshcheck.py.
 #
-# Matrix (Milestone 3): 6 bases × 3 supported shell combos = 18 core, plus
-# one near-limit hollow-open stress case per base = 24 STLs.
+# Matrix: 7 bases × 3 supported shell combos (21) + one near-limit stress
+# open per base (7) + Draft/Fine quality on the default solid (2, M4) +
+# jittered random (1) + 3 random seeds × Draft/Fine (6, M5) = 37 STLs.
 #
 # Requires: node, and .venv with prototype/requirements.txt installed.
 set -euo pipefail
@@ -29,7 +30,7 @@ while IFS=$'\t' read -ra parts; do
 done < <(node --input-type=module - <<'JS'
 import { compile } from "./src/compile.js";
 import { clearPipelineCache } from "./src/pipeline.js";
-import { BASE_IDS } from "./src/bases.js";
+import { BASE_IDS, BASES } from "./src/bases.js";
 
 const combos = [
   { tag: "solid_closed", depth: "solid", openings: false },
@@ -38,30 +39,103 @@ const combos = [
 ];
 
 for (const base of BASE_IDS) {
-  for (const c of combos) {
-    const name = `${base}__${c.tag}.stl`;
-    console.log(
-      [name, `--base=${base}`, `--depth=${c.depth}`, `--openings=${c.openings}`].join("\t"),
-    );
-  }
+  // Parametric bases (random) can have faces where the default 3.2 mm border
+  // does not fit — probe limits first and fit every open combo.
+  const parametric = Boolean(BASES[base].parametric);
   clearPipelineCache();
-  const probe = compile({ base, depth: "hollow", openings: true });
+  const probe = compile({
+    base,
+    depth: "hollow",
+    openings: true,
+    ...(parametric ? { borderMm: 0.8, filletMm: 2 } : {}),
+  });
   if (!probe.validation.ok) {
     console.error("probe failed", base, probe.validation.errors);
     process.exit(1);
   }
-  const border =
+  const fitBorder = parametric
+    ? Math.max(0.8, Math.floor(probe.metrics.limits.borderMmMax * 0.85 * 10) / 10)
+    : null;
+
+  for (const c of combos) {
+    const name = `${base}__${c.tag}.stl`;
+    const flags = [`--base=${base}`, `--depth=${c.depth}`, `--openings=${c.openings}`];
+    if (c.openings && fitBorder != null) flags.push(`--border=${fitBorder}`, "--fillet=2");
+    console.log([name, ...flags].join("\t"));
+  }
+
+  const stressBorder =
     Math.floor(probe.metrics.limits.borderMmMax * 0.92 * 10) / 10;
-  const name = `${base}__stress_open.stl`;
   console.log(
     [
-      name,
+      `${base}__stress_open.stl`,
       `--base=${base}`,
       `--depth=hollow`,
       `--openings=true`,
-      `--border=${border}`,
+      `--border=${stressBorder}`,
+      ...(parametric ? ["--fillet=2"] : []),
     ].join("\t"),
   );
+}
+
+// Quality levels (M4): Draft and Fine on the default solid. Normal is every
+// other case in this matrix, so it needs no extra entry.
+for (const [tag, edgeDiv] of [["draft", 4], ["fine", 20]]) {
+  console.log(
+    [
+      `icosidodeca__quality_${tag}.stl`,
+      "--base=icosidodeca",
+      "--depth=hollow",
+      "--openings=true",
+      `--edge-div=${edgeDiv}`,
+    ].join("\t"),
+  );
+}
+
+// Jittered random hull (M5). Jitter is scoped to the random base in v0.4 —
+// on merged regular bases point-jitter is a topology cliff, not gradual.
+console.log(
+  [
+    "random_s1337_j10__hollow_open.stl",
+    "--base=random",
+    "--jitter=10",
+    "--seed=1337",
+    "--depth=hollow",
+    "--openings=true",
+    "--border=0.8",
+    "--fillet=1.5",
+  ].join("\t"),
+);
+
+// Random hulls (M5): three fixed seeds, hollow-open, Draft + Fine each.
+// Border probed per seed — small irregular faces can cap it under 2 mm.
+for (const seed of [1, 1337, 90210]) {
+  clearPipelineCache();
+  const probe = compile({
+    base: "random", seed, depth: "hollow", openings: true, borderMm: 0.8, filletMm: 2,
+  });
+  if (!probe.validation.ok) {
+    console.error("random probe failed", seed, probe.validation.errors);
+    process.exit(1);
+  }
+  const border = Math.max(
+    0.8,
+    Math.floor(probe.metrics.limits.borderMmMax * 0.85 * 10) / 10,
+  );
+  for (const [tag, edgeDiv] of [["draft", 4], ["fine", 20]]) {
+    console.log(
+      [
+        `random_s${seed}__${tag}.stl`,
+        "--base=random",
+        `--seed=${seed}`,
+        "--depth=hollow",
+        "--openings=true",
+        `--border=${border}`,
+        "--fillet=2",
+        `--edge-div=${edgeDiv}`,
+      ].join("\t"),
+    );
+  }
 }
 JS
 )
@@ -109,8 +183,8 @@ PY
   fi
 done
 
-if [[ "$count" -ne 24 ]]; then
-  echo "acceptance FAILED — expected 24 STLs, got $count" >&2
+if [[ "$count" -ne 37 ]]; then
+  echo "acceptance FAILED — expected 37 STLs, got $count" >&2
   exit 1
 fi
 
@@ -118,4 +192,4 @@ if [[ "$fail" -ne 0 ]]; then
   echo "acceptance FAILED" >&2
   exit 1
 fi
-echo "acceptance OK — all 24 STLs meet every mesh requirement"
+echo "acceptance OK — all 37 STLs meet every mesh requirement"

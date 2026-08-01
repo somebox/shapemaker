@@ -24,18 +24,29 @@ import { validationError } from "../validate.js";
  * A hole generator works purely in face-local 2D. Adding `circle` or `mirror`
  * (v1.1) means adding one of these — the solidifier does not change.
  * @typedef {{
- *   generate: (faceCorners2d: Float64Array, borderFraction: number, filletMm: number) =>
+ *   generate: (faceCorners2d: Float64Array, borderFraction: number, filletMm: number, filletSegments?: number) =>
  *     { opening: Float64Array, radiusUsed: number }
  * }} OpeningGenerator
  */
 
+/**
+ * Tessellation rule: fillet arc segments derived from edgeDiv — density is
+ * ONE user concept with one knob. Normal (edgeDiv 10) → exactly 64, so the
+ * parity anchors (7200 tris, 16.150 cm³) are identity-preserved; Draft 4 →
+ * 26, Fine 20 → 128. The floor keeps degenerate-arc risk out at edgeDiv 1.
+ * @param {number} edgeDiv
+ */
+export function filletSegmentsFor(edgeDiv) {
+  return Math.max(4, Math.round(edgeDiv * 6.4));
+}
+
 /** @type {OpeningGenerator} */
 export const insetFillet = {
-  generate(faceCorners2d, borderFraction, filletMm) {
+  generate(faceCorners2d, borderFraction, filletMm, filletSegments = 64) {
     const inset = insetScale(faceCorners2d, borderFraction);
     const pairs = [];
     for (let i = 0; i < inset.length; i += 2) pairs.push([inset[i], inset[i + 1]]);
-    const { polyline, radius } = filletPolygon(pairs, filletMm, 64);
+    const { polyline, radius } = filletPolygon(pairs, filletMm, filletSegments);
     return { opening: polyline, radiusUsed: radius };
   },
 };
@@ -213,7 +224,12 @@ export function buildShell(skeleton, opts) {
       corner2d[k * 2 + 1] = B2y[idx];
     }
 
-    const { opening, radiusUsed } = openingGenerator.generate(corner2d, frac, filletMm);
+    const { opening, radiusUsed } = openingGenerator.generate(
+      corner2d,
+      frac,
+      filletMm,
+      filletSegmentsFor(edgeDiv),
+    );
 
     // Sample the opening along the same rays as the boundary points: both
     // rings are convex and contain the centroid, so the rays are in strict

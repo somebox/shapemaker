@@ -70,19 +70,26 @@ function edgeLengthMultiset(positions, faces, digits = 6) {
 }
 
 describe("BASES registry", () => {
-  it("lists six regular bases", () => {
+  it("lists six regular bases plus the parametric random hull", () => {
     assert.deepEqual([...BASE_IDS].sort(), [
       "cube",
       "dodecahedron",
       "icosahedron",
       "icosidodeca",
       "octahedron",
+      "random",
       "tetrahedron",
     ]);
     for (const id of BASE_IDS) {
       assert.equal(isKnownBase(id), true);
-      assert.equal(BASES[id].regular, true);
       assert.ok(BASES[id].label);
+      if (id === "random") {
+        assert.equal(BASES[id].regular, false);
+        assert.equal(BASES[id].parametric, true);
+        assert.equal(BASES[id].merge, false, "random skips coplanar merge");
+      } else {
+        assert.equal(BASES[id].regular, true);
+      }
     }
   });
 });
@@ -97,7 +104,11 @@ describe("analytic per-base hull signatures", () => {
     icosidodeca: { verts: 30, sig: [[3, 20], [5, 12]], R: 1 },
   };
 
-  for (const id of BASE_IDS) {
+  // Analytic signatures exist only for the regular family; the random base
+  // has its own determinism/Euler suite in test/random.test.js.
+  const REGULAR_IDS = BASE_IDS.filter((id) => BASES[id].regular);
+
+  for (const id of REGULAR_IDS) {
     it(`${id}: vertex count, circumsphere, face signature`, () => {
       const pts = BASES[id].points();
       const sk = hullToSkeleton(pts);
@@ -219,7 +230,10 @@ describe("multi-base shell combos (headless)", () => {
     for (const c of combos) {
       it(`${base} ${c.depth} openings=${c.openings}`, () => {
         clearPipelineCache();
-        const r = compile({ base, ...c });
+        // Random seeds can produce faces where the default 3.2 mm border
+        // does not fit (the UI adapts on base change; headless must fit).
+        const fit = BASES[base].parametric ? { borderMm: 1.5, filletMm: 2 } : {};
+        const r = compile({ base, ...fit, ...c });
         assert.equal(r.validation.ok, true, r.validation.errors[0]?.message);
         assert.ok(r.metrics.triangleCount > 0);
         assert.ok(r.metrics.volumeCm3 > 0);

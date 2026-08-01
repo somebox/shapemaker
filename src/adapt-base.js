@@ -19,6 +19,13 @@ export function adaptStateForBase({ currentState, nextBase, nextLimits }) {
   };
   let reduced = false;
 
+  // Jitter is random-base-only in v0.4; leaving a regular base's state
+  // carrying jitter would fail validation, so adaptation zeroes it.
+  if (nextBase !== "random" && currentState.jitter > 0) {
+    patch.jitter = 0;
+    reduced = true;
+  }
+
   const wallMax = nextLimits.wallMmMax;
   if (
     wallMax != null &&

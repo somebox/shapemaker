@@ -62,6 +62,31 @@ export function validateState(state) {
     err("solid", "edgeDiv", "Edge divisions must be a whole number ≥ 1");
   }
 
+  // Random-base parameters. Validated for every state (they are canonical
+  // with defaults), so a corrupt hash cannot smuggle bad values behind a
+  // regular base and detonate later on a base switch.
+  if (!Number.isInteger(state.points) || state.points < 4 || state.points > 60) {
+    err("points", "points", "Point count must be a whole number from 4 to 60");
+  }
+  if (!Number.isInteger(state.seed) || state.seed < 0 || state.seed > 0xffffffff) {
+    err("points", "seed", "Seed must be a whole number from 0 to 4294967295");
+  }
+  if (!(Number.isFinite(state.separation) && state.separation >= 0 && state.separation <= 1)) {
+    err("points", "separation", "Separation must be between 0 and 1");
+  }
+  if (!(Number.isFinite(state.jitter) && state.jitter >= 0 && state.jitter <= 20)) {
+    err("points", "jitter", "Jitter must be between 0 and 20 % of the size");
+  }
+  // Jitter is scoped to the random base in v0.4: on merged regular bases any
+  // nonzero jitter shatters faces into triangles (a topology cliff, not a
+  // gradual change). Plane-perturbation jitter for regular bases is on the
+  // roadmap; until then this is a clean refusal rather than a surprise.
+  if (state.jitter > 0 && state.base !== "random") {
+    err("points", "jitter", "Jitter is available on the random base in this version", {
+      clampTo: 0,
+    });
+  }
+
   if (state.openings) {
     // Openings need an inner surface to close the rim against. A solid body
     // with through-holes is a different construction (v1.1), not this one.

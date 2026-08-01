@@ -14,6 +14,9 @@ import { assertSkeleton, edgeList, circumradius } from "./skeleton.js";
 /** Cache / fixture tag for the merge policy implemented below. */
 export const MERGE_POLICY_ID = "adj-v1";
 
+/** Cache tag for the merge-skip path (random bases, nonzero jitter). */
+export const MERGE_SKIP_ID = "none";
+
 /**
  * Named merge tolerances. Defaults suit exact regular solids (unit sphere).
  * Size-relative values are multiplied by the cloud's circumradius.
@@ -27,7 +30,8 @@ export const DEFAULT_MERGE = Object.freeze({
 
 /**
  * @param {Float64Array | number[][]} points  flat xyz or list of [x,y,z]
- * @param {Partial<typeof DEFAULT_MERGE>} [mergeOpts]
+ * @param {Partial<typeof DEFAULT_MERGE> & { merge?: boolean }} [mergeOpts]
+ *   merge: false skips coplanar merging (hull triangles become the faces).
  * @returns {{ positions: Float64Array, faces: number[][], edges: number[][] }}
  */
 export function hullToSkeleton(points, mergeOpts = {}) {
@@ -53,11 +57,24 @@ export function hullToSkeleton(points, mergeOpts = {}) {
   });
 
   const R = circumradius(positions);
-  const faces = mergeCoplanar(positions, triangles, {
-    planeDistance: opts.planeDistanceRel * R,
-    normalAngleRad: opts.normalAngleRad,
-    collinear: opts.collinearRel * R,
-  });
+
+  // Merge runs only for exact regular generators. Random bases and any
+  // nonzero jitter skip it (locked decision, Phase 4): jittered points are
+  // almost never coplanar, so merging would be a no-op with over-merge risk.
+  // Triangles become the faces, oriented outward here because that job
+  // otherwise belongs to boundaryRing.
+  const faces =
+    opts.merge === false
+      ? triangles.map((t) => {
+          const ring = t.slice();
+          orientOutward(positions, ring); // mutates in place
+          return ring;
+        })
+      : mergeCoplanar(positions, triangles, {
+          planeDistance: opts.planeDistanceRel * R,
+          normalAngleRad: opts.normalAngleRad,
+          collinear: opts.collinearRel * R,
+        });
 
   const identified = applyFaceIdentity(positions, faces);
   const skeleton = {

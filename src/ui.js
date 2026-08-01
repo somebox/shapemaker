@@ -4,7 +4,13 @@
  */
 
 import { VERSION } from "./version.js";
-import { CONTROL_DEFS } from "./schema.js";
+import {
+  CONTROL_DEFS,
+  qualityLevelFor,
+  DENSITY_LEVELS,
+  densityLevelFor,
+  edgeInputReadOnly,
+} from "./schema.js";
 import { faceFamilies, locateFace } from "./face-families.js";
 
 export { CONTROL_DEFS };
@@ -197,11 +203,37 @@ export function createPanel(panelEl, handlers) {
   panelEl.querySelectorAll("[data-seg-key]").forEach((btn) => {
     btn.addEventListener("click", () => {
       const key = btn.getAttribute("data-seg-key");
+      const def = CONTROL_DEFS.find((c) => c.key === key);
       let value = btn.getAttribute("data-seg-value");
+      if (key === "density") {
+        // Density is UI vocabulary writing the canonical pair.
+        const level = DENSITY_LEVELS.find((d) => d.id === value);
+        if (level) {
+          queuePatch({ points: level.points, separation: level.separation }, true);
+        }
+        return;
+      }
       if (key === "openings") value = value === "true";
+      else if (def?.numeric) value = Number(value);
       queuePatch({ [key]: value }, true);
     });
   });
+
+  // Seed field + reroll
+  {
+    const seedInput = inputs.get("seed");
+    seedInput?.addEventListener("change", () => {
+      const n = Math.floor(Number(seedInput.value));
+      if (Number.isFinite(n) && n >= 0) queuePatch({ seed: n >>> 0 }, true);
+    });
+    panelEl.querySelector("[data-reroll]")?.addEventListener("click", () => {
+      const s =
+        typeof crypto !== "undefined" && crypto.getRandomValues
+          ? crypto.getRandomValues(new Uint32Array(1))[0]
+          : Math.floor(Math.random() * 4294967296);
+      queuePatch({ seed: s >>> 0 }, true);
+    });
+  }
 
   const inspectEls = {
     dims: panelEl.querySelector("[data-inspect=dims]"),
@@ -274,6 +306,27 @@ export function createPanel(panelEl, handlers) {
         applyStateToControls(state, inputs, ranges, controlRoots);
         setSegment("depth", state.depth);
         setSegment("openings", String(!!state.openings));
+        setSegment("edgeDiv", state.edgeDiv);
+        const customTag = panelEl.querySelector('[data-custom-key="edgeDiv"]');
+        if (customTag) {
+          const custom = qualityLevelFor(state.edgeDiv) == null;
+          customTag.hidden = !custom;
+          customTag.textContent = custom ? `custom · ${state.edgeDiv}` : "";
+        }
+        const densityId = densityLevelFor(state.points, state.separation);
+        setSegment("density", densityId ?? "");
+        const densityTag = panelEl.querySelector('[data-custom-key="density"]');
+        if (densityTag) {
+          densityTag.hidden = densityId != null;
+          densityTag.textContent =
+            densityId == null ? `custom · ${state.points} pts` : "";
+        }
+        const edgeInput = inputs.get("edgeLengthMm");
+        if (edgeInput) {
+          // Bijection with scale only holds for exact regular shapes.
+          edgeInput.readOnly = edgeInputReadOnly(state);
+          edgeInput.classList.toggle("is-readout", edgeInput.readOnly);
+        }
       }
 
       if (result?.skeleton?.faces) {
@@ -399,7 +452,36 @@ function buildControl(def, _handlers, inputs, ranges, errNodes, limitLabels) {
       btn.setAttribute("aria-pressed", "false");
       segs.appendChild(btn);
     }
+    if (def.customTag) {
+      // Shown when the canonical value matches no level (e.g. edgeDiv 12
+      // from a project file) — the levels are vocabulary, not a constraint.
+      const tag = el("span", { className: "seg-custom", hidden: true });
+      tag.setAttribute("data-custom-key", def.key);
+      segs.appendChild(tag);
+    }
     root.appendChild(segs);
+  } else if (def.type === "seed") {
+    const row = el("div", { className: "control-row" });
+    const lab = el("label", { textContent: def.label });
+    lab.htmlFor = `ctrl-${def.key}`;
+    const num = el("input", {
+      type: "number",
+      id: `ctrl-${def.key}`,
+      step: "1",
+      min: "0",
+      max: "4294967295",
+    });
+    const reroll = el("button", {
+      type: "button",
+      className: "reroll",
+      textContent: "⟳",
+      title: "New seed",
+    });
+    reroll.setAttribute("aria-label", "New random seed");
+    reroll.setAttribute("data-reroll", "");
+    inputs.set(def.key, num);
+    row.append(lab, num, reroll);
+    root.appendChild(row);
   } else if (def.type === "range" || def.type === "number") {
     const row = el("div", { className: "control-row" });
     const lab = el("label", { textContent: def.label });

@@ -121,16 +121,19 @@ ui = createPanel(panelEl, {
       ui.setResult(result, { limits: lastLimits, invalid: true });
       return;
     }
-    const size = result.state.circumdiameterMm;
-    const base = result.state.base;
+    const { base, circumdiameterMm: size, seed, jitter } = result.state;
+    // Seed in the filename whenever the shape depends on one — the
+    // reproducibility story survives outside the URL (spec rule).
+    const seeded = base === "random" || jitter > 0;
+    const stem = seeded ? `${base}_s${seed}_${size}mm` : `${base}_${size}mm`;
     const buf = writeBinaryStl(result.mesh, {
-      header: `shapemaker_${base}_${size}mm`,
+      header: `shapemaker_${stem}`,
       matrix: result.orientation.matrix,
     });
     const blob = new Blob([buf], { type: "model/stl" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    a.download = `${base}_${size}mm.stl`;
+    a.download = `${stem}.stl`;
     a.click();
     URL.revokeObjectURL(a.href);
   },
@@ -226,24 +229,30 @@ window.addEventListener("popstate", () => {
   regenerate({ forceFrame: false, fromHistory: true });
 });
 
+/** Keys that change the skeleton itself — edits to them re-run adaptation. */
+const SKELETON_KEYS = ["base", "seed", "points", "separation", "jitter"];
+
 function applyPatch(patch, commit) {
   let normalized = normalizePatch(patch);
   let warnings = [];
 
-  if (normalized.base != null && normalized.base !== draft.base) {
-    const unit = hullSkeletonForBase(normalized.base);
-    const R = (draft.circumdiameterMm ?? 100) / 2;
-    const sk = scaleSkeleton(unit, R);
-    // Limits from skeleton (no solidifier). Border max does not depend on the
-    // current border value; fillet ceiling is unused by adaptation.
-    const limits = computeLimits(sk, {
-      ...draft,
-      base: normalized.base,
-      faceIndex: -1,
-    });
+  // Any skeleton-shaping edit (base switch, seed reroll, density, jitter)
+  // adapts wall/border to the NEW skeleton's limits — same policy as base
+  // change: fix what would fail validation, never taste. Without this, a
+  // reroll into a tighter hull lands on an error instead of a shape.
+  const reshapes = SKELETON_KEYS.some(
+    (k) => normalized[k] != null && normalized[k] !== draft[k],
+  );
+  if (reshapes) {
+    const probe = { ...draft, ...normalized, faceIndex: -1 };
+    const unit = hullSkeletonForBase(probe.base, probe);
+    const sk = scaleSkeleton(unit, (probe.circumdiameterMm ?? 100) / 2);
+    // Limits from skeleton (no solidifier). Border max does not depend on
+    // the current border value; fillet ceiling is unused by adaptation.
+    const limits = computeLimits(sk, probe);
     const adapted = adaptStateForBase({
-      currentState: draft,
-      nextBase: normalized.base,
+      currentState: { ...draft, ...normalized },
+      nextBase: probe.base,
       nextLimits: limits,
     });
     normalized = normalizePatch({ ...normalized, ...adapted.patch });

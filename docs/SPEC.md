@@ -111,11 +111,21 @@ Jitter moves points along the sphere by 0–20% of circumradius. Keeping points 
 the sphere prevents vertices from silently disappearing inside the hull. One
 seed controls random placement and jitter in version 1.
 
+**Jitter is scoped to the random base.** On merged regular bases, point
+jitter cannot be gradual: any nonzero value un-merges the polygonal faces
+into hull triangles — a topology cliff at the first slider step, while the
+points themselves barely move. Random hulls are already triangulated, so
+jitter there is genuinely continuous. Bringing jitter to regular bases needs
+a different mechanism (perturbing face *planes* so faces stay planar
+polygons); that design is tracked in the roadmap.
+
 ### Hull, skeleton, and scale
 
 QuickHull closes the point cloud. Coplanar facets are merged using a
-size-relative tolerance. Exact regular bases retain their polygonal faces;
-nonzero jitter uses a tighter tolerance to avoid merging intentional facets.
+size-relative tolerance **only for exact regular generators at jitter zero**.
+Random bases and any nonzero jitter skip the merge entirely — jittered points
+are almost never coplanar, so merging would be a no-op with over-merge risk —
+and the hull triangles become the faces.
 
 The resulting normalized `Skeleton` is the central shape representation. A
 single uniform scale converts it to millimetres. The primary interaction is

@@ -128,9 +128,13 @@ describe("face identity is deterministic under input point order (all bases)", (
 
   for (const id of BASE_IDS) {
     it(`${id}: same faceIndex → same geometric face after point shuffle`, () => {
-      const pts = BASES[id].points();
-      const a = hullToSkeleton(pts);
-      const b = hullToSkeleton(scramble(pts));
+      const params = BASES[id].parametric
+        ? { points: 24, seed: 1337, separation: 0.5 }
+        : undefined;
+      const pts = BASES[id].points(params);
+      const mergeOpts = BASES[id].merge === false ? { merge: false } : {};
+      const a = hullToSkeleton(pts, mergeOpts);
+      const b = hullToSkeleton(scramble(pts), mergeOpts);
       assert.equal(a.faces.length, b.faces.length);
       // Vertex indices may differ — the promise is per-INDEX face geometry.
       for (let k = 0; k < a.faces.length; k++) {
