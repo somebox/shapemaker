@@ -5,10 +5,6 @@ __pycache__/
 *.pyc
 .DS_Store
 
-# Generated meshes. The Python-generated STL is the one exception — it is the
-# parity reference the JS port is checked against, and must be committed.
-*.stl
-
 # Generated files.
 !prototype/icosidodecahedron_100mm_TPU.stl
 test/out/
