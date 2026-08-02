@@ -28,7 +28,7 @@ a `.shapemaker.json` project on your machine.
 
 | Hidden-line SVG | Oriented STL | In the slicer |
 |---|---|---|
-| ![Hidden-line SVG export](media/example-export.svg) | ![Rendered STL export](media/example-stl-render.png) | <img src="media/prusa-slicer-screenshot.png" alt="Default export opened in PrusaSlicer" width="320" /> |
+| ![Hidden-line SVG export](media/example-export.png) | ![Rendered STL export](media/example-stl-render.png) | <img src="media/prusa-slicer-screenshot.png" alt="Default export opened in PrusaSlicer" width="320" /> |
 
 - **Export STL** — binary mesh in millimetres, already oriented to the resting
   face. Filenames include size (and seed / point count when those matter).
