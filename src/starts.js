@@ -8,11 +8,17 @@ import { DEFAULT_STATE, normalizeState, serializeState, statesEqual } from "./sc
 import { BASES, BASE_IDS, isKnownBase } from "./bases.js";
 
 /**
- * Per-base Form overrides so every built-in start compiles without clamp.
- * Regulars share DEFAULT_STATE; parametric hulls (sphere, random) need a
- * tighter border and fillet on their small triangular faces.
+ * Per-base Form overrides so every built-in start compiles without clamp
+ * at its own defaults; later Density/jitter edits re-fit wall and border
+ * through applyEdit's reshape adaptation. Regulars share DEFAULT_STATE;
+ * parametric hulls (globe, sphere, random) need a tighter border and
+ * fillet on their small faces.
  */
 const BASE_PACKS = Object.freeze({
+  globe: Object.freeze({
+    borderMm: 1,
+    filletMm: 1.5,
+  }),
   sphere: Object.freeze({
     borderMm: 1,
     filletMm: 1.5,

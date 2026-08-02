@@ -6,6 +6,7 @@ import { icosidodecahedronDirect, icosidodecaPoints } from "../src/points/icosid
 import { compile } from "../src/compile.js";
 import { clearPipelineCache } from "../src/pipeline.js";
 import { circumradius } from "../src/skeleton.js";
+import { PHI } from "../src/points/platonic.js";
 import ref from "./reference.json" with { type: "json" };
 import scipyTetra from "./fixtures/scipy_hull_tetra.json" with { type: "json" };
 import quickhull from "../vendor/quickhull3d/quickhull3d.js";
@@ -70,24 +71,32 @@ function edgeLengthMultiset(positions, faces, digits = 6) {
 }
 
 describe("BASES registry", () => {
-  it("lists six regular bases plus the parametric sphere and random hull", () => {
+  it("lists nine regular bases plus the parametric globe, sphere, and random hull", () => {
     assert.deepEqual([...BASE_IDS].sort(), [
       "cube",
+      "cuboctahedron",
       "dodecahedron",
+      "globe",
       "icosahedron",
       "icosidodeca",
       "octahedron",
       "random",
+      "rhombicdodeca",
+      "rhombictriaconta",
       "sphere",
       "tetrahedron",
     ]);
     for (const id of BASE_IDS) {
       assert.equal(isKnownBase(id), true);
       assert.ok(BASES[id].label);
-      if (id === "random" || id === "sphere") {
+      if (id === "random" || id === "sphere" || id === "globe") {
         assert.equal(BASES[id].regular, false);
         assert.equal(BASES[id].parametric, true);
-        assert.equal(BASES[id].merge, false, `${id} skips coplanar merge`);
+        if (id === "globe") {
+          assert.equal(BASES[id].merge, undefined, "globe keeps coplanar merge");
+        } else {
+          assert.equal(BASES[id].merge, false, `${id} skips coplanar merge`);
+        }
       } else {
         assert.equal(BASES[id].regular, true);
       }
@@ -97,32 +106,59 @@ describe("BASES registry", () => {
 
 describe("analytic per-base hull signatures", () => {
   const expected = {
-    tetrahedron: { verts: 4, sig: [[3, 4]], R: 1 },
-    cube: { verts: 8, sig: [[4, 6]], R: 1 },
-    octahedron: { verts: 6, sig: [[3, 8]], R: 1 },
-    dodecahedron: { verts: 20, sig: [[5, 12]], R: 1 },
-    icosahedron: { verts: 12, sig: [[3, 20]], R: 1 },
-    icosidodeca: { verts: 30, sig: [[3, 20], [5, 12]], R: 1 },
+    tetrahedron: { verts: 4, sig: [[3, 4]], radii: [[1, 4]] },
+    cube: { verts: 8, sig: [[4, 6]], radii: [[1, 8]] },
+    octahedron: { verts: 6, sig: [[3, 8]], radii: [[1, 6]] },
+    dodecahedron: { verts: 20, sig: [[5, 12]], radii: [[1, 20]] },
+    icosahedron: { verts: 12, sig: [[3, 20]], radii: [[1, 12]] },
+    icosidodeca: { verts: 30, sig: [[3, 20], [5, 12]], radii: [[1, 30]] },
+    cuboctahedron: { verts: 12, sig: [[3, 8], [4, 6]], radii: [[1, 12]] },
+    rhombicdodeca: {
+      verts: 14,
+      sig: [[4, 12]],
+      radii: [[Math.sqrt(3) / 2, 8], [1, 6]],
+    },
+    rhombictriaconta: {
+      verts: 32,
+      sig: [[4, 30]],
+      radii: [[Math.sqrt(3 / (2 + PHI)), 20], [1, 12]],
+    },
   };
 
-  // Analytic signatures exist only for the regular family; the random base
-  // has its own determinism/Euler suite in test/random.test.js.
+  function radiiMultiset(positions, digits = 9) {
+    const m = new Map();
+    for (let i = 0; i < positions.length; i += 3) {
+      const r = Math.hypot(positions[i], positions[i + 1], positions[i + 2]);
+      const key = r.toFixed(digits);
+      m.set(key, (m.get(key) || 0) + 1);
+    }
+    return [...m.entries()]
+      .map(([k, n]) => [Number(k), n])
+      .sort((a, b) => a[0] - b[0]);
+  }
+
+  // Analytic signatures exist only for the regular family; parametric bases
+  // have their own determinism/Euler suites.
   const REGULAR_IDS = BASE_IDS.filter((id) => BASES[id].regular);
 
   for (const id of REGULAR_IDS) {
-    it(`${id}: vertex count, circumsphere, face signature`, () => {
+    it(`${id}: vertex count, circumradius, face signature, radii`, () => {
       const pts = BASES[id].points();
       const sk = hullToSkeleton(pts);
       const exp = expected[id];
       assert.equal(sk.positions.length / 3, exp.verts);
       assert.ok(Math.abs(circumradius(sk.positions) - 1) < 1e-9);
       assert.deepEqual(faceSignature(sk.faces), exp.sig);
-      // All vertices on the unit sphere
-      for (let i = 0; i < sk.positions.length; i += 3) {
-        const r = Math.hypot(sk.positions[i], sk.positions[i + 1], sk.positions[i + 2]);
-        assert.ok(Math.abs(r - 1) < 1e-9, `vert radius ${r}`);
+      const got = radiiMultiset(sk.positions);
+      assert.equal(got.length, exp.radii.length, `${id} radius count`);
+      for (let i = 0; i < exp.radii.length; i++) {
+        assert.ok(
+          Math.abs(got[i][0] - exp.radii[i][0]) < 1e-9,
+          `${id} radius ${got[i][0]} vs ${exp.radii[i][0]}`,
+        );
+        assert.equal(got[i][1], exp.radii[i][1], `${id} radius multiplicity`);
       }
-      // Edge lengths nearly equal (regular)
+      // Edge lengths nearly equal (edge-transitive)
       const edges = edgeLengthMultiset(sk.positions, sk.faces, 8);
       const nums = edges.map(Number);
       const mean = nums.reduce((a, b) => a + b, 0) / nums.length;
@@ -233,7 +269,7 @@ describe("multi-base shell combos (headless)", () => {
         clearPipelineCache();
         // Random seeds can produce faces where the default 3.2 mm border
         // does not fit (the UI adapts on base change; headless must fit).
-        const fit = BASES[base].parametric ? { borderMm: 1.5, filletMm: 2 } : {};
+        const fit = BASES[base].parametric ? { borderMm: 1, filletMm: 1.5 } : {};
         const r = compile({ base, ...fit, ...c });
         assert.equal(r.validation.ok, true, r.validation.errors[0]?.message);
         assert.ok(r.metrics.triangleCount > 0);

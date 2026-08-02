@@ -34,6 +34,18 @@ describe("compile() rejects invalid state without throwing", () => {
     ["unknown base", { base: "bogus" }, "base"],
     ["unknown depth", { depth: "squishy" }, "depth"],
     ["solid with openings", { depth: "solid", openings: true }, "openings"],
+    // Globe reaches geometric-stage failures through ordinary sliders
+    // (near-pole faces shrink fast) — its messages must stay clean too.
+    [
+      "globe: border too wide at max density",
+      { base: "globe", points: 36, borderMm: 1, filletMm: 1.5 },
+      "borderMm",
+    ],
+    [
+      "globe: jittered pole faces reject the recipe border",
+      { base: "globe", jitter: 3, seed: 1, borderMm: 1, filletMm: 1.5 },
+      "borderMm",
+    ],
   ];
 
   for (const [name, state, expectedKey] of cases) {

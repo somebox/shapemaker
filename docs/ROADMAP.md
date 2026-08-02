@@ -48,7 +48,9 @@ and require a defined assembly workflow before implementation.
 
 ## Later — shape vocabulary
 
-- Calibrate the shared soft amplitude for plane-perturbation jitter.
+Shipped in 0.7.0: cuboctahedron, rhombic dodecahedron, rhombic triacontahedron,
+and a lat/long globe (Density → meridians). Further vocabulary ideas:
+
 - Additional opening generators such as circle or mirrored-face openings.
 - Skeleton operators still open: truncate and dual (subdivide + smooth already
   ship). Possible follow-ups: higher subdivision levels behind a performance
@@ -60,6 +62,50 @@ and require a defined assembly workflow before implementation.
   and delete only for user presets.
 
 There will be no editable operator stack unless a compelling workflow appears.
+
+## Later — edge rounding (general fillet)
+
+Soften the *solidified* model's hard edges — a small constant radius on rims
+and dihedral edges for a comfortable, organic feel — without changing base
+geometry. Distinct from today's vocabulary: **Fillet** rounds the opening
+outline in-plane; **Smooth** is a pre-solidify sphere clip (global, needs
+Subdivide, never sees rims). Neither touches the edges a hand feels.
+
+Edge families on today's models, in feel-impact order:
+
+1. **Opening rims** — the 90° lip where a face plane meets the opening wall
+   (outer and inner). The dominant in-hand sharpness on open frames.
+2. **Outer dihedral edges/corners** — between face frames along skeleton
+   edges; the dominant sharpness on closed/solid models.
+3. Inner-shell edges — inside the cavity; lowest value.
+
+Chosen direction: **analytic profile rounding inside the solidifier**, not a
+mesh post-pass. The solidifier already knows every edge family by
+construction (shared per-edge subdivision points, ring-based annulus/wall
+quads), so a roundover is a profile sweep where today a single hard ring
+sits — no crease detection, no repair. Staged:
+
+- **Stage 1 — rim roundovers**: replace the hard lip rings (outer face →
+  opening wall, and the inner mirror) with quarter-circle profile rings.
+  Local to the existing annulus construction; arc segments derive from
+  `edgeDiv` like fillet arcs. Radius ceiling ≤ min(wall, remaining border
+  flat) via `computeLimits`.
+- **Stage 2 — dihedral edges + corners**: rolling-ball rounding of the
+  convex outer form — erode face planes by r (the dual-hull plane machinery
+  from plane-perturb reconstructs the inset skeleton), keep face interiors
+  exactly in their original planes, join with cylinder strips along edges
+  and sphere patches at vertices. Face planes and dimensions hold exactly:
+  "not affecting base geometry" is literal for convex outer forms.
+- Rejected for now: general mesh crease-bevel post-pass (robustness at
+  crease-graph vertices; discards structure the solidifier already has) and
+  volumetric rolling-ball via SDF/remeshing (destroys exact flat faces and
+  mm-true dimensions; would pull in a WASM dependency against the
+  no-dependency rule).
+
+One authored knob (working name **Rounding, mm** in Form; naming must not
+collide with Fillet/Smooth), canonical state key, meshcheck as the gate.
+Cost note: each rounded lip multiplies rim quads by the arc segment count —
+expect ~2–4× triangles on open frames at Normal quality.
 
 ## Refactor backlog
 
@@ -74,14 +120,27 @@ Consistency and maintainability; none change current product behavior.
   adaptation remains for wall/border clamp on reshape).
 - Align or supersede older Phase 4 plan units with this model.
 
+### From the 0.7.0 four-bases review
+
+- Wire `icosidodeca.js` to the shared platonic vertex helpers — `platonic.js`
+  now exports `PHI` / `cubeVerts()` / `icosahedronVerts()` (rhombic.js uses
+  them); icosidodeca.js still carries its own copies of both.
+- Decide the start-chip shortLabel scheme for multi-word solids: “Rhomb 12” /
+  “Rhomb 30” are digit-suffixed while every other chip is a single truncated
+  word (Tetra, Cubocta, Icosi). Chip text only; no persisted state.
+- Share the `radiiMultiset` test helper — `bases.test.js` (9 digits) and
+  `rhombic.test.js` (12 digits) each define it; a normalization regression
+  near 1e-10 would fail one suite and pass the other.
+
 ### From the v0.4 review
 
 - Pick one 2D point form (`Float64Array` flat vs `number[][]`) inside
   `buildShell` / `poly2` (today ~5 shapes with `toPairs`/`flatten` bridges).
 - Make `edgeKey` the only edge-key encoding (inline `a*0x100000+b` or strings
   remain in ~5 files; packing silently collides past 2²⁰ verts).
-- Extract a shared `vec3` helper (Newell / cross / basis duplicated in ~7
-  places).
+- Extract a shared `vec3` helper — Newell is centralized in `skeleton.js`
+  since 0.4.0, but cross/normalize/basis math is still inlined in ~5 places
+  (`faceframe`, `orient`, `export/svg`, `viewer`).
 - `predictedCompileMs(...)` → options object (match `nextHistoryAction`).
 - `subdivideSkeleton(skeleton, level, soften)` →
   `subdivideSkeleton(skeleton, { level, soften })`.
@@ -117,9 +176,7 @@ performance budget, and export guarantees before promoting it from backlog.
 ## Backlog — deliberately unscheduled
 
 - Automatic print-orientation scoring.
-- Hidden-line SVG removal.
 - Resin drain-hole design.
-- True dihedral edge fillets.
 - General booleans or concave modeling.
 - Backend accounts or cloud storage.
 - Optional local session recovery.

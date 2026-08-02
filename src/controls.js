@@ -306,6 +306,23 @@ export function applyStateToControls(state, inputs, ranges, controlRoots, defs) 
     if (root && def.hideWhen) {
       root.setAttribute("data-hidden", def.hideWhen(state) ? "1" : "0");
     }
+    // Per-state slider bounds (e.g. globe advertises Density 6–36): keep
+    // the control honest so no slider positions are dead for this base.
+    if (def.boundsForState) {
+      const bounds = def.boundsForState(state);
+      const lo = bounds?.min ?? def.min;
+      const hi = bounds?.max ?? def.max;
+      const range = ranges.get(def.key);
+      const input = inputs.get(def.key);
+      if (range && lo != null && hi != null) {
+        range.min = String(lo);
+        range.max = String(hi);
+      }
+      if (input && lo != null && hi != null) {
+        input.min = String(lo);
+        input.max = String(hi);
+      }
+    }
     if (root && def.inertWhen) {
       const inert = !!def.inertWhen(state);
       root.setAttribute("data-inert", inert ? "1" : "0");
@@ -318,16 +335,25 @@ export function applyStateToControls(state, inputs, ranges, controlRoots, defs) 
     if (v === undefined) continue;
     const uiVal = stateToUi(def, v);
     const input = inputs.get(def.key);
-    if (input && document.activeElement !== input) {
-      input.value = fmtInput(uiVal);
-      const readout = input.parentElement?.querySelector(".value-readout");
-      if (readout && !readout.hidden) readout.textContent = fmtInput(uiVal);
-    }
     const range = ranges.get(def.key);
+    // Prefer the live control bounds (limits / boundsForState) so the
+    // number field and range never disagree after a base switch.
+    const lo = range != null && range.min !== "" ? Number(range.min) : def.min;
+    const hi = range != null && range.max !== "" ? Number(range.max) : def.max;
+    const display =
+      lo != null &&
+      hi != null &&
+      Number.isFinite(lo) &&
+      Number.isFinite(hi)
+        ? clampUi(uiVal, lo, hi)
+        : uiVal;
+    if (input && document.activeElement !== input) {
+      input.value = fmtInput(display);
+      const readout = input.parentElement?.querySelector(".value-readout");
+      if (readout && !readout.hidden) readout.textContent = fmtInput(display);
+    }
     if (range && document.activeElement !== range) {
-      const lo = Number(range.min);
-      const hi = Number(range.max);
-      range.value = String(clampUi(uiVal, lo, hi));
+      range.value = String(display);
       const readout = range.parentElement?.querySelector(".value-readout");
       if (readout && !readout.hidden) {
         readout.textContent = fmtInput(Number(range.value));

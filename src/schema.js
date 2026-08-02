@@ -5,7 +5,7 @@
 
 import { BASES } from "./bases.js";
 
-/** @typedef {{ key: string, group: string, label: string, type: string, unit?: string, min?: number, max?: number, step?: number, options?: {value:string,label:string,disabled?:boolean}[], numeric?: boolean, boolean?: boolean, customTag?: boolean, hideWhen?: (s:object)=>boolean, inertWhen?: (s:object)=>boolean }} ControlDef */
+/** @typedef {{ key: string, group: string, label: string, type: string, unit?: string, min?: number, max?: number, step?: number, options?: {value:string,label:string,disabled?:boolean}[], numeric?: boolean, boolean?: boolean, customTag?: boolean, hideWhen?: (s:object)=>boolean, inertWhen?: (s:object)=>boolean, boundsForState?: (s:object)=>({min:number,max:number}|null) }} ControlDef */
 
 /** Canonical geometry keys in documented order. */
 export const STATE_KEYS = Object.freeze([
@@ -82,8 +82,7 @@ export function separationForPoints(points) {
 
 /**
  * The mean-edge ↔ scale link is a bijection only on exact regular shapes;
- * on parametric hulls (sphere, random) or under jitter the Edge field
- * becomes a readout.
+ * on any parametric hull or under jitter the Edge field becomes a readout.
  */
 export function isEdgeInputReadOnly(state) {
   return !BASES[state.base]?.regular || state.jitter > 0;
@@ -117,10 +116,12 @@ export const CONTROL_DEFS = [
     step: 0.1,
   },
   {
-    // Direct point-count slider for parametric hulls (sphere, random);
-    // separation derives from the count (see separationForPoints), applied
-    // as a coupled write in normalizePatch. Replaced the Sparse/Medium/Dense
-    // chips after the start-from playtest.
+    // Density slider for parametric hulls. The value is a point count on
+    // sphere/random and a meridian count on globe; separation derives from
+    // it (see separationForPoints), applied as a coupled write in
+    // normalizePatch. Bases advertising a narrower effective range
+    // (globe: 6–36 meridians) clamp the slider via boundsForState so no
+    // slider positions are dead.
     key: "points",
     group: "shape",
     label: "Density",
@@ -130,15 +131,17 @@ export const CONTROL_DEFS = [
     max: 60,
     step: 1,
     inertWhen: (s) => !BASES[s.base]?.parametric,
+    boundsForState: (s) => BASES[s.base]?.pointsRange ?? null,
   },
   {
     key: "seed",
     group: "shape",
     label: "Seed",
     type: "seed",
-    // Active for random placement or whenever jitter is on. The sphere
-    // lattice is deterministic, so its seed only matters under jitter.
-    inertWhen: (s) => s.base !== "random" && !(s.jitter > 0),
+    // Active when the base's placement is seeded, or whenever jitter is on.
+    // The sphere/globe lattices are deterministic, so seed only matters under
+    // jitter there; random placement always needs seed.
+    inertWhen: (s) => !BASES[s.base]?.seeded && !(s.jitter > 0),
   },
   {
     // Always shown; allowed on every base. Regular bases perturb face
@@ -268,6 +271,19 @@ export const CONTROL_DEFS = [
 ];
 
 /**
+ * Clamp Density into a base's advertised `pointsRange` (e.g. globe 6–36).
+ * Bases without a range leave the value unchanged.
+ * @param {string} baseId
+ * @param {number} points
+ * @returns {number}
+ */
+export function clampPointsForBase(baseId, points) {
+  const pr = BASES[baseId]?.pointsRange;
+  if (!pr || !Number.isFinite(points)) return points;
+  return Math.max(pr.min, Math.min(pr.max, Math.floor(points)));
+}
+
+/**
  * Normalize arbitrary input into a complete authoring state.
  * @param {object} [input]
  */
@@ -278,6 +294,13 @@ export function normalizeState(input = {}) {
     if (input[key] !== undefined && input[key] !== null) {
       out[key] = input[key];
     }
+  }
+  // Heal Density from legacy hashes/projects so state matches the mesh the
+  // generator actually builds (and export filenames stay honest).
+  const clamped = clampPointsForBase(/** @type {string} */ (out.base), /** @type {number} */ (out.points));
+  if (clamped !== out.points) {
+    out.points = clamped;
+    out.separation = separationForPoints(clamped);
   }
   return out;
 }

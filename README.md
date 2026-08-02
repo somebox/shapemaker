@@ -42,7 +42,7 @@ flat-bridge overlays, and a height clip to inspect cavities.
 
 | Area | Controls |
 |---|---|
-| Start | Platonic solids, icosidodecahedron, sphere, random hull |
+| Start | Platonic solids, icosidodecahedron, cuboctahedron, rhombic 12/30, globe, sphere, random hull |
 | Size | Overall diameter; Edge length on regular shapes |
 | Form | Hollow or solid, open or closed faces, wall, border, fillet |
 | Distort | Jitter (amount, direction, seed), subdivide, smooth |

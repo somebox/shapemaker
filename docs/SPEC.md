@@ -33,7 +33,9 @@ into interesting results without turning the app into general CAD.
 
 ### Version 1
 
-- Icosidodecahedron, Platonic solids, and seeded random convex polyhedra.
+- Icosidodecahedron, Platonic solids, cuboctahedron, Catalan rhombics
+  (dodecahedron / triacontahedron), lat/long globe, fibonacci sphere, and
+  seeded random convex polyhedra.
 - Uniform free scaling with live dimensions and edge-length inspection.
 - On-sphere jitter.
 - Solid closed forms and hollow shells, with optional openings on hollow forms.
@@ -103,12 +105,18 @@ check.
 
 ### Base points and jitter
 
-Base generators produce normalized points on a sphere: Platonic solids, the
-default icosidodecahedron, a deterministic fibonacci-lattice sphere, or
-seeded random points with a minimum angular separation. Parametric point
-count (sphere and random) tops out near 60 until interactive performance is
-measured; the sphere's density sets how faceted it is, while Quality only
-refines the shell tessellation.
+Base generators produce origin-centered point clouds normalized to unit
+circumradius (max vertex radius = 1): Platonic solids, the default
+icosidodecahedron, the cuboctahedron, Catalan rhombic solids (vertices at two
+radii — the inner ring stays inside the circumsphere), a lat/long globe, a
+deterministic fibonacci-lattice sphere, or seeded random points with a minimum
+angular separation. Parametric point count (sphere and random) tops out near
+60 until interactive performance is measured; on the globe the same Density
+slider means meridian count (clamped 6–36), so edges follow latitude/longitude
+lines after coplanar merge. The sphere's density sets how faceted it is, while
+Quality only refines the shell tessellation. Smooth's sphere clip reaches
+inner-radius Catalan corners only above roughly mid-range soften — accepted
+artistic behavior for the first non-circumsphere bases.
 
 The jitter UI exposes 0–50%; an experimental soft amplitude scale maps that
 range so low-slider values stay subtle (jitter 0 remains identity — exact
@@ -129,7 +137,10 @@ point clouds renormalize so Size still means circumdiameter.
 
 **Density** is a direct point-count slider (4–60) for parametric bases;
 separation derives from the count (matching the retired Sparse / Medium /
-Dense anchors at 12/24/48). **Subdivide** (0/1/2) is the first fixed-order
+Dense anchors at 12/24/48). On the globe the same control sets meridian count:
+the base advertises its effective range (6–36) through the registry
+(`pointsRange`), and the slider clamps to it so no positions are dead.
+**Subdivide** (0/1/2) is the first fixed-order
 skeleton operator: each level splits every face flat, in its own plane —
 4:1 for triangles, centroid fans over midpoint-split edges for larger
 polygons — so mixed-face solids stay closed and level alone only adds
@@ -328,6 +339,9 @@ src/starts.js           start-from recipes
 src/start-thumbs.js     chooser wireframe thumbnails (SVG)
 src/points/jitter.js    on-sphere jitter (parametric bases)
 src/points/sphere.js    fibonacci-lattice sphere points
+src/points/globe.js     lat/long globe (meridian Density)
+src/points/cuboctahedron.js  cuboctahedron
+src/points/rhombic.js   rhombic dodecahedron / triacontahedron
 src/plane-perturb.js    plane-perturbation jitter (regular bases)
 src/subdivide.js        spherified surface subdivision (skeleton operator)
 src/export/svg.js       hidden-line SVG export (M6 path)

@@ -138,6 +138,10 @@ describe("defaultRestingFace max-area", () => {
     dodecahedron: 5,
     icosahedron: 3,
     icosidodeca: 5,
+    cuboctahedron: 4,
+    rhombicdodeca: 4,
+    rhombictriaconta: 4,
+    globe: 4,
     sphere: 3, // merge-skip skeleton: every face is a triangle
     random: 3, // merge-skip skeleton: every face is a triangle
   };
@@ -145,7 +149,7 @@ describe("defaultRestingFace max-area", () => {
   for (const base of BASE_IDS) {
     it(`${base}: rests on a ${EXPECTED_SIDES[base]}-sided face`, () => {
       clearPipelineCache();
-      const fit = BASES[base].parametric ? { borderMm: 1.5, filletMm: 2 } : {};
+      const fit = BASES[base].parametric ? { borderMm: 1, filletMm: 1.5 } : {};
       const { skeleton, validation } = compile({ base, ...fit });
       assert.equal(validation.ok, true);
       const i = defaultRestingFace(skeleton);
@@ -167,7 +171,7 @@ describe("project/hash round-trips across bases", () => {
   for (const base of BASE_IDS) {
     it(`${base} survives hash and project codec`, () => {
       clearPipelineCache();
-      const fit = BASES[base].parametric ? { borderMm: 1.5, filletMm: 2 } : {};
+      const fit = BASES[base].parametric ? { borderMm: 1, filletMm: 1.5 } : {};
       const { state, validation } = compile({ base, ...fit, faceIndex: 0 });
       assert.equal(validation.ok, true);
       const hash = encodeHash(state);

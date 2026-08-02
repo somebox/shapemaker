@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
 # Acceptance: headless STL export → prototype/meshcheck.py.
 #
-# Matrix: 8 bases × 3 supported shell combos (24) + one near-limit stress
-# open per base (8) + Draft/Fine quality on the default solid (2, M4) +
-# jittered random (1) + 3 random seeds × Draft/Fine (6) + M5 irregular
-# extremes (8) = 49 STLs.
+# Matrix: 12 bases × 4 entries (3 shell combos + stress) = 48, plus
+# Draft/Fine on the default solid (2) + jittered random (1) + 3 random
+# seeds × Draft/Fine (6) + M5 irregular extremes (8) = 65 STLs.
 #
 # Requires: node, and .venv with prototype/requirements.txt installed.
 set -euo pipefail
@@ -21,7 +20,7 @@ OUT="${ROOT}/test/out/acceptance"
 rm -rf "$OUT"
 mkdir -p "$OUT"
 EXPORT=(node scripts/export-stl.mjs)
-EXPECTED=49
+EXPECTED=65
 
 while IFS=$'\t' read -ra parts; do
   [[ ${#parts[@]} -gt 0 ]] || continue

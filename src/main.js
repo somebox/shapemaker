@@ -21,7 +21,7 @@ import {
   depthAfterPopstate,
 } from "./session.js";
 import { adaptStateForBase } from "./adapt-base.js";
-import { isKnownBase } from "./bases.js";
+import { BASES, isKnownBase } from "./bases.js";
 import { hullSkeletonForBase, scaleSkeleton } from "./pipeline.js";
 import { computeLimits } from "./limits.js";
 import { parsePresetsEnvelope } from "./presets.js";
@@ -163,8 +163,8 @@ function exportStem(state) {
   // them — the reproducibility story survives outside the URL (spec rule),
   // and two exports of different densities don't overwrite each other.
   const parts = [];
-  if (base === "random" || jitter > 0) parts.push(`s${seed}`);
-  if (base === "sphere" || base === "random") parts.push(`p${points}`);
+  if (BASES[base]?.seeded || jitter > 0) parts.push(`s${seed}`);
+  if (BASES[base]?.parametric) parts.push(`p${points}`);
   const tag = parts.length ? `_${parts.join("_")}` : "";
   return `${base}_${size}mm${tag}`;
 }

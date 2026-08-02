@@ -3,7 +3,40 @@
  * Topology comes from hullToSkeleton — these emit points only.
  */
 
-const PHI = (1 + Math.sqrt(5)) / 2;
+/** Golden ratio — shared by every φ-based vertex family. */
+export const PHI = (1 + Math.sqrt(5)) / 2;
+
+/**
+ * Raw cube corners (±1,±1,±1) — shared by cube, dodecahedron, and the
+ * rhombic triacontahedron (whose dodeca-type vertices include them).
+ * @returns {number[][]}
+ */
+export function cubeVerts() {
+  const pts = [];
+  for (const x of [-1, 1]) {
+    for (const y of [-1, 1]) {
+      for (const z of [-1, 1]) pts.push([x, y, z]);
+    }
+  }
+  return pts;
+}
+
+/**
+ * Raw icosahedron family (0, ±1, ±φ) cyclic — shared by the icosahedron
+ * and the rhombic triacontahedron, which must keep the same orientation.
+ * @returns {number[][]}
+ */
+export function icosahedronVerts() {
+  const pts = [];
+  for (const s1 of [-1, 1]) {
+    for (const s2 of [-1, 1]) {
+      pts.push([0, s1, s2 * PHI]);
+      pts.push([s1, s2 * PHI, 0]);
+      pts.push([s1 * PHI, 0, s2]);
+    }
+  }
+  return pts;
+}
 
 /** @returns {Float64Array} flat xyz */
 export function tetrahedronPoints() {
@@ -17,13 +50,7 @@ export function tetrahedronPoints() {
 
 /** @returns {Float64Array} */
 export function cubePoints() {
-  const pts = [];
-  for (const x of [-1, 1]) {
-    for (const y of [-1, 1]) {
-      for (const z of [-1, 1]) pts.push([x, y, z]);
-    }
-  }
-  return normalizePoints(pts);
+  return normalizePoints(cubeVerts());
 }
 
 /** @returns {Float64Array} */
@@ -40,13 +67,7 @@ export function octahedronPoints() {
 
 /** @returns {Float64Array} */
 export function dodecahedronPoints() {
-  const pts = [];
-  // Cube vertices
-  for (const x of [-1, 1]) {
-    for (const y of [-1, 1]) {
-      for (const z of [-1, 1]) pts.push([x, y, z]);
-    }
-  }
+  const pts = cubeVerts();
   // Golden rectangles in each plane
   for (const s1 of [-1, 1]) {
     for (const s2 of [-1, 1]) {
@@ -60,15 +81,7 @@ export function dodecahedronPoints() {
 
 /** @returns {Float64Array} */
 export function icosahedronPoints() {
-  const pts = [];
-  for (const s1 of [-1, 1]) {
-    for (const s2 of [-1, 1]) {
-      pts.push([0, s1, s2 * PHI]);
-      pts.push([s1, s2 * PHI, 0]);
-      pts.push([s1 * PHI, 0, s2]);
-    }
-  }
-  return normalizePoints(pts);
+  return normalizePoints(icosahedronVerts());
 }
 
 /**

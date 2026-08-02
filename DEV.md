@@ -110,7 +110,7 @@ src/
   pipeline.js       points → jitter → subdivide → smooth → scale → shell
   skeleton.js       edgeList, inradiusRange, assertSkeleton
   faceframe.js      toFaceFrame / fromFaceFrame
-  points/           platonic, icosidodeca, sphere, random, jitter
+  points/           platonic, icosidodeca, cuboctahedron, rhombic, globe, sphere, random, jitter
   geom/             poly2, edgesub, annulus
   solid/shell.js    depth × OpeningGenerator
   export/stl.js     binary STL writer

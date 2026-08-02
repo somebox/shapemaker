@@ -86,6 +86,18 @@ describe("Unit 4 policy helpers", () => {
     assert.equal(isEdgeInputReadOnly({ base: "cube", jitter: 0 }), false);
     assert.equal(isEdgeInputReadOnly({ base: "random", jitter: 0 }), true);
     assert.equal(isEdgeInputReadOnly({ base: "sphere", jitter: 0 }), true);
+    assert.equal(isEdgeInputReadOnly({ base: "globe", jitter: 0 }), true);
+    assert.equal(isEdgeInputReadOnly({ base: "rhombictriaconta", jitter: 0 }), false);
     assert.equal(isEdgeInputReadOnly({ base: "cube", jitter: 5 }), true);
+  });
+
+  it("seed control follows the seeded registry flag", async () => {
+    const { CONTROL_DEFS } = await import("../src/schema.js");
+    const seed = CONTROL_DEFS.find((d) => d.key === "seed");
+    assert.equal(seed.inertWhen({ base: "random", jitter: 0 }), false);
+    assert.equal(seed.inertWhen({ base: "sphere", jitter: 0 }), true);
+    assert.equal(seed.inertWhen({ base: "globe", jitter: 0 }), true);
+    assert.equal(seed.inertWhen({ base: "sphere", jitter: 5 }), false);
+    assert.equal(seed.inertWhen({ base: "cube", jitter: 0 }), true);
   });
 });

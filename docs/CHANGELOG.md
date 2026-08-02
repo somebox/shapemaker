@@ -7,6 +7,30 @@ surface is still moving, and git history is the detailed record. From **1.0**
 onward every release gets a full entry here, and breaking changes to the
 [project format](PROJECT_FORMAT.md) get a migration note.
 
+## [0.7.0] — 2026-08-02
+
+Four new convex bases via point generators and registry wiring only.
+
+### Added
+
+- **Cuboctahedron** (Archimedean): 8 triangles + 6 squares, all verts on the
+  circumsphere.
+- **Rhombic dodecahedron** and **rhombic triacontahedron** (Catalan): first
+  bases whose vertices sit at two radii. Edge-transitive, so Edge↔Size and
+  plane-perturb jitter behave like other `regular` solids.
+- **Globe**: latitude/longitude point cloud. Density is meridian count
+  (clamped 6–36); coplanar merge yields true lat/long band quads and pole
+  triangle fans. Form pack uses a tight border (1 mm) for the small near-pole
+  faces.
+
+### Changed
+
+- Acceptance matrix covers 12 bases (65 STLs).
+- Export filenames tag `_p{points}` for every parametric base (including globe),
+  and `_s{seed}` whenever the base is marked `seeded` (random) or jitter is on.
+- Density slider follows each base's `pointsRange` (globe 6–36); out-of-range
+  Density from hashes/projects is clamped on normalize so state matches the mesh.
+
 ## [0.6.0] — 2026-08-02
 
 Milestone 6 remainder: section plane, scale legibility, material/mass estimate,

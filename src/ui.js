@@ -415,8 +415,19 @@ export function createPanel(panelEl, handlers) {
         queuePatch({ [key]: uiToState(def, n) }, false);
       });
       input.addEventListener("change", () => {
-        const n = Number(input.value);
-        if (!Number.isFinite(n)) return;
+        const raw = Number(input.value);
+        if (!Number.isFinite(raw)) return;
+        // Honour live min/max (limits / boundsForState) on commit so a typed
+        // Density of 50 on the globe becomes 36, matching the slider.
+        const lo = input.min !== "" ? Number(input.min) : null;
+        const hi = input.max !== "" ? Number(input.max) : null;
+        const n =
+          lo != null &&
+          hi != null &&
+          Number.isFinite(lo) &&
+          Number.isFinite(hi)
+            ? clampUi(raw, lo, hi)
+            : raw;
         if (key === "edgeLengthMm") {
           if (edgeMean == null || circumdiameter == null || edgeMean <= 0) return;
           const nextCirc = (n / edgeMean) * circumdiameter;
