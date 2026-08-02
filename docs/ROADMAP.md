@@ -1,171 +1,13 @@
 # Shapemaker roadmap
 
-This roadmap tracks priorities beyond the binding behavior in
-[`SPEC.md`](SPEC.md). Items move into the specification only when their user
-need and acceptance criteria are clear.
+Priorities beyond the binding behavior in [`SPEC.md`](SPEC.md). Items move
+into the specification only when their user need and acceptance criteria are
+clear. Shipped work lives in [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Priority definitions
 
-- **Now:** next milestone; required for a coherent usable workflow.
-- **Next:** committed direction after Now, subject to lessons from actual use.
 - **Later:** valuable idea with a plausible use case but no scheduled release.
 - **Backlog:** exploratory; do not design architecture around it yet.
-
-## Now — Milestone 2: measure, save, and continue
-
-Goal: turn the Phase 1 demonstration into a design tool users can leave and
-return to.
-
-Delivery is staged so the panel can be reviewed before persistence machinery
-encodes its layout:
-
-- **A — Living mockup.** Hand-wired Shape / Form / Inspect / Make panel over
-  the existing `compile()` API; real Form controls and Save serializer; no
-  schema, hash, undo, or Open yet.
-- **B — Review checkpoint.** Screenshots and playtest (including narrow
-  viewports and zoom) decide control density, measurement placement, and
-  validation UX before Stage C.
-- **C1 — Canonical state and projects.** `schema.js`, one canonical codec,
-  project parse/migration/Open, dynamic bounds through schema.
-- **C2 — History and sharing.** Versioned URL hash, browser-history undo/redo,
-  Copy Link.
-- **C3 — Edge inspection and checkpoint.** Hover/select exact edge length;
-  polish; v0.2 exit criteria.
-
-### Scope
-
-- Schema-driven controls for scale, wall, openings, border, and fillet.
-- Uniform free scaling with live bounding dimensions.
-- Edge minimum/mean/maximum and hover/select exact edge measurement.
-- Regular-shape edge length as an alternate uniform-scale input.
-- Dynamic geometry bounds and inline validation.
-- `.shapemaker.json` project open/save using project format version 1.
-- Project migration and canonical round-trip tests.
-- Current project name, dirty/unsaved indicator, and Save/Open actions.
-- Canonical versioned URL state, browser-history undo/redo, and Copy Link.
-- Preserve camera position during ordinary parameter changes.
-
-### Cut from Milestone 2
-
-- Optional local recovery of the latest unsaved session.
-- File System Access API progressive enhancement for repeated saves.
-
-Neither moves the checkpoint; both remain later polish.
-
-### Milestone 2 exit criteria
-
-- A user can create a variation, save it, reload the page, open the project,
-  and continue with equivalent geometry and settings.
-- Project files round-trip canonically and reject unsupported future versions
-  without data loss.
-- Measurements update during scaling and match exported geometry.
-- Invalid edits keep the last valid preview and cannot be exported.
-
-### Stage B review questions
-
-1. Slider+numeric per control, or numeric-on-click?
-2. Measurements: Inspect group vs dimension strip (fabrication vs mesh diagnostics)?
-3. Does validation highlight+message anchoring work?
-4. Project name / dirty placement?
-5. Panel overflow (independent scroll; status visibility)?
-6. Keyboard: labels, focus, arrow-key increments?
-7. Disabled-with-explanation vs hidden for future controls?
-8. Cut anything that does not earn its place.
-
-## Done — Milestone 3: change the family (v0.3.0)
-
-Goal: reuse the trusted shell workflow across regular shape families.
-
-- Platonic base generators + icosidodecahedron through shared hull path.
-- Vendored QuickHull, adjacency coplanar merge, deterministic face identity.
-- `assertSkeleton()` at the hull boundary; analytic + one SciPy hull fixture.
-- Compact face stepper; base-change adaptation; versioned presets.
-- Acceptance: 6 bases × 3 shell combos + 6 stress opens (24 STLs).
-
-## Shipped in tree — Milestone 4: mesh quality
-
-Goal: let users choose how finely the shell is tessellated so smoother-looking
-fillets and frames are real geometry in both the preview and the STL — not a
-shading trick.
-
-STL carries triangles only; slicers do not honour smooth vertex normals. The
-viewer therefore stays flat-shaded so preview ≡ export. “Smoother” means denser
-facets via existing solidifier knobs (`edgeDiv`, fillet arc segments), exposed
-as a small preset rather than raw internals.
-
-- Mesh quality / smoothness preset (e.g. Draft / Normal / Fine) in Make (or
-  Form), stored in canonical state and project files.
-- Map presets to `edgeDiv` and fillet-arc segment counts; keep flat shading.
-- Preview and Export STL use the same compiled mesh (no separate LOD for save).
-- Document triangle-count / performance expectations per preset; Fine must
-  remain interactive on a typical laptop at the default icosidodecahedron.
-- Acceptance: each preset exports watertight; Normal remains the default and
-  keeps current parity anchors unless explicitly re-baselined.
-
-### Milestone 4 exit criteria — met
-
-All verified in tree (`test/quality.test.js` + live playtest): Draft / Normal
-/ Fine map to `edgeDiv` 4 / 10 / 20 with derived fillet-arc segments; each
-preset compiles watertight at the expected density (icosidodeca ~×0.4 / ×1 /
-×2 triangles, sphere-48 6.6k / 16.6k / 33k tris, interactive); Normal keeps
-the parity anchors; flat shading everywhere; `edgeDiv` round-trips through
-project files and URL state.
-
-## Done — Milestone 5: distort and invent (v0.4.0)
-
-Goal: provide expressive irregular forms without adding a modeling language.
-
-**Locked from UX start-from playtest (browse → edit):**
-
-- Choosing a start (base or named preset) **hard-resets** the full recipe;
-  Browse vs Edit chrome; no confirm on switch; Undo is the safety net.
-- Jitter is **allowed on all bases**; soft amplitude; no camera reframe on
-  jitter/seed-only edits. Regular bases now use **plane-perturbation** (faces
-  stay polygons); the random base keeps on-sphere point jitter.
-- Density / seed / jitter stay visible; inert knobs dim rather than hide.
-- User preset Save/delete (“Yours”) is later; project Save stays project files.
-
-### Milestone 5 exit criteria — met
-
-- Seeded random-on-sphere point generation; density as a direct point-count
-  slider (4–60); Sparse/Medium/Dense chips retired.
-- Per-face opening, border, and fillet metrics for non-congruent faces.
-- Irregular-hull acceptance matrix across representative seeds and extremes
-  (`scripts/acceptance.sh` 49 STLs + `test/m5-matrix.test.js`).
-- Fixed millimetre borders retained after evidence
-  ([`BORDER_EVIDENCE.md`](BORDER_EVIDENCE.md)); clamp warnings guide scale-up
-  / reduce-density when below ~2.5 mm.
-
-## Done — Milestone 6: share, draw, and judge (v0.6.0)
-
-Goal: improve communication and downstream fabrication handoff.
-
-- Camera-matched SVG line drawing — shipped in v0.4
-  (`src/export/svg.js`): perspective hidden-line export of the visible
-  silhouette/crease edges; scale annotations dropped after playtest.
-- Approximate overhang and near-horizontal-edge overlays — shipped in
-  v0.4 (`src/metrics.js`, `metrics.printRisk`); gated off by default via
-  Make → Print risk (v0.6).
-- Export naming that includes relevant seed and size information — shipped
-  for STL and SVG.
-- Material-density presets and mass estimate — shipped in v0.6 (Make
-  material select; Inspect mass readout).
-- Section plane along the bed axis — shipped in v0.6: render-only clipping
-  plane; preview-only; export unchanged.
-- Scale legibility in the viewer — shipped in v0.6: an in-view dimension
-  callout. (Major-grid mm sprites were removed after playtest — they read as
-  haze / lens flare.)
-
-## Done — usability: chrome, onboarding, panel ergonomics (v0.4.1–0.5.0)
-
-Goal: make the first visit legible and the daily editing loop lighter.
-
-- **App header** (v0.4.1): title, version, GitHub link, “?” reopen.
-- **First-visit onboarding** (v0.4.1): native `<dialog>`, localStorage
-  seen-flag (first persistent local state; not session recovery).
-- **Panel ergonomics** (v0.5.0): one-row controls, taller hit targets,
-  label scrubbing, compact Start-from, collapsible groups; `src/controls.js`
-  extracted with tests.
 
 ## Later — fabrication workflows
 
@@ -206,49 +48,33 @@ and require a defined assembly workflow before implementation.
 
 ## Later — shape vocabulary
 
-- **Plane-perturbation jitter follow-through.** The mechanism is shipped
-  (`src/plane-perturb.js`): perturbed face planes re-intersected via the dual
-  hull; faces stay planar convex polygons and face count survives. Vertices
-  with 4+ faces split into short edges — kept in the skeleton (exact
-  planarity), swallowed in the 2D opening path so fillets round across the
-  virtual corner; face frames use the area centroid so split rings don't
-  off-center openings. Remaining: calibrate the shared soft amplitude.
+- Calibrate the shared soft amplitude for plane-perturbation jitter.
 - Additional opening generators such as circle or mirrored-face openings.
-- Fixed-order skeleton operators: **subdivide is shipped**
-  (`src/subdivide.js`, levels 0–2, applied after jitter — order is
-  jitter → subdivide → smooth) with
-  Smooth — an outer-edge fillet by sphere clip (0 exact flat split, 100
-  inscribed ball; flats hold their planes so dimensions never change);
-  truncate and dual remain. Possible follow-up: higher levels behind a
-  performance check; a geodesic (outward spherify) mode if wanted — the
-  Sphere base covers most of that ground.
+- Skeleton operators still open: truncate and dual (subdivide + smooth already
+  ship). Possible follow-ups: higher subdivision levels behind a performance
+  check; a geodesic (outward spherify) mode if wanted — the Sphere base covers
+  most of that ground.
 - Scale-to-target mean edge for irregular forms.
 - Separate jitter seed.
-- **Radial jitter is shipped** as the jitter Direction mode
-  (surface/radial/both); swallowed parametric points vanish gradually
-  (accepted), and radial clouds renormalize to keep Size = circumdiameter.
 - User preset store (“Yours”) separate from immutable built-ins; Save-as-preset
   and delete only for user presets.
 
 There will be no editable operator stack unless a compelling workflow appears.
 
-## Refactor backlog (from start-from lock)
+## Refactor backlog
 
-Driven by the locked session model; not blocking the thin slice already in tree.
+Consistency and maintainability; none change current product behavior.
 
-- Calibrate or replace `JITTER_AMPLITUDE_SCALE` (plane-perturbation shipped).
+### From the start-from session model
+
+- Calibrate or replace `JITTER_AMPLITUDE_SCALE`.
 - Stable orientation under distort (resting face / focus across face-identity
   reorder; merge-skip remains on the random base).
 - Retire or narrow `adaptStateForBase` preserve-Form path (starts own reset;
   adaptation remains for wall/border clamp on reshape).
 - Align or supersede older Phase 4 plan units with this model.
 
-## Refactor backlog (from v0.4 review)
-
-Consistency and maintainability; none change current behavior; none gate
-usability or remaining M6 work.
-
-### Geometry consistency
+### From the v0.4 review
 
 - Pick one 2D point form (`Float64Array` flat vs `number[][]`) inside
   `buildShell` / `poly2` (today ~5 shapes with `toPairs`/`flatten` bridges).
@@ -256,31 +82,22 @@ usability or remaining M6 work.
   remain in ~5 files; packing silently collides past 2²⁰ verts).
 - Extract a shared `vec3` helper (Newell / cross / basis duplicated in ~7
   places).
-
-### API-breaking signature cleanups
-
 - `predictedCompileMs(...)` → options object (match `nextHistoryAction`).
 - `subdivideSkeleton(skeleton, level, soften)` →
   `subdivideSkeleton(skeleton, { level, soften })`.
 - `exportSvg` → `writeSvg` (symmetry with `writeBinaryStl`).
-
-### Named constants
-
-- Safety factors `0.95` / `0.999`, packing `0x100000`, jitter/plane stream
-  IDs → named module constants.
-
-### Boot / contract hygiene
-
+- Named constants for safety factors `0.95` / `0.999`, packing `0x100000`,
+  jitter/plane stream IDs.
 - Silent URL-hash rewrite when decode fails — surface a warning instead of
   quietly replacing.
-- `types.js` stays unimported on purpose (SPEC contract doc); optionally wire
-  JSDoc imports later so it cannot drift.
-
-### Test gaps
-
+- Optional JSDoc imports for `types.js` so the SPEC contract module cannot
+  drift (it stays unimported on purpose today).
 - Direct tests for `face-families`.
 - Full headless DOM coverage for `main.js` / `ui.js` flows (beyond pure
-  helpers extracted for panel ergonomics).
+  helpers already extracted for panel ergonomics).
+- Plane-perturb at jitter 20–50 can escape `compile()` as uncaught errors and
+  contradict SPEC's "degrade gradually" — needs a fuzz test + graceful
+  degradation policy.
 
 ## Backlog — true struts and node joints
 
@@ -321,12 +138,11 @@ performance budget, and export guarantees before promoting it from backlog.
   below ~2.5 mm. See [`BORDER_EVIDENCE.md`](BORDER_EVIDENCE.md).
 - **Projects are portable files.** URL state is for sharing; local recovery is
   convenience; neither replaces `.shapemaker.json`.
-- **Copy Link is part of Milestone 2** (with URL state), not Milestone 6.
 - **Mesh “smoothness” is tessellation, not shading.** Preview stays flat-shaded
-  so it matches STL; quality presets only increase facet density (Milestone 4).
+  so it matches STL; quality presets only increase facet density.
 - **True struts remain backlog.** No geometry dependency is chosen without a
   demonstrated use case.
-- **First `localStorage` use is onboarding (and later collapsible panel
-  groups), not session recovery.** The seen-flag / group-open keys are
-  convenience UI state; portable projects and URL hash remain the recovery
-  paths. Optional local session recovery stays deliberately unscheduled.
+- **First `localStorage` use is onboarding (and collapsible panel groups), not
+  session recovery.** The seen-flag / group-open keys are convenience UI state;
+  portable projects and URL hash remain the recovery paths. Optional local
+  session recovery stays deliberately unscheduled.
