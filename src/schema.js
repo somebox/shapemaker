@@ -85,7 +85,7 @@ export function separationForPoints(points) {
  * on parametric hulls (sphere, random) or under jitter the Edge field
  * becomes a readout.
  */
-export function edgeInputReadOnly(state) {
+export function isEdgeInputReadOnly(state) {
   return !BASES[state.base]?.regular || state.jitter > 0;
 }
 

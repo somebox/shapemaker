@@ -41,7 +41,7 @@ export function validateState(state) {
     errors.push({ stage, key, message, ...extra });
 
   if (!isKnownBase(state.base)) {
-    err("points", "base", `Unknown base shape "${state.base}"`, {
+    err("points", "base", `Unknown base "${state.base}"`, {
       clampTo: "icosidodeca",
     });
   }

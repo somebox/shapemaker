@@ -9,7 +9,7 @@
  * @param {{
  *   currentState: object,
  *   nextBase: string,
- *   nextLimits: { wallMmMax: number|null, borderMmMax: number|null, filletMmMax?: number|null },
+ *   nextLimits: { wallMmMax: number|null, borderMmMax: number|null },
  * }} args
  * @returns {{ patch: object, warnings: string[] }}
  */

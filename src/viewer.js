@@ -41,22 +41,62 @@ export function createViewer(container, opts = {}) {
   fill.position.set(-60, -40, 80);
   scene.add(fill);
 
-  // Build plate: 10 mm squares, bolder every 50 mm
+  // Build plate: 10 mm squares, bolder every 50 mm, with mm labels
   scene.add(makePlateGrid(200));
 
   const modelGroup = new THREE.Group();
   scene.add(modelGroup);
+
+  // Section plane — opt-in preview clip. Off until the user engages it.
+  const sectionPlane = new THREE.Plane(new THREE.Vector3(0, 0, -1), 1e6);
+  renderer.localClippingEnabled = false;
+  let sectionEngaged = false;
+  let sectionZ = 1e6;
+  /** @type {'solid'|'hollow'} */
+  let meshDepth = "hollow";
+  /** @type {THREE.Mesh | null} */
+  let sectionFill = null;
+
+  // Viewport tools: section plane + print-risk (not in the side panel).
+  const sectionHud = document.createElement("div");
+  sectionHud.className = "section-hud";
+  sectionHud.innerHTML = `
+    <label class="section-hud-toggle">
+      <input type="checkbox" data-section-on />
+      <span>Section</span>
+    </label>
+    <input type="range" data-section-z min="0" max="100" step="0.5" value="100" disabled aria-label="Section plane height" />
+    <label class="section-hud-toggle" data-risk-toggle>
+      <input type="checkbox" data-print-risk />
+      <span>Print risk</span>
+    </label>
+  `;
+  container.appendChild(sectionHud);
+  const sectionOnEl = sectionHud.querySelector("[data-section-on]");
+  const sectionZEl = sectionHud.querySelector("[data-section-z]");
+  const printRiskEl = sectionHud.querySelector("[data-print-risk]");
+  const riskToggle = sectionHud.querySelector("[data-risk-toggle]");
+
+  // In-view dimension callout (HTML overlay in container).
+  const dimCallout = document.createElement("div");
+  dimCallout.className = "dim-callout";
+  dimCallout.hidden = true;
+  container.appendChild(dimCallout);
 
   let meshObj = null;
   let focusMesh = null;
   let edgePick = null;
   let edgeHighlight = null;
   let riskGroup = null;
+  let lastRisk = null;
+  let printOverlayOn = false;
   let faceIdAttr = null;
   let edgeLengths = null;
   let selectedEdge = null;
   let hoverEdge = null;
   let hasFramed = false;
+  let lastHeightMm = 100;
+  let lastExtents = null;
   const raycaster = new THREE.Raycaster();
   raycaster.params.Line.threshold = 1.8;
   const pointer = new THREE.Vector2();
@@ -65,7 +105,7 @@ export function createViewer(container, opts = {}) {
    * Replace geometry and placement.
    * @param {object} mesh
    * @param {object} orientation
-   * @param {{ frame?: boolean, skeleton?: { positions: Float64Array, edges: number[][] } }} [opts]
+   * @param {{ frame?: boolean, skeleton?: { positions: Float64Array, edges: number[][] }, depth?: string, heightMm?: number }} [opts]
    */
   /** Dispose every geometry/material at or below `obj` (Groups included). */
   function disposeObject3D(obj) {
@@ -95,7 +135,7 @@ export function createViewer(container, opts = {}) {
     return verts;
   }
 
-  function setMesh(mesh, orientation, { frame = false, skeleton = null } = {}) {
+  function setMesh(mesh, orientation, { frame = false, skeleton = null, depth = "hollow", heightMm = null } = {}) {
     while (modelGroup.children.length) {
       const c = modelGroup.children[0];
       modelGroup.remove(c);
@@ -107,19 +147,26 @@ export function createViewer(container, opts = {}) {
     edgeHighlight = null;
     riskGroup = null;
     faceIdAttr = mesh.faceId;
+    meshDepth = depth === "solid" ? "solid" : "hollow";
+    if (heightMm != null && Number.isFinite(heightMm) && heightMm > 0) {
+      syncSectionHudMax(heightMm);
+    }
 
     const geo = new THREE.BufferGeometry();
     geo.setAttribute("position", new THREE.BufferAttribute(mesh.positions, 3));
     geo.setIndex(new THREE.BufferAttribute(mesh.indices, 1));
 
-    // Flat shading so the preview shows the same facets the STL exports —
-    // smooth vertex normals made fillet arcs look softer than the mesh is.
+    // Flat shading so the preview shows the same facets the STL exports.
+    // DoubleSide so section cuts stay lit on both walls; a fill cap (below)
+    // keeps solids from reading as an empty shell when clipped.
     const mat = new THREE.MeshStandardMaterial({
       color: 0xc4a882,
       metalness: 0.05,
       roughness: 0.55,
       side: THREE.DoubleSide,
       flatShading: true,
+      clippingPlanes: sectionEngaged ? [sectionPlane] : [],
+      clipShadows: true,
     });
     meshObj = new THREE.Mesh(geo, mat);
     modelGroup.add(meshObj);
@@ -170,6 +217,9 @@ export function createViewer(container, opts = {}) {
       frameObject();
       hasFramed = true;
     }
+    // Mesh rebuild disposed the risk group; redraw if overlay is on.
+    redrawPrintRisk();
+    updateSectionFill();
   }
 
   function showEdgeHighlight(edgeIndex, color) {
@@ -220,11 +270,28 @@ export function createViewer(container, opts = {}) {
    * } | null} risk
    */
   function setPrintRisk(risk) {
+    lastRisk = risk;
+    redrawPrintRisk();
+  }
+
+  function setPrintOverlay(on) {
+    printOverlayOn = !!on;
+    if (printRiskEl) printRiskEl.checked = printOverlayOn;
+    if (riskToggle) riskToggle.dataset.on = printOverlayOn ? "1" : "0";
+    redrawPrintRisk();
+  }
+
+  printRiskEl?.addEventListener("change", () => {
+    setPrintOverlay(printRiskEl.checked);
+  });
+
+  function redrawPrintRisk() {
     if (riskGroup) {
       modelGroup.remove(riskGroup);
       disposeObject3D(riskGroup);
       riskGroup = null;
     }
+    const risk = printOverlayOn ? lastRisk : null;
     if (!risk || !meshObj) return;
     const group = new THREE.Group();
     const { skeleton, flatEdgeIndices = [], overhangFaceIndices = [] } = risk;
@@ -250,7 +317,12 @@ export function createViewer(container, opts = {}) {
         group.add(
           new THREE.LineSegments(
             g,
-            new THREE.LineBasicMaterial({ color: 0xd9a05b }),
+            new THREE.LineBasicMaterial({
+              // Hot amber — flat bridges need to pop against the model.
+              color: 0xffb020,
+              linewidth: 2,
+              clippingPlanes: sectionEngaged ? [sectionPlane] : [],
+            }),
           ),
         );
       }
@@ -265,16 +337,16 @@ export function createViewer(container, opts = {}) {
           new THREE.Mesh(
             g,
             new THREE.MeshBasicMaterial({
-              color: 0xd97b6c,
+              // Hot coral/red — overhang faces more obvious than the soft wash.
+              color: 0xff4a3a,
               transparent: true,
-              opacity: 0.35,
+              opacity: 0.55,
               side: THREE.DoubleSide,
               depthTest: true,
-              // Coplanar with the flagged faces — pull toward the camera so
-              // the persistent overlay does not z-fight while orbiting.
               polygonOffset: true,
               polygonOffsetFactor: -2,
               polygonOffsetUnits: -2,
+              clippingPlanes: sectionEngaged ? [sectionPlane] : [],
             }),
           ),
         );
@@ -284,6 +356,136 @@ export function createViewer(container, opts = {}) {
     if (!group.children.length) return;
     riskGroup = group;
     modelGroup.add(riskGroup);
+  }
+
+  /**
+   * Preview-only section plane. Pass null/undefined or engage=false to disable.
+   * @param {number | null | undefined} zMm
+   * @param {{ engage?: boolean }} [opts]
+   */
+  function setSectionPlane(zMm, { engage } = {}) {
+    if (engage === false || zMm == null || !Number.isFinite(zMm)) {
+      sectionEngaged = false;
+      sectionZ = 1e6;
+      sectionPlane.constant = 1e6;
+      renderer.localClippingEnabled = false;
+      applyClippingToMaterials();
+      updateSectionFill();
+      syncSectionHudUi();
+      return;
+    }
+    sectionEngaged = true;
+    sectionZ = zMm;
+    sectionPlane.constant = zMm;
+    renderer.localClippingEnabled = true;
+    applyClippingToMaterials();
+    updateSectionFill();
+    syncSectionHudUi();
+  }
+
+  function applyClippingToMaterials() {
+    const planes = sectionEngaged ? [sectionPlane] : [];
+    modelGroup.traverse((c) => {
+      if (c.material && "clippingPlanes" in c.material) {
+        c.material.clippingPlanes = planes;
+        c.material.needsUpdate = true;
+      }
+    });
+  }
+
+  /**
+   * Opaque horizontal fill at the clip height so a solid cut reads as a
+   * cross-section rather than an empty shell. Hidden when section is off.
+   */
+  function updateSectionFill() {
+    if (sectionFill) {
+      scene.remove(sectionFill);
+      sectionFill.geometry.dispose();
+      sectionFill.material.dispose();
+      sectionFill = null;
+    }
+    if (!sectionEngaged || !meshObj) return;
+    const box = new THREE.Box3().setFromObject(modelGroup);
+    if (box.isEmpty()) return;
+    const size = box.getSize(new THREE.Vector3());
+    const center = box.getCenter(new THREE.Vector3());
+    // Slightly oversized so the rim doesn't show a gap.
+    const geo = new THREE.PlaneGeometry(
+      Math.max(size.x, 1) * 1.02,
+      Math.max(size.y, 1) * 1.02,
+    );
+    const mat = new THREE.MeshBasicMaterial({
+      color: meshDepth === "solid" ? 0x5a5044 : 0x3a3a42,
+      transparent: true,
+      opacity: 0.35,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: 1,
+      polygonOffsetUnits: 1,
+    });
+    sectionFill = new THREE.Mesh(geo, mat);
+    // PlaneGeometry lies in XY — correct for a Z = const bed-plane cap.
+    sectionFill.position.set(center.x, center.y, sectionZ);
+    sectionFill.renderOrder = 2;
+    scene.add(sectionFill);
+  }
+
+  function syncSectionHudMax(heightMm) {
+    lastHeightMm = Math.max(1, heightMm);
+    const max = Math.round(lastHeightMm * 10) / 10;
+    sectionZEl.max = String(max);
+    if (!sectionEngaged) {
+      sectionZEl.value = String(max);
+    } else if (Number(sectionZEl.value) > max) {
+      sectionZEl.value = String(max);
+      sectionZ = max;
+      sectionPlane.constant = max;
+      updateSectionFill();
+    }
+  }
+
+  function syncSectionHudUi() {
+    sectionOnEl.checked = sectionEngaged;
+    sectionZEl.disabled = !sectionEngaged;
+    sectionHud.dataset.on = sectionEngaged ? "1" : "0";
+  }
+
+  sectionOnEl.addEventListener("change", () => {
+    if (sectionOnEl.checked) {
+      const z = Number(sectionZEl.value);
+      setSectionPlane(Number.isFinite(z) ? z : lastHeightMm, { engage: true });
+    } else {
+      setSectionPlane(null, { engage: false });
+    }
+  });
+  sectionZEl.addEventListener("input", () => {
+    if (!sectionEngaged) return;
+    setSectionPlane(Number(sectionZEl.value), { engage: true });
+  });
+  syncSectionHudUi();
+
+  /**
+   * Show/hide an in-view dimension callout near the model.
+   * @param {{ width: number, depth: number, height: number } | null} extentsMm
+   * @param {boolean} [visible]
+   */
+  function setDimensionCallout(extentsMm, visible = true) {
+    lastExtents = extentsMm;
+    if (extentsMm?.height != null) syncSectionHudMax(extentsMm.height);
+    if (!visible || !extentsMm) {
+      dimCallout.hidden = true;
+      return;
+    }
+    const { width, depth, height } = extentsMm;
+    dimCallout.textContent = `${fmtMm(width)} × ${fmtMm(depth)} × ${fmtMm(height)} mm`;
+    dimCallout.hidden = false;
+  }
+
+  function fmtMm(n) {
+    return Number.isFinite(n)
+      ? (Math.round(n * 10) / 10).toFixed(1).replace(/\.0$/, "")
+      : "—";
   }
 
   function setFocusFaces(ids) {
@@ -314,7 +516,8 @@ export function createViewer(container, opts = {}) {
     );
     modelGroup.add(focusMesh);
     const mine = focusMesh;
-    setTimeout(() => {
+    if (focusTimer) clearTimeout(focusTimer);
+    focusTimer = setTimeout(() => {
       if (focusMesh !== mine) return;
       modelGroup.remove(mine);
       mine.geometry.dispose();
@@ -322,6 +525,7 @@ export function createViewer(container, opts = {}) {
       focusMesh = null;
     }, 400);
   }
+  let focusTimer = null;
 
   function updateEdgeThreshold() {
     // ~6 px in screen space → world units at the orbit target distance.
@@ -426,6 +630,9 @@ export function createViewer(container, opts = {}) {
     setMesh,
     setFocusFaces,
     setPrintRisk,
+    setPrintOverlay,
+    setSectionPlane,
+    setDimensionCallout,
     frameObject,
     camera,
     controls,

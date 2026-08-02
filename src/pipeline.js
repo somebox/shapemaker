@@ -102,8 +102,15 @@ export function createPipeline() {
   const hulls = new Map();
   const solids = new Map();
 
+  // LRU: a hit re-inserts the key so the most-recently-used entry survives
+  // eviction (Map preserves insertion order; delete+set refreshes it).
   const remember = (map, key, make) => {
-    if (map.has(key)) return map.get(key);
+    if (map.has(key)) {
+      const value = map.get(key);
+      map.delete(key);
+      map.set(key, value);
+      return value;
+    }
     const value = make();
     if (map.size >= 2) map.delete(map.keys().next().value);
     map.set(key, value);

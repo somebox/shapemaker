@@ -8,12 +8,12 @@ laser-cut, PCB, and model-making workflows.
 
 **Live app:** [somebox.github.io/shapemaker](https://somebox.github.io/shapemaker/)
 
-![Shapemaker v0.3 — family selector, presets, and open icosidodecahedron
-frame](media/screenshot-v0.3.png)
+![Shapemaker v0.6 — header chrome, one-row controls, section/print-risk HUD,
+and an open icosidodecahedron frame](media/screenshot-v0.6.png)
 
-Version **0.4.0** (Milestone 5) — start-from chooser, sphere and random bases,
-jitter on every base, subdivide/smooth, irregular acceptance, unit-aware SVG
-export, and print-risk overlays. See [`docs/CHANGELOG.md`](docs/CHANGELOG.md).
+Version **0.6.0** — usability chrome, panel ergonomics, and Milestone 6
+remainder (section plane, scale labels, mass estimate). See
+[`docs/CHANGELOG.md`](docs/CHANGELOG.md).
 
 ## Requirements
 
@@ -49,9 +49,14 @@ Serving the repo root at `/` also works locally, but hides absolute-path and
 case-sensitivity bugs that break on Pages (`/username.github.io/shapemaker/`).
 
 Click a face on the model to rest on it. **Export STL** downloads an oriented
-binary STL in millimetres; **Export SVG** downloads a camera-projected outline
-with a millimetre scale bar. Filenames include seed and size when the shape
-depends on a seed.
+binary STL in millimetres; **Export SVG** downloads a clean hidden-line
+drawing from the current camera — perspective projection, visible silhouette
+and crease edges only, no masks or annotations, directly editable in vector
+tools. Filenames include seed and size when the shape depends on a seed.
+
+| SVG export (hidden-line drawing) | STL export (oriented mesh) |
+|---|---|
+| ![Hidden-line SVG export of the default icosidodecahedron](media/example-export.svg) | ![Rendered STL export of the default icosidodecahedron](media/example-stl-render.png) |
 
 ### Headless export
 
@@ -124,6 +129,8 @@ presets.json        versioned preset recipes (M3)
 src/
   main.js           session owner: draft state, history, save/open, export
   ui.js             panel — owns DOM, emits patches, never owns state
+  controls.js       schema-driven control builders + pure display helpers
+  onboarding.js     header chrome + first-visit dialog / seen-flag
   schema.js         DEFAULT_STATE, control defs, canonical codec
   bases.js          flat BASES registry (ids, labels, point generators)
   hull.js           QuickHull wrapper + coplanar merge + face identity

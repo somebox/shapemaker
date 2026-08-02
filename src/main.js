@@ -21,6 +21,7 @@ import {
   depthAfterPopstate,
 } from "./session.js";
 import { adaptStateForBase } from "./adapt-base.js";
+import { isKnownBase } from "./bases.js";
 import { hullSkeletonForBase, scaleSkeleton } from "./pipeline.js";
 import { computeLimits } from "./limits.js";
 import { parsePresetsEnvelope } from "./presets.js";
@@ -29,9 +30,28 @@ import { computeOrientation, nearestFaceByNormal } from "./orient.js";
 import { toFaceFrame } from "./faceframe.js";
 import { HEAVY_COMPILE_MS, predictedCompileMs } from "./perf.js";
 import { computePrintRisk } from "./metrics.js";
+import { VERSION } from "./version.js";
+import {
+  createChrome,
+  maybeShowFirstVisit,
+} from "./onboarding.js";
 
+const appEl = document.getElementById("app");
 const canvasHost = document.getElementById("canvas-host");
 const panelEl = document.getElementById("panel");
+
+const chrome = createChrome({
+  version: VERSION,
+  onHelp() {
+    chrome.openOnboarding();
+  },
+});
+appEl?.prepend(chrome.header);
+document.body.appendChild(chrome.dialog);
+{
+  const h = chrome.header.getBoundingClientRect().height;
+  document.documentElement.style.setProperty("--header-offset", `${Math.ceil(h)}px`);
+}
 
 /** @type {ReturnType<typeof compile> | null} */
 let last = null;
@@ -123,47 +143,76 @@ ui = createPanel(panelEl, {
       done(fallbackCopy(url));
     }
   },
+  onPrepareShare() {
+    if (draftValid && last?.state) writeUrl(encodeHash(last.state), "replace");
+  },
   onExport() {
     exportStl();
   },
   onExportSvg() {
     exportSvgFile();
   },
+  onMaterial() {
+    /* mass readout updates inside the panel */
+  },
 });
 
 function exportStem(state) {
-  const { base, circumdiameterMm: size, seed, jitter } = state;
-  // Seed in the filename whenever the shape depends on one — the
-  // reproducibility story survives outside the URL (spec rule).
-  const seeded = base === "random" || jitter > 0;
-  return seeded ? `${base}_s${seed}_${size}mm` : `${base}_${size}mm`;
+  const { base, circumdiameterMm: size, seed, jitter, points } = state;
+  // Seed and point count go in the filename whenever the shape depends on
+  // them — the reproducibility story survives outside the URL (spec rule),
+  // and two exports of different densities don't overwrite each other.
+  const parts = [];
+  if (base === "random" || jitter > 0) parts.push(`s${seed}`);
+  if (base === "sphere" || base === "random") parts.push(`p${points}`);
+  const tag = parts.length ? `_${parts.join("_")}` : "";
+  return `${base}_${size}mm${tag}`;
+}
+
+/**
+ * Shared blob → download path for Save / STL / SVG.
+ * @param {BlobPart} data
+ * @param {string} filename
+ * @param {string} mime
+ */
+function downloadBlob(data, filename, mime) {
+  const blob = data instanceof Blob ? data : new Blob([data], { type: mime });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function downloadText(text, filename) {
+  downloadBlob(text, filename, "application/json");
+}
+
+/** Prefer the last successful compile so export matches the on-screen mesh. */
+function exportResult() {
+  if (draftValid && last?.validation?.ok && last.mesh) return last;
+  const result = compile(draft);
+  if (!result.validation.ok || !result.mesh) {
+    ui.setResult(result, { limits: null, invalid: true });
+    return null;
+  }
+  return result;
 }
 
 function exportStl() {
-  const result = compile(draft);
-  if (!result.validation.ok || !result.mesh) {
-    ui.setResult(result, { limits: lastLimits, invalid: true });
-    return;
-  }
+  const result = exportResult();
+  if (!result) return;
   const stem = exportStem(result.state);
   const buf = writeBinaryStl(result.mesh, {
     header: `shapemaker_${stem}`,
     matrix: result.orientation.matrix,
   });
-  const blob = new Blob([buf], { type: "model/stl" });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = `${stem}.stl`;
-  a.click();
-  URL.revokeObjectURL(a.href);
+  downloadBlob(buf, `${stem}.stl`, "model/stl");
 }
 
 function exportSvgFile() {
-  const result = compile(draft);
-  if (!result.validation.ok || !result.mesh) {
-    ui.setResult(result, { limits: lastLimits, invalid: true });
-    return;
-  }
+  const result = exportResult();
+  if (!result) return;
   const stem = exportStem(result.state);
   const cam = viewer.camera;
   const tgt = viewer.controls.target;
@@ -174,18 +223,14 @@ function exportSvgFile() {
       position: { x: cam.position.x, y: cam.position.y, z: cam.position.z },
       target: { x: tgt.x, y: tgt.y, z: tgt.z },
       up: { x: cam.up.x, y: cam.up.y, z: cam.up.z },
+      near: cam.near,
     },
     label: stem,
   });
-  const blob = new Blob([svg], { type: "image/svg+xml" });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = `${stem}.svg`;
-  a.click();
-  URL.revokeObjectURL(a.href);
+  downloadBlob(svg, `${stem}.svg`, "image/svg+xml");
 }
 
-ui.setActionsVisible({ open: true, copyLink: true });
+ui.setActionsVisible({ open: true });
 
 fetch(new URL("../presets.json", import.meta.url))
   .then((r) => r.json())
@@ -199,12 +244,29 @@ fetch(new URL("../presets.json", import.meta.url))
     ui.setPresets(presets);
     updateProjectStatus();
   })
-  .catch((err) => console.warn("presets load failed", err));
+  .catch((err) => console.warn("presets:", err));
 
 fileInput.addEventListener("change", async () => {
   const file = fileInput.files?.[0];
   if (!file) return;
-  openProjectText(await file.text());
+  try {
+    openProjectText(await file.text());
+  } catch (err) {
+    console.warn("open project:", err);
+    ui.setResult(
+      {
+        validation: {
+          ok: false,
+          errors: [{ key: "project", message: "Could not read that file" }],
+          warnings: [],
+        },
+        state: draft,
+        metrics: null,
+      },
+      { limits: null, invalid: true },
+    );
+    updateProjectStatus();
+  }
 });
 
 /**
@@ -249,7 +311,7 @@ function openProjectText(text) {
         state: draft,
         metrics: null,
       },
-      { limits: lastLimits, invalid: true },
+      { limits: null, invalid: true },
     );
     updateProjectStatus();
     return;
@@ -354,26 +416,31 @@ function applyEdit(patchIn, commit) {
   // A draft carrying an invalid border (e.g. an old URL where a clamp
   // rounded to 0) heals on the next edit of any kind, not only reshapes.
   const brokenBorder =
-    draft.openings && !((normalized.borderMm ?? draft.borderMm) > 0);
+    (normalized.openings ?? draft.openings) &&
+    !((normalized.borderMm ?? draft.borderMm) > 0);
   if (reshapes || brokenBorder) {
     const nextBase = normalized.base ?? draft.base;
-    const probe = { ...draft, ...normalized, faceIndex: -1 };
-    const unit = hullSkeletonForBase(probe.base, probe);
-    const sk = scaleSkeleton(unit, (probe.circumdiameterMm ?? 100) / 2);
-    const limits = computeLimits(sk, probe);
-    const adapted = adaptStateForBase({
-      currentState: { ...draft, ...normalized },
-      nextBase,
-      nextLimits: limits,
-    });
-    normalized = normalizePatch({ ...normalized, ...adapted.patch });
-    warnings = adapted.warnings;
+    // Guard against a draft carrying an unknown base (e.g. a corrupt URL
+    // hash): hullSkeletonForBase would throw a validationError with no
+    // catch here. Skip adaptation — the draft is already failing compile.
+    if (isKnownBase(nextBase)) {
+      const probe = { ...draft, ...normalized, faceIndex: -1 };
+      const unit = hullSkeletonForBase(nextBase, probe);
+      const sk = scaleSkeleton(unit, probe.circumdiameterMm / 2);
+      const limits = computeLimits(sk, probe);
+      const adapted = adaptStateForBase({
+        currentState: { ...draft, ...normalized },
+        nextBase,
+        nextLimits: limits,
+      });
+      normalized = normalizePatch({ ...normalized, ...adapted.patch });
+      warnings = adapted.warnings;
+    }
   }
 
   draft = { ...draft, ...normalized };
   regenerate({ commit, warnings });
 }
-
 /** Last measured valid-compile duration; drives the heavy-config policy. */
 let lastCompileMs = 0;
 /** @type {Array<() => void>|null} edits queued behind the busy badge */
@@ -427,7 +494,7 @@ function regenerate({
   const next = compile(draft);
   if (!next.validation.ok) {
     draftValid = false;
-    ui.setResult(next, { limits: lastLimits, invalid: true, warnings });
+    ui.setResult(next, { limits: null, invalid: true, warnings });
     updateProjectStatus();
     // Do not write an invalid hash.
     return;
@@ -476,9 +543,13 @@ function regenerate({
   last = stable;
   draft = { ...stable.state };
   lastLimits = stable.metrics.limits;
+  const [w, d, h] = stable.metrics.extentsMm;
+  viewer.setDimensionCallout({ width: w, depth: d, height: h }, true);
   viewer.setMesh(stable.mesh, stable.orientation, {
     frame: shouldFrame,
     skeleton: stable.skeleton,
+    depth: stable.state.depth,
+    heightMm: h,
   });
   // Risk comes from compile; the face-remap path changed the orientation,
   // so only there is it re-derived (via the same metrics scan).
@@ -575,15 +646,6 @@ function updateProjectStatus() {
   );
 }
 
-function downloadText(text, filename) {
-  const blob = new Blob([text], { type: "application/json" });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(a.href);
-}
-
 function safeName(name) {
   return name.replace(/[^\w\-]+/g, "_") || "shapemaker";
 }
@@ -620,3 +682,6 @@ if (boot.ok) {
   }
 }
 updateProjectStatus();
+// A shared link means the visitor came to see a specific shape — never
+// interpose the tutorial over it. The header "?" still offers it.
+if (!boot.ok) maybeShowFirstVisit(() => chrome.openOnboarding());

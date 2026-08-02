@@ -40,6 +40,7 @@ const GRID = 40;
  *     position: { x: number, y: number, z: number },
  *     target: { x: number, y: number, z: number },
  *     up?: { x: number, y: number, z: number },
+ *     near?: number,
  *   } | null,
  *   label?: string,
  * }} args
@@ -75,7 +76,10 @@ export function exportSvg({ mesh, orientation, camera = null, label = "" }) {
     const y = dx * view.up[0] + dy * view.up[1] + dz * view.up[2];
     const z = dx * view.forward[0] + dy * view.forward[1] + dz * view.forward[2];
     if (view.perspective) {
-      const zc = Math.max(z, 1e-6);
+      // Floor at the camera near plane so vertices at/behind the eye do not
+      // explode screen positions (1e-6 was an arbitrary stand-in).
+      const near = Number.isFinite(camera?.near) && camera.near > 0 ? camera.near : 0.1;
+      const zc = Math.max(z, near);
       sx[i] = x / zc;
       sy[i] = -y / zc; // SVG y grows downward
       wv[i] = 1 / zc;

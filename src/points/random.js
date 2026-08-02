@@ -67,7 +67,7 @@ export function randomSpherePoints({ points, seed, separation }) {
       continue;
     }
     attempts++;
-    const p = unitVector(rng);
+    const p = randomUnitVector(rng);
     let ok = true;
     for (const q of accepted) {
       // angle between unit vectors via dot product
@@ -90,7 +90,7 @@ export function randomSpherePoints({ points, seed, separation }) {
 }
 
 /** Uniform point on the unit sphere. */
-function unitVector(rng) {
+function randomUnitVector(rng) {
   const z = 2 * rng() - 1;
   const phi = 2 * Math.PI * rng();
   const r = Math.sqrt(Math.max(0, 1 - z * z));

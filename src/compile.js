@@ -8,14 +8,14 @@
  */
 
 import { DEFAULT_STATE } from "./schema.js";
-import { runPipeline } from "./pipeline.js";
+import { runPipeline, hullSkeletonForBase, scaleSkeleton } from "./pipeline.js";
 import { computeOrientation, defaultRestingFace } from "./orient.js";
 import { computeMetrics } from "./metrics.js";
 import { computeLimits, borderPrintabilityWarning } from "./limits.js";
 import { validateState } from "./validate.js";
 
 /** Result when nothing could be built. */
-function failed(state, validation) {
+function emptyResult(state, validation) {
   return { skeleton: null, mesh: null, metrics: null, validation, orientation: null, state };
 }
 
@@ -36,7 +36,7 @@ export function compile(partial = {}) {
 
   // 1. Pure parameter checks — before any geometry runs.
   const validation = validateState(state);
-  if (!validation.ok) return failed(state, validation);
+  if (!validation.ok) return emptyResult(state, validation);
 
   // 2. Geometry. Stages throw validationError() for constraints that need a
   //    skeleton to evaluate (border vs apothem, wall vs inradius).
@@ -44,11 +44,11 @@ export function compile(partial = {}) {
   try {
     ({ skeleton, solid } = runPipeline(state));
   } catch (err) {
+    if (!err?.validation) throw err; // internal invariant — a bug, not bad input
     validation.ok = false;
     validation.errors.push(asValidationEntry(err, "pipeline"));
-    return failed(state, validation);
+    return emptyResult(state, validation);
   }
-
   // 3. Resting face. An unknown index is recoverable — fall back and warn
   //    rather than fail, so shared links survive shape changes.
   let faceIndex = state.faceIndex;
@@ -68,7 +68,26 @@ export function compile(partial = {}) {
   let orientation, metrics;
   try {
     orientation = computeOrientation(skeleton, faceIndex);
+    // Wall and border ceilings must come from the skeleton the shell will
+    // actually solidify — exceeding them is a hard validation error. Only
+    // the FILLET ceiling may use the pre-subdivision solid when subdivided:
+    // tiny sub-faces would crush that slider to near-zero, and the shell
+    // clamps fillet per-face at solidify time, so a generous ceiling is safe.
     const limits = computeLimits(skeleton, state);
+    if ((state.subdiv ?? 0) > 0 && limits.filletMmMax != null) {
+      const unit = hullSkeletonForBase(state.base, {
+        ...state,
+        subdiv: 0,
+        soften: 0,
+      });
+      const preSub = computeLimits(
+        scaleSkeleton(unit, state.circumdiameterMm / 2),
+        state,
+      );
+      if (preSub.filletMmMax != null) {
+        limits.filletMmMax = Math.max(limits.filletMmMax, preSub.filletMmMax);
+      }
+    }
     // State-derived, so shared links / presets / project opens see it too —
     // not only the edit that clamped a border.
     const guidance = borderPrintabilityWarning(state, limits);
@@ -81,9 +100,10 @@ export function compile(partial = {}) {
       limits,
     });
   } catch (err) {
+    if (!err?.validation) throw err; // internal invariant — a bug, not bad input
     validation.ok = false;
     validation.errors.push(asValidationEntry(err, "orient"));
-    return failed(state, validation);
+    return emptyResult(state, validation);
   }
 
   return {
@@ -107,4 +127,3 @@ function asValidationEntry(err, fallbackStage) {
   };
 }
 
-export { DEFAULT_STATE };

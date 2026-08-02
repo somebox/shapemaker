@@ -1,37 +1,49 @@
 /**
  * Panel UI — owns DOM, emits patches. Never owns canonical state.
- * Control definitions live in schema.js.
+ * Control definitions live in schema.js; row builders in controls.js.
  */
 
-import { VERSION } from "./version.js";
 import {
   CONTROL_DEFS,
   qualityLevelFor,
   separationForPoints,
-  edgeInputReadOnly,
+  isEdgeInputReadOnly,
 } from "./schema.js";
 import { faceFamilies, locateFace } from "./face-families.js";
 import { BASES, BASE_IDS } from "./bases.js";
 import { recipeForBase } from "./starts.js";
 import { startThumbSvg } from "./start-thumbs.js";
+import {
+  el,
+  fmt,
+  fmtInput,
+  round1,
+  buildControl,
+  applyLimits,
+  applyStateToControls,
+  uiToState,
+  clampUi,
+} from "./controls.js";
 
 const GROUPS = [
   { id: "shape", title: "Shape" },
   { id: "form", title: "Form" },
-  { id: "inspect", title: "Inspect" },
   { id: "make", title: "Make" },
 ];
+
+export const GROUPS_OPEN_KEY = "shapemaker.groups.open";
+export const START_EXPANDED_KEY = "shapemaker.start.expanded";
+
+const DEFAULT_OPEN = { shape: true, form: true, make: true };
 
 /**
  * Apply coupled-control rules so routine interactions never emit invalid combos.
  * @param {object} patch
- * @param {object} current
  */
 export function normalizePatch(patch) {
   const next = { ...patch };
   if (next.depth === "solid") next.openings = false;
   if (next.openings === true) next.depth = "hollow";
-  // Density slider writes the canonical pair: separation follows the count.
   if (next.points != null && next.separation == null) {
     next.separation = separationForPoints(next.points);
   }
@@ -39,25 +51,72 @@ export function normalizePatch(patch) {
 }
 
 /**
+ * @param {Storage} [store]
+ * @returns {Record<string, boolean>}
+ */
+export function loadGroupsOpen(store = localStorage) {
+  try {
+    const raw = store.getItem(GROUPS_OPEN_KEY);
+    if (!raw) return { ...DEFAULT_OPEN };
+    const parsed = JSON.parse(raw);
+    return { ...DEFAULT_OPEN, ...parsed };
+  } catch {
+    return { ...DEFAULT_OPEN };
+  }
+}
+
+/**
+ * @param {Record<string, boolean>} open
+ * @param {Storage} [store]
+ */
+export function saveGroupsOpen(open, store = localStorage) {
+  try {
+    store.setItem(GROUPS_OPEN_KEY, JSON.stringify(open));
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
+ * @param {Storage} [store]
+ */
+export function loadStartExpanded(store = localStorage) {
+  try {
+    return store.getItem(START_EXPANDED_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * @param {boolean} expanded
+ * @param {Storage} [store]
+ */
+export function saveStartExpanded(expanded, store = localStorage) {
+  try {
+    store.setItem(START_EXPANDED_KEY, expanded ? "1" : "0");
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
+ * Whether a range/scrub drag should emit a live patch (false = readout only).
+ * @param {{ heavyMode: boolean }} args
+ */
+export function shouldLivePatchDuringDrag({ heavyMode }) {
+  return !heavyMode;
+}
+
+/**
  * @param {HTMLElement} panelEl
- * @param {{
- *   onPatch: (patch: object, opts: { commit: boolean }) => void,
- *   onSave: () => void,
- *   onExport: () => void,
- *   onExportSvg?: () => void,
- *   onOpen?: () => void,
- *   onCopyLink?: () => void,
- *   onStart?: (id: string) => void,
- *   onUndo?: () => void,
- *   onNameChange: (name: string) => void,
- * }} handlers
+ * @param {object} handlers
  */
 export function createPanel(panelEl, handlers) {
   panelEl.innerHTML = "";
   const scroll = el("div", { id: "panel-scroll" });
   panelEl.appendChild(scroll);
 
-  // Identity
   const identity = el("div", { className: "identity" });
   const nameInput = el("input", {
     className: "identity-name",
@@ -74,8 +133,7 @@ export function createPanel(panelEl, handlers) {
   identity.append(nameInput, dirtyDot, dirtyLabel);
   scroll.appendChild(identity);
 
-  // Start-from chooser — thumbnail cards for built-in shapes and presets.
-  // Starts are recipes to load and modify, not a lasting Base mode.
+  // Start-from — whole row toggles the chooser; re-click cancels (no change).
   const startSection = el("section", { className: "group start-group" });
   const startHeader = el("div", { className: "group-header start-header" });
   startHeader.appendChild(el("span", { textContent: "Start from" }));
@@ -95,8 +153,25 @@ export function createPanel(panelEl, handlers) {
   startHeader.append(sessionMode, undoBtn);
   startSection.appendChild(startHeader);
 
-  const startStrip = el("div", { className: "start-strip" });
-  const baseCards = el("div", { className: "start-cards" });
+  const currentStart = el("button", {
+    type: "button",
+    className: "start-current",
+  });
+  currentStart.setAttribute("aria-expanded", "false");
+  currentStart.setAttribute("aria-controls", "start-chooser");
+  const startChevron = el("span", {
+    className: "start-chevron",
+    textContent: "▸",
+  });
+  startChevron.setAttribute("aria-hidden", "true");
+  const currentThumb = el("span", { className: "start-thumb" });
+  currentThumb.setAttribute("aria-hidden", "true");
+  const currentLabel = el("span", { className: "start-current-label", textContent: "—" });
+  currentStart.append(startChevron, currentThumb, currentLabel);
+  startSection.appendChild(currentStart);
+
+  const chooser = el("div", { className: "start-chooser", id: "start-chooser", hidden: true });
+  const baseCards = el("div", { className: "start-cards start-cards--grid" });
   baseCards.setAttribute("role", "group");
   baseCards.setAttribute("aria-label", "Built-in starting shapes");
   for (const id of BASE_IDS) {
@@ -107,23 +182,44 @@ export function createPanel(panelEl, handlers) {
         label: def.shortLabel || def.label,
         title: `${def.label} — load as starting points`,
         svg: safeThumb(recipeForBase(id)),
-        onStart: handlers.onStart,
+        onStart: (sid) => {
+          handlers.onStart?.(sid);
+          closeStartChooser();
+        },
       }),
     );
   }
-  const presetHead = el("div", {
-    className: "start-subhead",
-    textContent: "Presets",
-    hidden: true,
-  });
-  const presetStrip = el("div", { className: "start-cards start-presets" });
-  presetStrip.setAttribute("data-preset-strip", "");
-  presetStrip.setAttribute("role", "group");
-  presetStrip.setAttribute("aria-label", "Preset starting recipes");
-  presetStrip.hidden = true;
-  startStrip.append(baseCards, presetHead, presetStrip);
-  startSection.appendChild(startStrip);
+  chooser.appendChild(baseCards);
+  startSection.appendChild(chooser);
   scroll.appendChild(startSection);
+
+  function closeStartChooser() {
+    chooser.hidden = true;
+    currentStart.setAttribute("aria-expanded", "false");
+    startChevron.textContent = "▸";
+  }
+  function openStartChooser() {
+    chooser.hidden = false;
+    currentStart.setAttribute("aria-expanded", "true");
+    startChevron.textContent = "▾";
+  }
+  currentStart.addEventListener("click", () => {
+    if (chooser.hidden) openStartChooser();
+    else closeStartChooser(); // cancel — no recipe change
+  });
+
+  function refreshCurrentStart(statuses) {
+    const active = (statuses || []).find((s) => s.active);
+    const id = active?.id || "icosidodeca";
+    const def = BASES[id];
+    const label = active?.name || def?.label || id;
+    currentLabel.textContent = label;
+    currentThumb.innerHTML = safeThumb(recipeForBase(def ? id : "icosidodeca"));
+    for (const btn of baseCards.querySelectorAll("[data-start-id]")) {
+      const sid = btn.getAttribute("data-start-id");
+      btn.setAttribute("data-active", sid === id ? "1" : "0");
+    }
+  }
 
   nameInput.addEventListener("input", () => {
     handlers.onNameChange(nameInput.value.trim() || "Untitled");
@@ -137,33 +233,105 @@ export function createPanel(panelEl, handlers) {
   const ranges = new Map();
   /** @type {Map<string, HTMLElement>} */
   const errNodes = new Map();
-  /** @type {Map<string, {min: HTMLElement, max: HTMLElement}>} */
+  /** @type {Map<string, {min: HTMLElement, max: HTMLElement, titleHost?: HTMLElement}>} */
   const limitLabels = new Map();
 
+  const groupsOpen = loadGroupsOpen();
+
   for (const g of GROUPS) {
-    const section = el("section", { className: "group", dataset: { group: g.id } });
-    section.appendChild(groupHeader(g.title));
+    const section = el("section", {
+      className: "group",
+      dataset: { group: g.id },
+    });
+    const open = groupsOpen[g.id] !== false;
+    const toggle = el("button", {
+      type: "button",
+      className: "group-header group-toggle",
+    });
+    toggle.setAttribute("aria-expanded", open ? "true" : "false");
+    const chevron = el("span", {
+      className: "group-chevron",
+      textContent: open ? "▾" : "▸",
+    });
+    chevron.setAttribute("aria-hidden", "true");
+    toggle.append(chevron, el("span", { textContent: g.title }));
+    const body = el("div", { className: "group-body" });
+    body.hidden = !open;
+    section.append(toggle, body);
     scroll.appendChild(section);
 
+    toggle.addEventListener("click", () => {
+      const next = body.hidden;
+      body.hidden = !next;
+      toggle.setAttribute("aria-expanded", next ? "true" : "false");
+      chevron.textContent = next ? "▾" : "▸";
+      groupsOpen[g.id] = next;
+      saveGroupsOpen(groupsOpen);
+    });
+
     if (g.id === "shape" || g.id === "form") {
+      /** @type {HTMLElement | null} */
+      let jitterCluster = null;
+      /** @type {HTMLElement | null} */
+      let pendingSeed = null;
       for (const def of CONTROL_DEFS.filter((c) => c.group === g.id)) {
-        const root = buildControl(def, handlers, inputs, ranges, errNodes, limitLabels);
+        const root = buildControl(def, inputs, ranges, errNodes, limitLabels);
         controlRoots.set(def.key, root);
-        section.appendChild(root);
+        if (def.key === "seed") {
+          // Park until the jitter cluster exists, then nest under it.
+          pendingSeed = root;
+          root.classList.add("control--clustered");
+          continue;
+        }
+        if (def.key === "jitter") {
+          jitterCluster = el("div", {
+            className: "control-cluster",
+            dataset: { cluster: "jitter" },
+          });
+          jitterCluster.appendChild(
+            el("div", { className: "cluster-label", textContent: "Jitter" }),
+          );
+          root.classList.add("control--clustered");
+          const lab = root.querySelector("label");
+          if (lab) lab.textContent = "Amount";
+          jitterCluster.appendChild(root);
+          if (pendingSeed) {
+            jitterCluster.appendChild(pendingSeed);
+            pendingSeed = null;
+          }
+          body.appendChild(jitterCluster);
+        } else if (def.key === "jitterMode" && jitterCluster) {
+          root.classList.add("control--clustered");
+          jitterCluster.appendChild(root);
+        } else {
+          body.appendChild(root);
+        }
       }
-    } else if (g.id === "inspect") {
-      section.appendChild(buildInspect());
+      if (pendingSeed && jitterCluster) jitterCluster.appendChild(pendingSeed);
+      else if (pendingSeed) body.appendChild(pendingSeed);
     } else if (g.id === "make") {
-      section.appendChild(buildMake(handlers));
+      body.appendChild(buildMake(handlers));
     }
   }
 
-  const version = el("div", { className: "version", textContent: `v${VERSION}` });
-  scroll.appendChild(version);
-
-  // Stats and Export live in the persistent bar under the view.
   const strip = document.getElementById("dimension-strip");
   const barEl = document.getElementById("bottombar");
+  const shareWrap = el("div", { className: "share-wrap" });
+  const shareBtn = el("button", {
+    type: "button",
+    className: "btn",
+    id: "btn-share",
+    textContent: "Share",
+  });
+  const sharePanel = el("div", { className: "share-panel", hidden: true });
+  const shareUrl = el("code", { className: "share-url", textContent: "" });
+  const shareCopy = el("button", {
+    type: "button",
+    className: "btn btn-accent",
+    textContent: "Copy",
+  });
+  sharePanel.append(shareUrl, shareCopy);
+  shareWrap.append(shareBtn, sharePanel);
   const exportBtn = el("button", {
     type: "button",
     className: "btn btn-accent",
@@ -176,9 +344,27 @@ export function createPanel(panelEl, handlers) {
     id: "btn-export-svg",
     textContent: "Export SVG",
   });
-  barEl?.append(exportBtn, exportSvgBtn);
+  barEl?.append(shareWrap, exportBtn, exportSvgBtn);
 
-  let lastStrip = "";
+  function truncateUrl(url, max = 42) {
+    if (url.length <= max) return url;
+    return `${url.slice(0, max - 1)}…`;
+  }
+  shareBtn.addEventListener("click", () => {
+    const open = sharePanel.hidden;
+    if (open) {
+      handlers.onPrepareShare?.();
+      shareUrl.textContent = truncateUrl(location.href);
+      shareUrl.title = location.href;
+    }
+    sharePanel.hidden = !open;
+    shareBtn.setAttribute("aria-expanded", open ? "true" : "false");
+  });
+  shareCopy.addEventListener("click", () => {
+    handlers.onCopyLink?.();
+  });
+
+  let lastStripCore = "";
   let edgeMean = null;
   let circumdiameter = null;
   /** @type {ReturnType<typeof requestAnimationFrame>|null} */
@@ -200,7 +386,7 @@ export function createPanel(panelEl, handlers) {
   }
 
   function queuePatch(patch, commit) {
-    pendingPatch = { ...(pendingPatch || {}), ...patch };
+    pendingPatch = normalizePatch({ ...(pendingPatch || {}), ...patch });
     if (commit) {
       flushPatch(true);
       return;
@@ -213,7 +399,6 @@ export function createPanel(panelEl, handlers) {
     }
   }
 
-  // Wire inputs that were built with placeholders — rebind through closure
   for (const [key, input] of inputs) {
     const def = CONTROL_DEFS.find((c) => c.key === key);
     if (!def) continue;
@@ -243,8 +428,6 @@ export function createPanel(panelEl, handlers) {
     }
   }
 
-  // Heavy-config mode (compile exceeds the perf threshold): slider drags
-  // only update the number readout; the recompile lands on release.
   let heavyMode = false;
 
   for (const [key, range] of ranges) {
@@ -252,8 +435,12 @@ export function createPanel(panelEl, handlers) {
     range.addEventListener("input", () => {
       const n = Number(range.value);
       const num = inputs.get(key);
-      if (num) num.value = fmtInput(n);
-      if (heavyMode) return;
+      if (num) {
+        num.value = fmtInput(n);
+        const readout = num.parentElement?.querySelector(".value-readout");
+        if (readout) readout.textContent = fmtInput(n);
+      }
+      if (!shouldLivePatchDuringDrag({ heavyMode })) return;
       queuePatch({ [key]: uiToState(def, n) }, false);
     });
     range.addEventListener("change", () => {
@@ -261,7 +448,54 @@ export function createPanel(panelEl, handlers) {
     });
   }
 
-  // Segment buttons
+  // Label scrubbing — same heavy-compile policy as range drags.
+  panelEl.querySelectorAll("[data-scrub-key]").forEach((lab) => {
+    const key = lab.getAttribute("data-scrub-key");
+    const range = ranges.get(key);
+    const def = CONTROL_DEFS.find((c) => c.key === key);
+    if (!range || !def) return;
+    let dragging = false;
+    let lastX = 0;
+    lab.addEventListener("pointerdown", (e) => {
+      if (e.button !== 0) return;
+      dragging = true;
+      lastX = e.clientX;
+      lab.setPointerCapture(e.pointerId);
+      e.preventDefault();
+    });
+    lab.addEventListener("pointermove", (e) => {
+      if (!dragging) return;
+      const dx = e.clientX - lastX;
+      lastX = e.clientX;
+      const step = Number(range.step) || 0.1;
+      const lo = Number(range.min);
+      const hi = Number(range.max);
+      const next = clampUi(Number(range.value) + dx * step, lo, hi);
+      range.value = String(next);
+      const num = inputs.get(key);
+      if (num) {
+        num.value = fmtInput(next);
+        const readout = num.parentElement?.querySelector(".value-readout");
+        if (readout) readout.textContent = fmtInput(next);
+      }
+      if (shouldLivePatchDuringDrag({ heavyMode })) {
+        queuePatch({ [key]: uiToState(def, next) }, false);
+      }
+    });
+    const end = (e) => {
+      if (!dragging) return;
+      dragging = false;
+      try {
+        lab.releasePointerCapture(e.pointerId);
+      } catch {
+        /* already released */
+      }
+      queuePatch({ [key]: uiToState(def, Number(range.value)) }, true);
+    };
+    lab.addEventListener("pointerup", end);
+    lab.addEventListener("pointercancel", end);
+  });
+
   panelEl.querySelectorAll("[data-seg-key]").forEach((btn) => {
     btn.addEventListener("click", () => {
       const key = btn.getAttribute("data-seg-key");
@@ -273,12 +507,11 @@ export function createPanel(panelEl, handlers) {
     });
   });
 
-  // Seed field + reroll
   {
     const seedInput = inputs.get("seed");
     seedInput?.addEventListener("change", () => {
       const n = Math.floor(Number(seedInput.value));
-      if (Number.isFinite(n) && n >= 0) queuePatch({ seed: n >>> 0 }, true);
+      if (Number.isFinite(n) && n >= 0 && n <= 0xffffffff) queuePatch({ seed: n }, true);
     });
     panelEl.querySelector("[data-reroll]")?.addEventListener("click", () => {
       const s =
@@ -289,34 +522,45 @@ export function createPanel(panelEl, handlers) {
     });
   }
 
-  const inspectEls = {
-    dims: panelEl.querySelector("[data-inspect=dims]"),
-    edge: panelEl.querySelector("[data-inspect=edge]"),
-    wall: panelEl.querySelector("[data-inspect=wall]"),
-    border: panelEl.querySelector("[data-inspect=border]"),
-    opening: panelEl.querySelector("[data-inspect=opening]"),
-    fillet: panelEl.querySelector("[data-inspect=fillet]"),
-    selectedEdge: panelEl.querySelector("[data-inspect=selected-edge]"),
-  };
   const faceReadout = panelEl.querySelector("[data-face-readout]");
   const faceStepper = panelEl.querySelector("[data-face-stepper]");
   const warnLine = panelEl.querySelector("[data-base-warn]");
   const saveBtn = panelEl.querySelector("#btn-save");
   const openBtn = panelEl.querySelector("#btn-open");
-  const copyBtn = panelEl.querySelector("#btn-copy-link");
+  const materialSel = panelEl.querySelector("[data-material]");
+  const massReadout = panelEl.querySelector("[data-mass-readout]");
 
   /** @type {{ sides: number, label: string, indices: number[] }[]} */
   let families = [];
   let familyIndex = 0;
-
   /** @type {ReturnType<typeof setTimeout>|null} */
   let copyFeedbackTimer = null;
+  let lastVolumeCm3 = null;
+  let pinnedEdgeText = "";
 
   saveBtn?.addEventListener("click", () => handlers.onSave());
   exportBtn?.addEventListener("click", () => handlers.onExport());
   exportSvgBtn?.addEventListener("click", () => handlers.onExportSvg?.());
   openBtn?.addEventListener("click", () => handlers.onOpen?.());
-  copyBtn?.addEventListener("click", () => handlers.onCopyLink?.());
+
+  materialSel?.addEventListener("change", () => {
+    handlers.onMaterial?.(materialSel.value);
+    updateMassReadout();
+  });
+
+  function updateMassReadout() {
+    if (!massReadout) return;
+    if (lastVolumeCm3 == null || !materialSel) {
+      massReadout.textContent = "—";
+      return;
+    }
+    const density = Number(materialSel.selectedOptions[0]?.dataset.density);
+    if (!Number.isFinite(density)) {
+      massReadout.textContent = "—";
+      return;
+    }
+    massReadout.textContent = `${fmt(lastVolumeCm3 * density)} g`;
+  }
 
   faceStepper?.querySelector("[data-face-prev]")?.addEventListener("click", () => {
     stepFace(-1);
@@ -333,13 +577,19 @@ export function createPanel(panelEl, handlers) {
 
   function stepFace(delta) {
     if (!families.length) return;
-    const fam = families[familyIndex] || families[0];
     const loc = locateFace(families, Number(faceReadout?.dataset.faceIndex ?? 0));
     familyIndex = loc.familyIndex;
     const cur = families[familyIndex];
     const n = cur.indices.length;
     const nextK = (loc.indexInFamily + delta + n) % n;
     queuePatch({ faceIndex: cur.indices[nextK] }, true);
+  }
+
+  function paintStrip() {
+    if (!strip || !lastStripCore) return;
+    const [line1, ...rest] = lastStripCore.split("\n");
+    strip.textContent = [line1 + pinnedEdgeText, ...rest].join("\n");
+    strip.classList.remove("err");
   }
 
   function setSegment(key, value) {
@@ -360,7 +610,7 @@ export function createPanel(panelEl, handlers) {
 
       if (state) {
         circumdiameter = state.circumdiameterMm;
-        applyStateToControls(state, inputs, ranges, controlRoots);
+        applyStateToControls(state, inputs, ranges, controlRoots, CONTROL_DEFS);
         setSegment("depth", state.depth);
         setSegment("openings", String(!!state.openings));
         setSegment("edgeDiv", state.edgeDiv);
@@ -374,8 +624,7 @@ export function createPanel(panelEl, handlers) {
         }
         const edgeInput = inputs.get("edgeLengthMm");
         if (edgeInput) {
-          // Bijection with scale only holds for exact regular shapes.
-          edgeInput.readOnly = edgeInputReadOnly(state);
+          edgeInput.readOnly = isEdgeInputReadOnly(state);
           edgeInput.classList.toggle("is-readout", edgeInput.readOnly);
         }
       }
@@ -396,14 +645,14 @@ export function createPanel(panelEl, handlers) {
 
       if (metrics) {
         edgeMean = metrics.edgeMm.mean;
+        lastVolumeCm3 = metrics.volumeCm3;
         const edgeInput = inputs.get("edgeLengthMm");
         if (edgeInput && document.activeElement !== edgeInput) {
           edgeInput.value = fmtInput(metrics.edgeMm.mean);
         }
-        setInspect(inspectEls, metrics);
-        updateStrip(strip, metrics, validation, lastStrip, (s) => {
-          lastStrip = s;
-        });
+        updateMassReadout();
+        lastStripCore = formatStripCore(metrics, validation);
+        paintStrip();
       } else if (invalid && validation) {
         updateStripErrors(strip, validation);
       }
@@ -422,7 +671,6 @@ export function createPanel(panelEl, handlers) {
       }
     },
 
-    /** Compile cost crossed the threshold: sliders commit on release only. */
     setHeavy(on) {
       heavyMode = !!on;
     },
@@ -440,56 +688,34 @@ export function createPanel(panelEl, handlers) {
     },
 
     setSelectedEdge(lengthMm) {
-      if (!inspectEls.selectedEdge) return;
-      inspectEls.selectedEdge.textContent =
-        lengthMm == null ? "—" : `${fmt(lengthMm)} mm`;
+      pinnedEdgeText =
+        lengthMm == null ? "" : ` · edge ${fmt(lengthMm)} mm`;
+      paintStrip();
     },
 
-    setActionsVisible({ open, copyLink }) {
+    setActionsVisible({ open }) {
       if (openBtn) openBtn.hidden = !open;
-      if (copyBtn) copyBtn.hidden = !copyLink;
     },
 
-    /** Brief success/failure cue for Copy Link (the only silent failure path). */
     setCopyFeedback(ok) {
-      if (!copyBtn) return;
       if (copyFeedbackTimer != null) clearTimeout(copyFeedbackTimer);
-      copyBtn.textContent = ok ? "Link copied" : "Copy failed";
-      copyBtn.setAttribute("data-copy", ok ? "ok" : "err");
+      shareCopy.textContent = ok ? "Copied" : "Failed";
+      shareCopy.setAttribute("data-copy", ok ? "ok" : "err");
       copyFeedbackTimer = setTimeout(() => {
-        // Fixed restore label: capturing textContent would re-capture the
-        // feedback text itself on rapid repeat clicks and stick forever.
-        copyBtn.textContent = "Copy Link";
-        copyBtn.removeAttribute("data-copy");
+        shareCopy.textContent = "Copy";
+        shareCopy.removeAttribute("data-copy");
         copyFeedbackTimer = null;
       }, 1600);
     },
 
-    setPresets(list) {
-      presetStrip.innerHTML = "";
-      if (!list?.length) {
-        presetStrip.hidden = true;
-        presetHead.hidden = true;
-        return;
-      }
-      presetStrip.hidden = false;
-      presetHead.hidden = false;
-      for (const p of list) {
-        presetStrip.appendChild(
-          startCard({
-            id: p.id,
-            label: p.name,
-            title: p.description || `${p.name} — load as starting points`,
-            svg: safeThumb(p.resolved || p.state),
-            onStart: handlers.onStart,
-          }),
-        );
-      }
+    setPresets(_list) {
+      // Named presets retired from the chooser; bases only.
     },
 
     setStartStatus(statuses) {
+      refreshCurrentStart(statuses);
       for (const s of statuses || []) {
-        const btn = startStrip.querySelector(`[data-start-id="${s.id}"]`);
+        const btn = baseCards.querySelector(`[data-start-id="${s.id}"]`);
         if (!btn) continue;
         btn.setAttribute("data-active", s.active ? "1" : "0");
         btn.setAttribute("data-edited", s.edited ? "1" : "0");
@@ -498,10 +724,6 @@ export function createPanel(panelEl, handlers) {
   };
 }
 
-/**
- * Thumbnail card for one start (built-in shape or preset).
- * @param {{ id: string, label: string, title: string, svg: string, onStart?: (id: string) => void }} args
- */
 function startCard({ id, label, title, svg, onStart }) {
   const btn = el("button", { type: "button", className: "start-card" });
   btn.setAttribute("data-start-id", id);
@@ -514,7 +736,6 @@ function startCard({ id, label, title, svg, onStart }) {
   return btn;
 }
 
-/** A card without a thumbnail beats a panel that fails to build. */
 function safeThumb(state) {
   try {
     return startThumbSvg(state);
@@ -523,122 +744,7 @@ function safeThumb(state) {
   }
 }
 
-function buildControl(def, _handlers, inputs, ranges, errNodes, limitLabels) {
-  const root = el("div", { className: "control", dataset: { key: def.key } });
-
-  if (def.type === "segments") {
-    const lab = el("div", { className: "control-row" });
-    lab.appendChild(el("label", { textContent: def.label }));
-    root.appendChild(lab);
-    const segs = el("div", { className: "segments", role: "group" });
-    segs.setAttribute("aria-label", def.label);
-    for (const opt of def.options || []) {
-      const btn = el("button", {
-        type: "button",
-        textContent: opt.label,
-      });
-      btn.setAttribute("data-seg-key", def.key);
-      btn.setAttribute("data-seg-value", opt.value);
-      btn.setAttribute("aria-pressed", "false");
-      segs.appendChild(btn);
-    }
-    if (def.customTag) {
-      // Shown when the canonical value matches no level (e.g. edgeDiv 12
-      // from a project file) — the levels are vocabulary, not a constraint.
-      const tag = el("span", { className: "seg-custom", hidden: true });
-      tag.setAttribute("data-custom-key", def.key);
-      segs.appendChild(tag);
-    }
-    root.appendChild(segs);
-  } else if (def.type === "seed") {
-    const row = el("div", { className: "control-row" });
-    const lab = el("label", { textContent: def.label });
-    lab.htmlFor = `ctrl-${def.key}`;
-    const num = el("input", {
-      type: "number",
-      id: `ctrl-${def.key}`,
-      step: "1",
-      min: "0",
-      max: "4294967295",
-    });
-    const reroll = el("button", {
-      type: "button",
-      className: "reroll",
-      textContent: "⟳",
-      title: "New seed",
-    });
-    reroll.setAttribute("aria-label", "New random seed");
-    reroll.setAttribute("data-reroll", "");
-    inputs.set(def.key, num);
-    row.append(lab, num, reroll);
-    root.appendChild(row);
-  } else if (def.type === "range" || def.type === "number") {
-    const row = el("div", { className: "control-row" });
-    const lab = el("label", { textContent: def.label });
-    lab.htmlFor = `ctrl-${def.key}`;
-    const num = el("input", {
-      type: "number",
-      id: `ctrl-${def.key}`,
-      step: String(def.step ?? 0.1),
-    });
-    if (def.min != null) num.min = String(def.min);
-    // Size slider max is convenience-only; typed circumdiameter may exceed it.
-    if (def.max != null && def.key !== "circumdiameterMm") {
-      num.max = String(def.max);
-    }
-    inputs.set(def.key, num);
-    row.append(lab, num, el("span", { className: "unit", textContent: def.unit || "" }));
-    root.appendChild(row);
-
-    if (def.type === "range") {
-      const wrap = el("div", { className: "slider-wrap" });
-      const range = el("input", {
-        type: "range",
-        min: String(def.min ?? 0),
-        max: String(def.max ?? 100),
-        step: String(def.step ?? 0.1),
-      });
-      range.setAttribute("aria-label", def.label);
-      ranges.set(def.key, range);
-      const lim = el("div", { className: "slider-limits" });
-      const minL = el("span", { textContent: String(def.min ?? "") });
-      const maxL = el("span", { textContent: String(def.max ?? "") });
-      lim.append(minL, maxL);
-      limitLabels.set(def.key, { min: minL, max: maxL });
-      wrap.append(range, lim);
-      root.appendChild(wrap);
-    }
-  }
-
-  const err = el("p", { className: "control-error", id: `err-${def.key}` });
-  errNodes.set(def.key, err);
-  const input = inputs.get(def.key);
-  if (input) input.setAttribute("aria-describedby", err.id);
-  root.appendChild(err);
-  return root;
-}
-
-function buildInspect() {
-  const dl = el("dl", { className: "inspect-grid" });
-  const rows = [
-    ["dims", "Dimensions"],
-    ["edge", "Edge min / mean / max"],
-    ["wall", "Wall"],
-    ["border", "Border"],
-    ["opening", "Min opening"],
-    ["fillet", "Fillet applied"],
-    ["selected-edge", "Selected edge"],
-  ];
-  for (const [key, label] of rows) {
-    dl.appendChild(el("dt", { textContent: label }));
-    const dd = el("dd", { textContent: "—" });
-    dd.setAttribute("data-inspect", key);
-    dl.appendChild(dd);
-  }
-  return dl;
-}
-
-function buildMake(handlers) {
+function buildMake(_handlers) {
   const box = el("div", { className: "actions" });
   const warn = el("p", { className: "hint base-warn", textContent: "" });
   warn.setAttribute("data-base-warn", "");
@@ -671,107 +777,60 @@ function buildMake(handlers) {
     }),
   );
 
+  const matRow = el("div", { className: "control-row control-row--material" });
+  matRow.appendChild(el("label", { textContent: "Material" }));
+  const mat = el("select", { className: "material-select" });
+  mat.setAttribute("data-material", "");
+  mat.setAttribute("aria-label", "Material density preset");
+  for (const m of MATERIAL_PRESETS) {
+    const opt = el("option", { value: m.id, textContent: m.label });
+    opt.dataset.density = String(m.densityGPerCm3);
+    if (m.id === "pla") opt.selected = true;
+    mat.appendChild(opt);
+  }
+  matRow.appendChild(mat);
+  box.appendChild(matRow);
+  const massRow = el("div", { className: "control-row control-row--material" });
+  massRow.appendChild(el("label", { textContent: "Mass (est.)" }));
+  const mass = el("span", { className: "mass-readout", textContent: "—" });
+  mass.setAttribute("data-mass-readout", "");
+  massRow.appendChild(mass);
+  box.appendChild(massRow);
+
+  box.appendChild(el("div", { className: "group-subheader", textContent: "JSON Model File" }));
   const save = el("button", {
     type: "button",
     className: "btn",
     id: "btn-save",
-    textContent: "Save",
+    textContent: "Export",
   });
   const open = el("button", {
     type: "button",
     className: "btn",
     id: "btn-open",
-    textContent: "Open",
+    textContent: "Load",
     hidden: true,
   });
-  const copy = el("button", {
-    type: "button",
-    className: "btn",
-    id: "btn-copy-link",
-    textContent: "Copy Link",
-    hidden: true,
-  });
-  // Export STL lives in the persistent bar under the view, not in Make.
-  box.append(save, open, copy);
+  box.append(save, open);
   return box;
 }
 
-function applyStateToControls(state, inputs, ranges, controlRoots) {
-  for (const def of CONTROL_DEFS) {
-    const root = controlRoots.get(def.key);
-    if (root && def.hideWhen) {
-      root.setAttribute("data-hidden", def.hideWhen(state) ? "1" : "0");
-    }
-    if (root && def.inertWhen) {
-      const inert = !!def.inertWhen(state);
-      root.setAttribute("data-inert", inert ? "1" : "0");
-      root.querySelectorAll("input, select, button").forEach((node) => {
-        node.disabled = inert;
-      });
-    }
-    if (def.key === "edgeLengthMm") continue;
-    const v = state[def.key];
-    if (v === undefined) continue;
-    const uiVal = stateToUi(def, v);
-    const input = inputs.get(def.key);
-    if (input && document.activeElement !== input) {
-      input.value = fmtInput(uiVal);
-    }
-    const range = ranges.get(def.key);
-    if (range && document.activeElement !== range) {
-      const lo = Number(range.min);
-      const hi = Number(range.max);
-      const clamped =
-        Number.isFinite(uiVal) && Number.isFinite(lo) && Number.isFinite(hi)
-          ? Math.min(hi, Math.max(lo, uiVal))
-          : uiVal;
-      range.value = String(clamped);
-    }
-  }
-}
+/** Density presets (g/cm³) for mass estimate — not part of canonical state. */
+export const MATERIAL_PRESETS = Object.freeze([
+  Object.freeze({ id: "pla", label: "PLA · 1.24", densityGPerCm3: 1.24 }),
+  Object.freeze({ id: "petg", label: "PETG · 1.27", densityGPerCm3: 1.27 }),
+  Object.freeze({ id: "abs", label: "ABS · 1.04", densityGPerCm3: 1.04 }),
+  Object.freeze({ id: "tpu", label: "TPU · 1.21", densityGPerCm3: 1.21 }),
+  Object.freeze({ id: "nylon", label: "Nylon · 1.14", densityGPerCm3: 1.14 }),
+]);
 
-function applyLimits(lim, ranges, limitLabels, defs) {
-  const map = {
-    wallMm: lim.wallMmMax,
-    borderMm: lim.borderMmMax,
-    filletMm: lim.filletMmMax,
-  };
-  for (const [key, max] of Object.entries(map)) {
-    if (max == null || !Number.isFinite(max)) continue;
-    const range = ranges.get(key);
-    const labels = limitLabels.get(key);
-    const def = defs.find((d) => d.key === key);
-    // Tiny-face ceilings (deep subdivision, high jitter) can drop below the
-    // control's default minimum or below one-decimal precision; the range
-    // auto-adjusts so the slider always spans valid values.
-    const ceil = max >= 1 ? round1(max) : Math.max(0.01, Math.floor(max * 100) / 100);
-    const defMin = def?.min ?? 0;
-    const floor =
-      ceil > defMin ? defMin : Math.max(0.01, Math.floor((ceil / 2) * 100) / 100);
-    if (range) {
-      range.min = String(floor);
-      range.max = String(ceil);
-      const num = range.ownerDocument.getElementById(`ctrl-${key}`);
-      if (num) {
-        num.min = String(floor);
-        num.max = String(ceil);
-      }
-    }
-    if (labels) {
-      labels.min.textContent = fmt2(floor);
-      labels.max.textContent = fmt2(ceil);
-    }
-  }
-}
-
-function uiToState(def, uiVal) {
-  if (def?.toState) return def.toState(uiVal);
-  return uiVal;
-}
-
-function stateToUi(def, stateVal) {
-  if (def?.fromState) return def.fromState(stateVal);
-  return stateVal;
+/**
+ * @param {number} volumeCm3
+ * @param {number} densityGPerCm3
+ */
+export function estimateMassG(volumeCm3, densityGPerCm3) {
+  if (!Number.isFinite(volumeCm3) || !Number.isFinite(densityGPerCm3)) return null;
+  return volumeCm3 * densityGPerCm3;
 }
 
 function updateFaceStepper(stepper, readout, loc, multiFamily) {
@@ -786,40 +845,8 @@ function updateFaceStepper(stepper, readout, loc, multiFamily) {
   }
 }
 
-function setInspect(els, m) {
-  if (els.dims) {
-    els.dims.innerHTML = `${fmt(m.extentsMm[0])}×${fmt(m.extentsMm[1])}×${fmt(m.extentsMm[2])}<span class="u">mm</span>`;
-  }
-  if (els.edge) {
-    els.edge.innerHTML = `${fmt(m.edgeMm.min)} / ${fmt(m.edgeMm.mean)} / ${fmt(m.edgeMm.max)}<span class="u">mm</span>`;
-  }
-  if (els.wall) {
-    els.wall.textContent =
-      m.wallMm.min != null
-        ? `${fmt(m.wallMm.min)}–${fmt(m.wallMm.max)} mm`
-        : "solid";
-  }
-  if (els.border) {
-    els.border.textContent =
-      m.borderMm?.min != null
-        ? `${fmt(m.borderMm.min)}–${fmt(m.borderMm.max)} mm`
-        : "—";
-  }
-  if (els.opening) {
-    els.opening.textContent =
-      m.openingMinDiameterMm != null
-        ? `${fmt(m.openingMinDiameterMm)} mm`
-        : "—";
-  }
-  if (els.fillet) {
-    els.fillet.textContent =
-      m.filletMm?.min != null
-        ? `${fmt(m.filletMm.min)}–${fmt(m.filletMm.max)} mm`
-        : "—";
-  }
-}
 
-function updateStrip(strip, m, validation, _prev, setPrev) {
+function formatStripCore(m, validation) {
   const line1 =
     `dimensions  ${fmt(m.extentsMm[0])}×${fmt(m.extentsMm[1])}×${fmt(m.extentsMm[2])} mm` +
     (m.wallMm.min != null ? ` · wall ${fmt(m.wallMm.min)}–${fmt(m.wallMm.max)}` : " · solid") +
@@ -830,10 +857,7 @@ function updateStrip(strip, m, validation, _prev, setPrev) {
     ` · ${m.volumeCm3.toFixed(1)} cm³`;
   const warn =
     validation?.warnings?.map((w) => `\n${w.message}`).join("") || "";
-  const text = line1 + "\n" + line2 + warn;
-  strip.textContent = text;
-  strip.classList.remove("err");
-  setPrev(text);
+  return line1 + "\n" + line2 + warn;
 }
 
 function updateStripErrors(strip, validation) {
@@ -843,40 +867,4 @@ function updateStripErrors(strip, validation) {
     .map((e) => `${e.key ?? e.stage}: ${e.message}`)
     .join("\n");
   strip.appendChild(p);
-}
-
-function groupHeader(title) {
-  const h = el("div", { className: "group-header" });
-  h.appendChild(el("span", { textContent: title }));
-  return h;
-}
-
-function el(tag, props = {}) {
-  const node = document.createElement(tag);
-  for (const [k, v] of Object.entries(props)) {
-    if (k === "className") node.className = v;
-    else if (k === "textContent") node.textContent = v;
-    else if (k === "dataset") {
-      for (const [dk, dv] of Object.entries(v)) node.dataset[dk] = dv;
-    } else if (k === "hidden") node.hidden = v;
-    else if (v != null) node.setAttribute(k === "htmlFor" ? "for" : k, v);
-  }
-  // htmlFor via property
-  if (props.htmlFor) node.htmlFor = props.htmlFor;
-  return node;
-}
-
-function fmt(n) {
-  return Number.isFinite(n) ? (Math.round(n * 10) / 10).toFixed(1).replace(/\.0$/, "") : "—";
-}
-/** Like fmt but keeps two decimals alive for sub-0.1 limit values. */
-function fmt2(n) {
-  if (!Number.isFinite(n)) return "—";
-  return n < 1 ? String(Math.round(n * 100) / 100) : fmt(n);
-}
-function fmtInput(n) {
-  return Number.isFinite(n) ? String(Math.round(n * 100) / 100) : "";
-}
-function round1(n) {
-  return Math.round(n * 10) / 10;
 }

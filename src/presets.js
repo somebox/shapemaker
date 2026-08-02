@@ -35,8 +35,8 @@ export function parsePresetsEnvelope(raw) {
       error: `Unsupported presets formatVersion ${raw.formatVersion}`,
     };
   }
-  if (!Array.isArray(raw.presets) || raw.presets.length === 0) {
-    return { ok: false, error: "presets must be a non-empty array" };
+  if (!Array.isArray(raw.presets)) {
+    return { ok: false, error: "presets must be an array" };
   }
 
   const seen = new Set();

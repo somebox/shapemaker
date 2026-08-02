@@ -6,7 +6,7 @@
  * @param {number} k  segments per edge (edge_div)
  * @returns {Float64Array} k-1 interior fractions, or empty if k ≤ 1
  */
-export function edgeParams(k) {
+export function edgeInteriorFractions(k) {
   if (k <= 1) return new Float64Array(0);
   const out = new Float64Array(k - 1);
   for (let i = 1; i < k; i++) {

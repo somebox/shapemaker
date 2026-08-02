@@ -82,10 +82,10 @@ describe("quality levels compile to valid meshes with expected density", () => {
 
 describe("Unit 4 policy helpers", () => {
   it("edge input is read-only exactly when the bijection breaks", async () => {
-    const { edgeInputReadOnly } = await import("../src/schema.js");
-    assert.equal(edgeInputReadOnly({ base: "cube", jitter: 0 }), false);
-    assert.equal(edgeInputReadOnly({ base: "random", jitter: 0 }), true);
-    assert.equal(edgeInputReadOnly({ base: "sphere", jitter: 0 }), true);
-    assert.equal(edgeInputReadOnly({ base: "cube", jitter: 5 }), true);
+    const { isEdgeInputReadOnly } = await import("../src/schema.js");
+    assert.equal(isEdgeInputReadOnly({ base: "cube", jitter: 0 }), false);
+    assert.equal(isEdgeInputReadOnly({ base: "random", jitter: 0 }), true);
+    assert.equal(isEdgeInputReadOnly({ base: "sphere", jitter: 0 }), true);
+    assert.equal(isEdgeInputReadOnly({ base: "cube", jitter: 5 }), true);
   });
 });

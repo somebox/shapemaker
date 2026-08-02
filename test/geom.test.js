@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { edgeParams } from "../src/geom/edgesub.js";
+import { edgeInteriorFractions } from "../src/geom/edgesub.js";
 import { filletPolygon, collapseMicroEdges } from "../src/geom/poly2.js";
 import { radialSample } from "../src/geom/annulus.js";
 
@@ -28,15 +28,15 @@ function almostEqualArrays(a, b, eps = EPS) {
   }
 }
 
-describe("edgeParams", () => {
+describe("edgeInteriorFractions", () => {
   for (const [k, expected] of Object.entries(fixtures.edge_params)) {
     it(`k=${k}`, () => {
-      almostEqualArrays([...edgeParams(Number(k))], expected);
+      almostEqualArrays([...edgeInteriorFractions(Number(k))], expected);
     });
   }
 
   it("is reversal-symmetric", () => {
-    const ts = edgeParams(10);
+    const ts = edgeInteriorFractions(10);
     for (let i = 0; i < ts.length; i++) {
       assert.ok(Math.abs(ts[i] - (1 - ts[ts.length - 1 - i])) < 1e-12);
     }

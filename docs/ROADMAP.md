@@ -136,27 +136,36 @@ Goal: provide expressive irregular forms without adding a modeling language.
   ([`BORDER_EVIDENCE.md`](BORDER_EVIDENCE.md)); clamp warnings guide scale-up
   / reduce-density when below ~2.5 mm.
 
-## Next — Milestone 6: share, draw, and judge
+## Done — Milestone 6: share, draw, and judge (v0.6.0)
 
 Goal: improve communication and downstream fabrication handoff.
 
-- Camera-matched SVG line drawing — **shipped** in v0.4
+- Camera-matched SVG line drawing — shipped in v0.4
   (`src/export/svg.js`): perspective hidden-line export of the visible
   silhouette/crease edges; scale annotations dropped after playtest.
-- Approximate overhang and near-horizontal-edge overlays — **shipped** in
-  v0.4 (`src/metrics.js`, `metrics.printRisk`).
-- Export naming that includes relevant seed and size information — **shipped**
+- Approximate overhang and near-horizontal-edge overlays — shipped in
+  v0.4 (`src/metrics.js`, `metrics.printRisk`); gated off by default via
+  Make → Print risk (v0.6).
+- Export naming that includes relevant seed and size information — shipped
   for STL and SVG.
-- Material-density presets and mass estimate (remaining).
-- Section plane along the bed axis (remaining): a render-only clipping plane
-  the user sweeps up Z to inspect wall structure and cavities alongside the
-  overhang overlay. Preview-only (Three.js clipping) — no mesh booleans,
-  export unchanged. Open cross-sections on hollow shells are accepted;
-  capping is not in scope.
-- Scale legibility in the viewer (remaining): millimetre labels on the plate
-  grid's major lines, and a prominent in-view dimension callout near the
-  model while Size (or any size-affecting control) is adjusted. Today the
-  grid is unlabeled and dimensions appear only in the Inspect panel.
+- Material-density presets and mass estimate — shipped in v0.6 (Make
+  material select; Inspect mass readout).
+- Section plane along the bed axis — shipped in v0.6: render-only clipping
+  plane; preview-only; export unchanged.
+- Scale legibility in the viewer — shipped in v0.6: an in-view dimension
+  callout. (Major-grid mm sprites were removed after playtest — they read as
+  haze / lens flare.)
+
+## Done — usability: chrome, onboarding, panel ergonomics (v0.4.1–0.5.0)
+
+Goal: make the first visit legible and the daily editing loop lighter.
+
+- **App header** (v0.4.1): title, version, GitHub link, “?” reopen.
+- **First-visit onboarding** (v0.4.1): native `<dialog>`, localStorage
+  seen-flag (first persistent local state; not session recovery).
+- **Panel ergonomics** (v0.5.0): one-row controls, taller hit targets,
+  label scrubbing, compact Start-from, collapsible groups; `src/controls.js`
+  extracted with tests.
 
 ## Later — fabrication workflows
 
@@ -234,6 +243,45 @@ Driven by the locked session model; not blocking the thin slice already in tree.
   adaptation remains for wall/border clamp on reshape).
 - Align or supersede older Phase 4 plan units with this model.
 
+## Refactor backlog (from v0.4 review)
+
+Consistency and maintainability; none change current behavior; none gate
+usability or remaining M6 work.
+
+### Geometry consistency
+
+- Pick one 2D point form (`Float64Array` flat vs `number[][]`) inside
+  `buildShell` / `poly2` (today ~5 shapes with `toPairs`/`flatten` bridges).
+- Make `edgeKey` the only edge-key encoding (inline `a*0x100000+b` or strings
+  remain in ~5 files; packing silently collides past 2²⁰ verts).
+- Extract a shared `vec3` helper (Newell / cross / basis duplicated in ~7
+  places).
+
+### API-breaking signature cleanups
+
+- `predictedCompileMs(...)` → options object (match `nextHistoryAction`).
+- `subdivideSkeleton(skeleton, level, soften)` →
+  `subdivideSkeleton(skeleton, { level, soften })`.
+- `exportSvg` → `writeSvg` (symmetry with `writeBinaryStl`).
+
+### Named constants
+
+- Safety factors `0.95` / `0.999`, packing `0x100000`, jitter/plane stream
+  IDs → named module constants.
+
+### Boot / contract hygiene
+
+- Silent URL-hash rewrite when decode fails — surface a warning instead of
+  quietly replacing.
+- `types.js` stays unimported on purpose (SPEC contract doc); optionally wire
+  JSDoc imports later so it cannot drift.
+
+### Test gaps
+
+- Direct tests for `face-families`.
+- Full headless DOM coverage for `main.js` / `ui.js` flows (beyond pure
+  helpers extracted for panel ergonomics).
+
 ## Backlog — true struts and node joints
 
 **Status:** idea retained; no current use case and no planned milestone.
@@ -278,3 +326,7 @@ performance budget, and export guarantees before promoting it from backlog.
   so it matches STL; quality presets only increase facet density (Milestone 4).
 - **True struts remain backlog.** No geometry dependency is chosen without a
   demonstrated use case.
+- **First `localStorage` use is onboarding (and later collapsible panel
+  groups), not session recovery.** The seen-flag / group-open keys are
+  convenience UI state; portable projects and URL hash remain the recovery
+  paths. Optional local session recovery stays deliberately unscheduled.

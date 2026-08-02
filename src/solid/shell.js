@@ -12,7 +12,7 @@
  * derived view, which is what makes M2's relative-border-primary UI cheap.
  */
 
-import { edgeParams, edgeKey } from "../geom/edgesub.js";
+import { edgeInteriorFractions, edgeKey } from "../geom/edgesub.js";
 import { filletPolygon, insetScale } from "../geom/poly2.js";
 import { radialSample, quadToTris } from "../geom/annulus.js";
 import { edgeList, inradiusRange } from "../skeleton.js";
@@ -115,7 +115,7 @@ export function buildShell(skeleton, opts) {
   // One shared subdivision per polyhedron edge: both faces index the same
   // points, so neighbours meet exactly — no cracks, no T-junctions.
   const edgeExtra = new Map();
-  const ts = edgeParams(edgeDiv);
+  const ts = edgeInteriorFractions(edgeDiv);
   for (const [a, b] of edgeList(faces)) {
     const A = verts[a], B = verts[b];
     const idx = [];
@@ -244,10 +244,11 @@ export function buildShell(skeleton, opts) {
       // fillet approaches a circle about the incenter, which can exclude
       // the area centroid. The unfilleted inset ring is star-shaped about
       // the centroid by construction — drop the fillet on this face only.
+      // If the retry still throws, the face is truly degenerate: that is an
+      // internal invariant, so let it propagate.
       ({ opening, radiusUsed } = openingGenerator.generate(corner2d, frac, 0, 1));
       rad = radialSample(opening, ang);
     }
-
     let minR = Infinity;
     const OO = [];
     const OI = [];

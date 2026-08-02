@@ -7,7 +7,7 @@ const PHI = (1 + Math.sqrt(5)) / 2;
 
 /** @returns {Float64Array} flat xyz */
 export function tetrahedronPoints() {
-  return normalize([
+  return normalizePoints([
     [1, 1, 1],
     [1, -1, -1],
     [-1, 1, -1],
@@ -23,12 +23,12 @@ export function cubePoints() {
       for (const z of [-1, 1]) pts.push([x, y, z]);
     }
   }
-  return normalize(pts);
+  return normalizePoints(pts);
 }
 
 /** @returns {Float64Array} */
 export function octahedronPoints() {
-  return normalize([
+  return normalizePoints([
     [1, 0, 0],
     [-1, 0, 0],
     [0, 1, 0],
@@ -55,7 +55,7 @@ export function dodecahedronPoints() {
       pts.push([s1 * PHI, 0, s2 / PHI]);
     }
   }
-  return normalize(pts);
+  return normalizePoints(pts);
 }
 
 /** @returns {Float64Array} */
@@ -68,14 +68,14 @@ export function icosahedronPoints() {
       pts.push([s1 * PHI, 0, s2]);
     }
   }
-  return normalize(pts);
+  return normalizePoints(pts);
 }
 
 /**
  * @param {number[][]} pts
  * @returns {Float64Array}
  */
-export function normalize(pts) {
+export function normalizePoints(pts) {
   let r2 = 0;
   for (const p of pts) {
     const d = p[0] ** 2 + p[1] ** 2 + p[2] ** 2;

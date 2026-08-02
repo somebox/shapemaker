@@ -38,8 +38,6 @@ export function computeOrientation(skeleton, faceIndex) {
   // Full 4×4: [R | t] with t = (0, 0, -zMin)
   const M = new Float64Array(16);
   M.set(R);
-  M[12] = 0;
-  M[13] = 0;
   M[14] = -zMin;
   M[15] = 1;
   return { faceIndex, matrix: M };

@@ -1,14 +1,14 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { compile } from "../src/compile.js";
-import { filletRmax, filletPolygon, insetScale } from "../src/geom/poly2.js";
+import { filletRMax, filletPolygon, insetScale } from "../src/geom/poly2.js";
 import { borderPrintabilityWarning, PRINTABLE_BORDER_MM } from "../src/limits.js";
 import { clearPipelineCache } from "../src/pipeline.js";
 
-describe("filletRmax", () => {
+describe("filletRMax", () => {
   it("matches the clamp used by filletPolygon", () => {
     const square = [[1, 1], [-1, 1], [-1, -1], [1, -1]];
-    const rmax = filletRmax(square);
+    const rmax = filletRMax(square);
     const { radius } = filletPolygon(square, 1e9, 8);
     assert.ok(Math.abs(radius - rmax * 0.999) < 1e-9);
   });
@@ -38,10 +38,10 @@ describe("metrics.limits", () => {
     assert.equal(metrics.limits.filletMmMax, null);
   });
 
-  it("filletRmax on inset is the geometric source", () => {
+  it("filletRMax on inset is the geometric source", () => {
     const square = [[10, 10], [-10, 10], [-10, -10], [10, -10]];
     const inset = insetScale(square, 0.3);
-    assert.ok(filletRmax(inset) < filletRmax(square));
+    assert.ok(filletRMax(inset) < filletRMax(square));
   });
 
   it("filletMmMax shrinks when border widens", () => {
@@ -62,6 +62,19 @@ describe("metrics.limits", () => {
     );
     assert.ok(metrics.filletMm.max > metrics.limits.filletMmMax);
     assert.ok(metrics.filletMm.max < 100);
+  });
+
+  it("filletMmMax stays usable after subdivision (uses pre-subdiv ceiling)", () => {
+    const plain = compile({ base: "sphere", points: 24, subdiv: 0 });
+    const once = compile({ base: "sphere", points: 24, subdiv: 1 });
+    assert.equal(plain.validation.ok, true);
+    assert.equal(once.validation.ok, true);
+    assert.ok(once.metrics.limits.filletMmMax > 1,
+      `subdiv fillet ceiling too tight: ${once.metrics.limits.filletMmMax}`);
+    // Ceiling should track the unsubdivided authoring solid, not collapse.
+    assert.ok(
+      once.metrics.limits.filletMmMax >= plain.metrics.limits.filletMmMax * 0.9,
+    );
   });
 });
 

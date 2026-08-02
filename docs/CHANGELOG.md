@@ -7,7 +7,77 @@ surface is still moving, and git history is the detailed record. From **1.0**
 onward every release gets a full entry here, and breaking changes to the
 [project format](PROJECT_FORMAT.md) get a migration note.
 
-## [Unreleased]
+## [0.6.0] — 2026-08-02
+
+Milestone 6 remainder: section plane, scale legibility, material/mass estimate,
+and print-risk overlay gated off by default.
+
+### Added
+
+- Preview-only **section plane** (viewport HUD, off by default): Three.js
+  clipping along bed height to inspect cavities — DoubleSide walls plus an
+  opaque fill cap so cuts read as cross-sections, clipping fully disabled
+  until Section is engaged. Export unchanged.
+- **Scale legibility**: labeled build plate and an in-view dimension callout
+  over the canvas.
+- **Material density presets** (PLA / PETG / ABS / TPU / Nylon) with an
+  estimated mass readout (volume × density; not canonical geometry).
+- **Share popover** and project JSON Export/Load actions.
+
+### Changed
+
+- Print-risk overlays are optional and **off by default** (viewport toggle),
+  matching the SPEC “not the default appearance” rule.
+- Range values show as a click-to-edit readout; seed lives under the Jitter
+  cluster with a reroll glyph (↻).
+- Start chooser is bases-only (Prototype TPU / Solid Dodecahedron presets
+  retired); the whole header row toggles it, and picking a shape applies and
+  closes. Inspect readouts merged into the status strip and Make.
+
+### Fixed
+
+- Wall and border slider ceilings come from the skeleton the shell actually
+  solidifies; only the fillet ceiling uses the pre-subdivision solid (safe
+  because the shell clamps fillet per-face). A subdivided cube could
+  otherwise be offered a border the solidifier rejects.
+- Onboarding never auto-opens over a shared link — the visitor came to see a
+  specific shape; the header “?” still offers the tour.
+- Removed major-grid mm sprites that read as grey haze / lens flare.
+
+## [0.5.0] — 2026-08-01
+
+Panel ergonomics: denser controls, testable control module, export hygiene.
+
+### Added
+
+- `src/controls.js` — pure display helpers + schema-driven control builders
+  with unit tests; heavy-compile / session / history policy coverage expanded.
+- One-row range controls (label · slider · editable value+unit), taller hit
+  targets, label scrubbing (same commit-on-release heavy policy).
+- Collapsible Shape/Form/Inspect/Make groups with remembered open state
+  (`localStorage`).
+- Compact Start-from strip (horizontal scroll); expand via the Start header.
+
+### Changed
+
+- Shared `downloadBlob` helper; Export STL/SVG reuse the last successful
+  compile so the download matches the on-screen mesh.
+
+## [0.4.1] — 2026-08-01
+
+Usability chrome: app header and first-visit onboarding.
+
+### Added
+
+- Slim app header with title, version, GitHub link, and a “?” help control.
+- First-visit onboarding modal (native `<dialog>`) teaching the core loop —
+  pick a start, adjust, click a face to rest, export — gated by a
+  `localStorage` seen-flag (the app’s first persistent local state; not
+  session recovery). Reopen from the header “?”.
+
+### Changed
+
+- Version display moved from the panel foot into the header.
 
 ## [0.4.0] — 2026-08-01
 

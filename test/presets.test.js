@@ -13,23 +13,42 @@ const envelope = JSON.parse(
 );
 
 describe("presets.json", () => {
-  it("validates, compiles, and exposes resolved comparison state", () => {
+  it("validates an empty preset list (bases-only chooser)", () => {
     const r = parsePresetsEnvelope(envelope);
     assert.equal(r.ok, true, r.error);
-    assert.equal(r.presets.length, 2);
-    assert.equal(r.presets[0].id, "prototype-tpu");
-    assert.equal(r.presets[1].id, "solid-dodeca");
+    assert.equal(r.presets.length, 0);
+  });
 
-    for (const p of r.presets) {
-      const c = compile(p.state);
-      assert.equal(c.validation.ok, true);
-      assert.equal(statesEqual(c.state, p.resolved), true);
-    }
+  it("still validates and compiles non-empty envelopes", () => {
+    const sample = {
+      format: "shapemaker-presets",
+      formatVersion: 1,
+      presets: [
+        {
+          id: "demo-cube",
+          name: "Demo Cube",
+          state: { base: "cube", faceIndex: -1 },
+        },
+      ],
+    };
+    const r = parsePresetsEnvelope(sample);
+    assert.equal(r.ok, true, r.error);
+    assert.equal(r.presets.length, 1);
+    assert.equal(r.presets[0].id, "demo-cube");
+    const c = compile(r.presets[0].state);
+    assert.equal(c.validation.ok, true);
+    assert.equal(statesEqual(c.state, r.presets[0].resolved), true);
   });
 
   it("rejects duplicate ids", () => {
-    const bad = structuredClone(envelope);
-    bad.presets.push({ ...bad.presets[0], name: "Dup" });
+    const bad = {
+      format: "shapemaker-presets",
+      formatVersion: 1,
+      presets: [
+        { id: "x", name: "A", state: { base: "cube" } },
+        { id: "x", name: "B", state: { base: "cube" } },
+      ],
+    };
     const r = parsePresetsEnvelope(bad);
     assert.equal(r.ok, false);
     assert.match(r.error, /Duplicate/);

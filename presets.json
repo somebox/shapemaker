@@ -1,38 +1,5 @@
 {
   "format": "shapemaker-presets",
   "formatVersion": 1,
-  "presets": [
-    {
-      "id": "prototype-tpu",
-      "name": "Prototype TPU",
-      "description": "Flexible open icosidodecahedron frame",
-      "state": {
-        "base": "icosidodeca",
-        "circumdiameterMm": 100,
-        "borderMm": 3.2,
-        "depth": "hollow",
-        "wallMm": 1.4,
-        "openings": true,
-        "filletMm": 4.5,
-        "edgeDiv": 10,
-        "faceIndex": -1
-      }
-    },
-    {
-      "id": "solid-dodeca",
-      "name": "Solid Dodecahedron",
-      "description": "Closed solid regular dodecahedron",
-      "state": {
-        "base": "dodecahedron",
-        "circumdiameterMm": 100,
-        "borderMm": 3.2,
-        "depth": "solid",
-        "wallMm": 1.4,
-        "openings": false,
-        "filletMm": 4.5,
-        "edgeDiv": 10,
-        "faceIndex": -1
-      }
-    }
-  ]
+  "presets": []
 }

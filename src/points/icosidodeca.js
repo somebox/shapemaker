@@ -78,14 +78,6 @@ export function icosidodecahedronDirect(circumradius = 1.0) {
 }
 
 /**
- * @deprecated Prefer icosidodecahedronDirect (oracle) or icosidodecaPoints (production).
- * Kept so existing tests keep importing a familiar name.
- */
-export function icosidodecahedron(circumradius = 1.0) {
-  return icosidodecahedronDirect(circumradius);
-}
-
-/**
  * Analytic inradii (centre → face plane) for triangle and pentagon faces.
  */
 export function inradii(circumradius) {

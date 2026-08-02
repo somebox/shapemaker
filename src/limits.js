@@ -5,7 +5,7 @@
 
 import { faceFrames, projectToFrame } from "./faceframe.js";
 import { inradiusRange } from "./skeleton.js";
-import { filletRmax, insetScale, collapseMicroEdges } from "./geom/poly2.js";
+import { filletRMax, insetScale, collapseMicroEdges } from "./geom/poly2.js";
 
 /** Practical FDM floor (≈ 6 lines at 0.4 mm nozzle); see docs/BORDER_EVIDENCE.md. */
 export const PRINTABLE_BORDER_MM = 2.5;
@@ -80,7 +80,7 @@ export function computeLimits(skeleton, state) {
         // drag the slider ceiling down either.
         minFillet = Math.min(
           minFillet,
-          filletRmax(collapseMicroEdges(insetScale(corners, fraction))) * 0.999,
+          filletRMax(collapseMicroEdges(insetScale(corners, fraction))) * 0.999,
         );
       }
     }

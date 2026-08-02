@@ -8,11 +8,11 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { assertSkeleton, edgeList, circumradius } from "../src/skeleton.js";
-import { icosidodecahedron } from "../src/points/icosidodeca.js";
+import { icosidodecahedronDirect } from "../src/points/icosidodeca.js";
 
 /** Deep copy so each mutation test starts from a valid skeleton. */
 function freshSkeleton() {
-  const { positions, faces } = icosidodecahedron(50);
+  const { positions, faces } = icosidodecahedronDirect(50);
   return { positions: Float64Array.from(positions), faces: faces.map((f) => [...f]) };
 }
 

@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { icosidodecahedron, inradii } from "../src/points/icosidodeca.js";
+import { icosidodecahedronDirect, inradii } from "../src/points/icosidodeca.js";
 import { buildShell } from "../src/solid/shell.js";
 import { assertMeshInvariants } from "../src/mesh.js";
 import { edgeList } from "../src/skeleton.js";
@@ -13,7 +13,7 @@ const VOLUME_EPS = 1e-4; // relative
 
 describe("icosidodecahedron", () => {
   it("emits 30 verts and 20 triangles + 12 pentagons", () => {
-    const { positions, faces } = icosidodecahedron(50);
+    const { positions, faces } = icosidodecahedronDirect(50);
     assert.equal(positions.length, 30 * 3);
     const lengths = faces.map((f) => f.length).sort((a, b) => a - b);
     assert.deepEqual(lengths, [...Array(20).fill(3), ...Array(12).fill(5)]);
@@ -32,7 +32,7 @@ describe("icosidodecahedron", () => {
 });
 
 describe("buildShell at prototype defaults", () => {
-  const skel = icosidodecahedron(50);
+  const skel = icosidodecahedronDirect(50);
   const { mesh, info } = buildShell(skel, {
     wallMm: 1.4,
     borderMm: 3.2,
@@ -99,7 +99,7 @@ describe("shell stays base-agnostic (locked decision 8)", () => {
 });
 
 describe("skeleton/faceframe (shape-agnostic layer)", () => {
-  const skel = icosidodecahedron(50);
+  const skel = icosidodecahedronDirect(50);
 
   it("edgeList finds 60 unique edges", () => {
     assert.equal(edgeList(skel.faces).length, 60);

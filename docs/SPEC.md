@@ -375,11 +375,13 @@ outputs must be a single connected body.
 
 The canvas is primary; controls are grouped by user intent:
 
-- **Shape:** base, random density/seed, jitter, uniform scale.
+- **Shape:** base (start chooser), random density/seed, jitter, uniform scale.
 - **Form:** solid/hollow, wall, openings, border, fillet.
-- **Inspect:** overall dimensions, edge statistics, selected edge, face data.
-- **Make:** orientation, mesh quality preset, preview overlay, project
-  save/open, export, copy link.
+- **Make:** orientation, mesh quality preset, preview overlay, material/mass,
+  project export/load.
+
+Fabrication dimensions and mesh stats live in the persistent status bar under
+the view (not a separate Inspect group). Share lives next to Export STL/SVG.
 
 Additional principles:
 
@@ -417,6 +419,20 @@ Additional principles:
   create history entries.
 - The UI visibly distinguishes Browse vs Edit (modified draft) and unsaved
   project changes, and shows the current project name.
+- A slim app header shows the product title, version, a link to the source
+  repository, and a help control that reopens first-visit onboarding.
+- First-visit onboarding (native `<dialog>`) teaches the core loop: pick a
+  start, adjust Shape/Form, click a face to set the resting side, export.
+  A `localStorage` seen-flag suppresses automatic re-show; this is not
+  session recovery.
+- Panel controls prefer a single row (label, slider, editable value + unit)
+  with collapsible groups; Start-from stays compact until expanded.
+- A preview-only section plane may clip the model along bed height for
+  inspection; it does not affect export.
+- The plate grid carries millimetre labels on major lines; an in-view
+  dimension callout complements Inspect and the status bar.
+- Material density presets yield an approximate mass from compiled volume;
+  density choice is a UI preference, not canonical geometry state.
 
 ## Deployment
 

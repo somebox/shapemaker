@@ -75,23 +75,12 @@ export function collapseMicroEdges(poly) {
 }
 
 /**
- * Round every corner of a convex 2D polygon with a tangent circular arc.
- * Straight edge midpoints are preserved (border exact at mid-edge).
- * Radius is clamped to the largest value whose tangent points still fit.
- *
- * @param {Float64Array|number[][]} poly  Nx2 convex polygon
- * @param {number} radius  requested fillet radius
- * @param {number} [segments=64]  samples per corner arc (load-bearing for parity)
- * @returns {{ polyline: Float64Array, radius: number }}
- *   polyline is flat [x,y,…]; radius is the value actually applied
- */
-/**
  * Largest tangent fillet radius that still fits a convex polygon's corners.
  * Shared by filletPolygon and metrics.limits (slider ceilings).
  * @param {Float64Array|number[][]} poly
  * @returns {number}
  */
-export function filletRmax(poly) {
+export function filletRMax(poly) {
   const pts = toPairs(poly);
   const n = pts.length;
   if (n < 3) return 0;
@@ -111,8 +100,25 @@ export function filletRmax(poly) {
   return Number.isFinite(rmax) ? rmax : 0;
 }
 
+/**
+ * Round every corner of a convex 2D polygon with a tangent circular arc.
+ * Straight edge midpoints are preserved (border exact at mid-edge).
+ * Radius is clamped to the largest value whose tangent points still fit.
+ *
+ * @param {Float64Array|number[][]} poly  Nx2 convex polygon
+ * @param {number} radius  requested fillet radius
+ * @param {number} [segments=64]  samples per corner arc (load-bearing for parity)
+ * @returns {{ polyline: Float64Array, radius: number }}
+ *   polyline is flat [x,y,…]. For radius > 0 it is closed (last point ==
+ *   first) with n*(segments+1) points — adjacent arcs duplicate the seam
+ *   point. For radius <= 1e-9 the polygon is returned unclosed (last point
+ *   != first); radialSample closes rings via wraparound.
+ *   radius is the value actually applied
+ */
 export function filletPolygon(poly, radius, segments = 64) {
   if (radius <= 1e-9) {
+    // Degenerate case: return the polygon unclosed (last point != first);
+    // radialSample treats rings as closed via wraparound. Fixture-parity.
     return { polyline: flatten(toPairs(poly)), radius: 0.0 };
   }
   // Micro edges (vertex-split jitter) must not clamp the whole face's
@@ -120,7 +126,7 @@ export function filletPolygon(poly, radius, segments = 64) {
   const pts = collapseMicroEdges(poly);
   const n = pts.length;
 
-  const rmax = filletRmax(pts);
+  const rmax = filletRMax(pts);
   const r = Math.min(radius, rmax * 0.999);
 
   const out = [];
@@ -160,7 +166,7 @@ function clamp(x, lo, hi) {
   return Math.max(lo, Math.min(hi, x));
 }
 
-/** @returns {number[][]} */
+/** Always copies nested pairs — never aliases the caller's arrays. */
 function toPairs(poly) {
   if (Array.isArray(poly) && Array.isArray(poly[0])) return poly.map((p) => [p[0], p[1]]);
   const flat = poly;
@@ -168,8 +174,11 @@ function toPairs(poly) {
   for (let i = 0; i < flat.length; i += 2) out.push([flat[i], flat[i + 1]]);
   return out;
 }
-
-/** @returns {Float64Array} */
+/**
+ * Flatten to Float64Array. Note: a Float64Array input is returned as-is
+ * (aliases the caller's buffer) — callers must not mutate the result.
+ * @returns {Float64Array}
+ */
 function flatten(poly) {
   if (Array.isArray(poly) && Array.isArray(poly[0])) {
     const out = new Float64Array(poly.length * 2);

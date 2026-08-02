@@ -8,6 +8,7 @@
 
 /**
  * Undirected edges as sorted [i, j] pairs, derived from face rings.
+ * Face rings are open (first ≠ last); walk with `(k+1) % length`.
  * @param {number[][]} faces
  * @returns {number[][]}
  */
@@ -19,6 +20,7 @@ export function edgeList(faces) {
       const a = f[k], b = f[(k + 1) % f.length];
       const lo = a < b ? a : b;
       const hi = a < b ? b : a;
+      // Packed int key; unique while vertex count stays under 0x100000 (2^20).
       const key = lo * 0x100000 + hi;
       if (seen.has(key)) continue;
       seen.add(key);

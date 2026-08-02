@@ -12,11 +12,12 @@ import { newell } from "./skeleton.js";
 /**
  * @typedef {{
  *   faceIndex: number,
- *   origin: number[],    // face centroid, world
+ *   origin: number[],    // face area centroid (shoelace), world — NOT the
+ *                        // vertex mean that newell()/hull use elsewhere
  *   u: number[],         // in-plane basis, toward ring[0]
  *   w: number[],         // in-plane basis, u × normal ordering (CCW from outside)
  *   normal: number[],      // outward unit plane normal
- *   inradius: number,      // origin → face plane distance
+ *   inradius: number,      // world origin (0,0,0) → face plane distance
  *   edgeDist: number[],    // centroid → each edge line, in plane
  *   edgeDistMin: number,   // the binding one for insetting
  *   edgeDistMax: number,

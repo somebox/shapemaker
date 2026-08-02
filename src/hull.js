@@ -188,7 +188,7 @@ export function mergeCoplanar(positions, triangles, tols) {
   for (const [, list] of edgeTris) {
     if (list.length !== 2) continue;
     const [i, j] = list;
-    if (!coplanarEnough(planes[i], planes[j], cosTol, tols.planeDistance)) continue;
+    if (!isCoplanarEnough(planes[i], planes[j], cosTol, tols.planeDistance)) continue;
     unite(i, j);
   }
 
@@ -234,7 +234,7 @@ function planeOf(positions, ia, ib, ic) {
   return { nx, ny, nz, offset };
 }
 
-function coplanarEnough(a, b, cosTol, planeDistance) {
+function isCoplanarEnough(a, b, cosTol, planeDistance) {
   const dot = a.nx * b.nx + a.ny * b.ny + a.nz * b.nz;
   if (dot < cosTol) return false;
   return Math.abs(a.offset - b.offset) <= planeDistance;

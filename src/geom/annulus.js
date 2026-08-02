@@ -7,7 +7,10 @@
  * Radius of a closed star-shaped polyline (about the origin) at each angle.
  * Exact ray/segment intersection — port of Python radial_sample.
  *
- * @param {Float64Array|number[][]} polyline  Nx2 closed polyline about origin
+ * @param {Float64Array|number[][]} polyline  Nx2 polyline about origin,
+ *   treated as closed via wraparound — may be explicitly closed
+ *   (last point == first; the zero-length closing edge is skipped) or open
+ *   (e.g. filletPolygon's radius-0 degenerate output)
  * @param {Float64Array|number[]} angles  ray angles in radians
  * @returns {Float64Array} radius along each ray
  */
@@ -64,8 +67,11 @@ export function quadToTris(p0, p1, p2, p3) {
 }
 
 
+/** Always copies — same contract as geom/poly2.toPairs (never alias input). */
 function toPairs(poly) {
-  if (Array.isArray(poly) && Array.isArray(poly[0])) return poly;
+  if (Array.isArray(poly) && Array.isArray(poly[0])) {
+    return poly.map((p) => [p[0], p[1]]);
+  }
   const flat = poly;
   const out = [];
   for (let i = 0; i < flat.length; i += 2) out.push([flat[i], flat[i + 1]]);
