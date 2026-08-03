@@ -63,49 +63,18 @@ and a lat/long globe (Density → meridians). Further vocabulary ideas:
 
 There will be no editable operator stack unless a compelling workflow appears.
 
-## Later — edge rounding (general fillet)
+## Later — edge rounding follow-through
 
-Soften the *solidified* model's hard edges — a small constant radius on rims
-and dihedral edges for a comfortable, organic feel — without changing base
-geometry. Distinct from today's vocabulary: **Fillet** rounds the opening
-outline in-plane; **Smooth** is a pre-solidify sphere clip (global, needs
-Subdivide, never sees rims). Neither touches the edges a hand feels.
+Rim roundovers (Stage 1), dihedral edge/corner rounding (Stage 2, with
+proportional per-feature clamping), and the model split shipped in 0.8.0 —
+see [`CHANGELOG.md`](CHANGELOG.md). Remaining ideas:
 
-Edge families on today's models, in feel-impact order:
+- Inner-shell (cavity) dihedral edges are mirrored by the uniform inner
+  scale but could get independent treatment if cavity feel ever matters.
+- Corner patches are apex fans (exact sphere octants on uniform corners);
+  a geodesic subdivision would smooth high-valence corners (globe poles)
+  if the faceting reads as coarse.
 
-1. **Opening rims** — the 90° lip where a face plane meets the opening wall
-   (outer and inner). The dominant in-hand sharpness on open frames.
-2. **Outer dihedral edges/corners** — between face frames along skeleton
-   edges; the dominant sharpness on closed/solid models.
-3. Inner-shell edges — inside the cavity; lowest value.
-
-Chosen direction: **analytic profile rounding inside the solidifier**, not a
-mesh post-pass. The solidifier already knows every edge family by
-construction (shared per-edge subdivision points, ring-based annulus/wall
-quads), so a roundover is a profile sweep where today a single hard ring
-sits — no crease detection, no repair. Staged:
-
-- **Stage 1 — rim roundovers**: replace the hard lip rings (outer face →
-  opening wall, and the inner mirror) with quarter-circle profile rings.
-  Local to the existing annulus construction; arc segments derive from
-  `edgeDiv` like fillet arcs. Radius ceiling ≤ min(wall, remaining border
-  flat) via `computeLimits`.
-- **Stage 2 — dihedral edges + corners**: rolling-ball rounding of the
-  convex outer form — erode face planes by r (the dual-hull plane machinery
-  from plane-perturb reconstructs the inset skeleton), keep face interiors
-  exactly in their original planes, join with cylinder strips along edges
-  and sphere patches at vertices. Face planes and dimensions hold exactly:
-  "not affecting base geometry" is literal for convex outer forms.
-- Rejected for now: general mesh crease-bevel post-pass (robustness at
-  crease-graph vertices; discards structure the solidifier already has) and
-  volumetric rolling-ball via SDF/remeshing (destroys exact flat faces and
-  mm-true dimensions; would pull in a WASM dependency against the
-  no-dependency rule).
-
-One authored knob (working name **Rounding, mm** in Form; naming must not
-collide with Fillet/Smooth), canonical state key, meshcheck as the gate.
-Cost note: each rounded lip multiplies rim quads by the arc segment count —
-expect ~2–4× triangles on open frames at Normal quality.
 
 ## Refactor backlog
 

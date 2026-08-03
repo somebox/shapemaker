@@ -3,7 +3,8 @@
 #
 # Matrix: 12 bases × 4 entries (3 shell combos + stress) = 48, plus
 # Draft/Fine on the default solid (2) + jittered random (1) + 3 random
-# seeds × Draft/Fine (6) + M5 irregular extremes (8) = 65 STLs.
+# seeds × Draft/Fine (6) + M5 irregular extremes (8) = 65, plus 2 rounding
+# + 6 split halves = 73 STLs.
 #
 # Requires: node, and .venv with prototype/requirements.txt installed.
 set -euo pipefail
@@ -20,7 +21,7 @@ OUT="${ROOT}/test/out/acceptance"
 rm -rf "$OUT"
 mkdir -p "$OUT"
 EXPORT=(node scripts/export-stl.mjs)
-EXPECTED=65
+EXPECTED=74
 
 while IFS=$'\t' read -ra parts; do
   [[ ${#parts[@]} -gt 0 ]] || continue
@@ -182,6 +183,40 @@ emitHollowOpen("cube_subdiv2_soften100__hollow_open.stl", {
 emitHollowOpen("cube_s1337_j10_subdiv1__hollow_open.stl", {
   base: "cube", seed: 1337, jitter: 10, subdiv: 1, soften: 0,
 });
+
+// Rounding: rims (Stage 1) + dihedral edges/corners (Stage 2).
+console.log(
+  [
+    "cube_rounding2__solid_closed.stl",
+    "--base=cube",
+    "--depth=solid",
+    "--openings=false",
+    "--rounding-mm=2",
+  ].join("\t"),
+);
+emitHollowOpen("icosidodeca_rounding06__hollow_open.stl", {
+  base: "icosidodeca", roundingMm: 0.6,
+});
+emitHollowOpen("sphere_rounding04__hollow_open.stl", {
+  base: "sphere", roundingMm: 0.4, points: 24, borderMm: 1, filletMm: 1.5,
+});
+
+// Model split — each --split run emits two half-STLs (counted by meshcheck).
+function emitSplit(name, opts) {
+  const flags = Object.entries(opts)
+    .map(([k, v]) => `--${kebab(k)}=${v}`);
+  console.log([name, ...flags, "--split"].join("\t"));
+}
+emitSplit("icosidodeca__split_solid.stl", {
+  base: "icosidodeca", depth: "solid", openings: false,
+});
+emitSplit("cube__split_open.stl", {
+  base: "cube", depth: "hollow", openings: true, borderMm: 3, filletMm: 2,
+});
+// Hollow closed shell — name must NOT contain "hollow_closed" (body-count rule).
+emitSplit("icosidodeca__split_shell.stl", {
+  base: "icosidodeca", depth: "hollow", openings: false, wallMm: 1.4,
+});
 JS
 )
 
@@ -192,7 +227,9 @@ count=0
 for stl in "$OUT"/*.stl; do
   name="$(basename "$stl")"
   count=$((count + 1))
-  if [[ "$name" == *hollow_closed* ]]; then expect_bodies=2; else expect_bodies=1; fi
+  if [[ "$name" == *_half-* ]]; then expect_bodies=1
+  elif [[ "$name" == *hollow_closed* ]]; then expect_bodies=2
+  else expect_bodies=1; fi
 
   if ! STL="$stl" NAME="$name" EXPECT_BODIES="$expect_bodies" "$PY" - <<'PY'; then
 import os, sys

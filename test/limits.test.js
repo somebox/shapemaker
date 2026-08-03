@@ -18,15 +18,18 @@ describe("metrics.limits", () => {
   it("returns proactive ceilings on a successful default compile", () => {
     const { metrics, validation } = compile({});
     assert.equal(validation.ok, true);
-    const { wallMmMax, borderMmMax, filletMmMax } = metrics.limits;
+    const { wallMmMax, borderMmMax, filletMmMax, roundingMmMax } = metrics.limits;
     assert.ok(wallMmMax > 1.4 && wallMmMax < 50);
     assert.ok(borderMmMax > 3.2 && borderMmMax < 50);
     assert.ok(filletMmMax > 4.5 && filletMmMax < 50);
+    // Max-USEFUL ceiling under proportional per-feature clamps: 60% of the
+    // widest border flat (pentagon edgeDistMax at the default border).
+    assert.ok(Math.abs(roundingMmMax - 1.92) < 0.01, `roundingMmMax=${roundingMmMax}`);
     assert.ok(1.4 <= wallMmMax);
     assert.ok(3.2 <= borderMmMax);
   });
 
-  it("nulls wall/border/fillet limits for solid closed shells", () => {
+  it("nulls wall/border/fillet limits for solid closed shells; rounding stays live", () => {
     const { metrics, validation } = compile({
       depth: "solid",
       openings: false,
@@ -36,6 +39,8 @@ describe("metrics.limits", () => {
     assert.equal(metrics.limits.wallMmMax, null);
     assert.equal(metrics.limits.borderMmMax, null);
     assert.equal(metrics.limits.filletMmMax, null);
+    // Dihedral rounding applies to solid/closed models too.
+    assert.ok(metrics.limits.roundingMmMax > 1);
   });
 
   it("filletRMax on inset is the geometric source", () => {

@@ -2,7 +2,8 @@
 
 Vendored rather than loaded from a CDN so the app works offline, pins exact
 behaviour (picking and controls are version-sensitive), and keeps GitHub Pages
-deployment to "copy the tree". Nothing here is modified from upstream.
+deployment to "copy the tree". Nothing here is modified from upstream
+except where an entry notes a local adaptation.
 
 ## three.js
 
@@ -78,3 +79,15 @@ Latin WOFF2 subsets only (no CDN). Declared in `index.html` via `@font-face`.
 1. `npm pack` the new `@fontsource/*` release; copy the latin `*-normal.woff2` files above.
 2. Refresh `OFL.txt` from the package `LICENSE` and the versions in this file.
 3. Keep total WOFF2 payload under ~150 KB.
+
+## earcut
+
+| | |
+|---|---|
+| version | **2.2.4** |
+| upstream | https://github.com/mapbox/earcut |
+| license | ISC — see the header in [`earcut/earcut.js`](earcut/earcut.js) |
+
+Extracted from the vendored three.js copy (`src/extras/Earcut.js`). Local
+adaptation: exported as a named ESM export `triangulate`. Used by
+`src/geom/capfill.js` for cap triangulation in the model split.

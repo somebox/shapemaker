@@ -119,6 +119,11 @@ export function validateState(state) {
     }
   }
 
+  // Rounding softens rims AND dihedral edges — valid on every depth/face mode.
+  if (!(Number.isFinite(state.roundingMm) && state.roundingMm >= 0)) {
+    err("solid", "roundingMm", "Rounding must be 0 mm or more");
+  }
+
   return { ok: errors.length === 0, errors, warnings };
 }
 

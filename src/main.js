@@ -32,6 +32,14 @@ import { HEAVY_COMPILE_MS, predictedCompileMs } from "./perf.js";
 import { computePrintRisk } from "./metrics.js";
 import { VERSION } from "./version.js";
 import {
+  placeMesh,
+  rankSplitPlanes,
+  rankSplitOrientations,
+  skeletonSeamLevels,
+  splitMeshAtPlane,
+  halfExportMatrices,
+} from "./split.js";
+import {
   createChrome,
   maybeShowFirstVisit,
 } from "./onboarding.js";
@@ -75,6 +83,14 @@ let lastWrittenHash = "";
 let presets = [];
 /** Same-document push depth — Undo must not leave the app. */
 let sessionPushDepth = 0;
+/** Session-only split preview (never in STATE_KEYS / URL). */
+let splitActive = false;
+/** Re-entry guard for the two-download split export stagger. */
+let splitExportPending = false;
+/** @type {{ a: object, b: object, planeZ: number, gapMm: number } | null} */
+let splitData = null;
+/** @type {{ list: object[], index: number } | null} session reorient cycle */
+let splitOrients = null;
 
 const fileInput = document.createElement("input");
 fileInput.type = "file";
@@ -89,6 +105,7 @@ let pinnedEdgeMm = null;
 
 const viewer = createViewer(canvasHost, {
   onFacePick(faceIndex) {
+    if (splitActive) return;
     applyPatch({ faceIndex }, true);
     viewer.setFocusFaces([faceIndex]);
   },
@@ -100,13 +117,43 @@ const viewer = createViewer(canvasHost, {
     pinnedEdgeMm = info?.lengthMm ?? null;
     ui?.setSelectedEdge(pinnedEdgeMm);
   },
+  onSplitToggle(on) {
+    if (on) enableSplit();
+    else disableSplit();
+  },
+  onSplitReorient() {
+    // Cycle session-only axis alignments ranked by seam quality — the
+    // globe's pole axis exposes its latitude rings, the sphere's lattice
+    // axis is its perceived pole, platonic solids offer face and vertex
+    // axes. Canonical state (faceIndex, hash, history) is untouched; the
+    // placement reverts when split turns off.
+    if (!splitActive || !last?.skeleton) return;
+    if (!splitOrients) {
+      splitOrients = {
+        list: rankSplitOrientations(last.skeleton),
+        index: -1,
+      };
+    }
+    const { list } = splitOrients;
+    // Advance until an alignment seals — a failed axis clears the preview
+    // (and would hide this button), so skip it rather than strand the user.
+    for (let tries = 0; tries < list.length; tries++) {
+      const keep = splitOrients;
+      keep.index = (keep.index + 1) % list.length;
+      enableSplit(list[keep.index].matrix);
+      splitOrients = keep; // enableSplit nulls it on failure — keep cycling
+      if (splitActive) return;
+    }
+  },
 });
 
 ui = createPanel(panelEl, {
   onPatch(patch, { commit }) {
+    if (splitActive) return;
     applyPatch(patch, commit);
   },
   onNameChange(name) {
+    if (splitActive) return;
     projectName = name;
     refreshHistoryPayload();
     updateProjectStatus();
@@ -121,13 +168,16 @@ ui = createPanel(panelEl, {
     updateProjectStatus();
   },
   onOpen() {
+    if (splitActive) return;
     fileInput.value = "";
     fileInput.click();
   },
   onStart(id) {
+    if (splitActive) return;
     applyStart(id);
   },
   onUndo() {
+    if (splitActive) return;
     if (sessionPushDepth > 0) history.back();
   },
   onCopyLink() {
@@ -203,6 +253,28 @@ function exportStl() {
   const result = exportResult();
   if (!result) return;
   const stem = exportStem(result.state);
+  if (splitActive && splitData) {
+    if (splitExportPending) return; // second click inside the stagger window
+    splitExportPending = true;
+    const { a, b, planeZ } = splitData;
+    const { matrixA, matrixB } = halfExportMatrices(planeZ);
+    downloadBlob(
+      writeBinaryStl(a, { header: `shapemaker_${stem}_half-a`, matrix: matrixA }),
+      `${stem}_half-a.stl`,
+      "model/stl",
+    );
+    // Stagger avoids programmatic-click coalescing; Chrome may still show a
+    // one-time multiple-downloads prompt.
+    setTimeout(() => {
+      downloadBlob(
+        writeBinaryStl(b, { header: `shapemaker_${stem}_half-b`, matrix: matrixB }),
+        `${stem}_half-b.stl`,
+        "model/stl",
+      );
+      splitExportPending = false;
+    }, 200);
+    return;
+  }
   const buf = writeBinaryStl(result.mesh, {
     header: `shapemaker_${stem}`,
     matrix: result.orientation.matrix,
@@ -229,6 +301,75 @@ function exportSvgFile() {
   });
   downloadBlob(svg, `${stem}.svg`, "image/svg+xml");
 }
+
+/**
+ * @param {Float64Array|null} [matrixOverride] session-only placement for
+ *   the reorient cycle; null uses the canonical resting orientation.
+ */
+function enableSplit(matrixOverride = null) {
+  if (!draftValid || !last?.mesh) {
+    console.warn("split: fix errors first");
+    viewer.setSplitPreview(null);
+    return;
+  }
+  try {
+    const matrix = matrixOverride ?? last.orientation.matrix;
+    const placed = placeMesh(last.mesh, matrix);
+    // Override placements change the bounding height — measure it placed.
+    let heightMm = last.metrics.heightMm;
+    if (matrixOverride) {
+      let zLo = Infinity, zHi = -Infinity;
+      const p = placed.positions64;
+      for (let i = 2; i < p.length; i += 3) {
+        if (p[i] < zLo) zLo = p[i];
+        if (p[i] > zHi) zHi = p[i];
+      }
+      heightMm = zHi - zLo;
+    }
+    const ranked = rankSplitPlanes(placed, {
+      heightMm,
+      seamZs: skeletonSeamLevels(last.skeleton, matrix),
+    });
+    // A plane that probed clean can still fail the full split (sliver
+    // caps near a seam ring) — fall through the ranking until one seals.
+    let halves = null;
+    let lastErr = null;
+    for (const cand of ranked) {
+      try {
+        halves = splitMeshAtPlane(placed, cand.planeZ);
+        break;
+      } catch (err) {
+        lastErr = err;
+      }
+    }
+    if (!halves) throw lastErr ?? new Error("split: no candidate sealed");
+    const { a, b, planeZ } = halves;
+    const gapMm = Math.max(6, 0.08 * heightMm);
+    splitData = { a, b, planeZ, gapMm };
+    splitActive = true;
+    ui.setLocked(true);
+    viewer.setSplitPreview(splitData);
+  } catch (err) {
+    console.warn("split failed:", err);
+    splitActive = false;
+    splitData = null;
+    splitOrients = null;
+    ui.setLocked(false);
+    viewer.setSplitPreview(null);
+    // Surface the failure in the HUD — a checkbox snapping back with no
+    // explanation reads as a dead control.
+    viewer.setSplitNote("No clean cut found — adjust the shape and retry");
+  }
+}
+
+function disableSplit() {
+  splitActive = false;
+  splitData = null;
+  splitOrients = null;
+  ui.setLocked(false);
+  viewer.setSplitPreview(null);
+}
+
 
 ui.setActionsVisible({ open: true });
 
@@ -380,6 +521,7 @@ const SKELETON_KEYS = [
 ];
 
 function applyPatch(patch, commit) {
+  if (splitActive) return;
   const normalized = normalizePatch(patch);
   // Predict cost BEFORE the adaptation probe: the probe builds the real next
   // skeleton, which for heavy configs is most of the freeze — the busy badge
@@ -490,10 +632,12 @@ function regenerate({
   fromHistory = false,
   warnings = [],
 } = {}) {
+  if (splitActive) disableSplit();
   const t0 = performance.now();
   const next = compile(draft);
   if (!next.validation.ok) {
     draftValid = false;
+    viewer.setSplitEnabled(false);
     ui.setResult(next, { limits: null, invalid: true, warnings });
     updateProjectStatus();
     // Do not write an invalid hash.
@@ -519,6 +663,9 @@ function regenerate({
     !forceFrame &&
     last?.skeleton &&
     last.state.base === next.state.base &&
+    // A deliberate faceIndex edit (face pick, family stepper) must win;
+    // the stability remap is only for rebuilds that reindex faces.
+    last.state.faceIndex === next.state.faceIndex &&
     Number.isInteger(last.state.faceIndex) &&
     last.state.faceIndex >= 0 &&
     last.state.faceIndex < last.skeleton.faces.length
@@ -537,6 +684,7 @@ function regenerate({
   }
 
   draftValid = true;
+  viewer.setSplitEnabled(true);
   const prevFace = last?.state?.faceIndex;
   const prevJitter = last?.state?.jitter;
   const prevSeed = last?.state?.seed;
@@ -667,19 +815,41 @@ function fallbackCopy(url) {
 }
 
 // Boot: prefer URL hash, else defaults. Seed the URL without a live-edit entry.
+// Guarded: a non-validation throw out of the boot compile (an internal
+// invariant bug) must degrade to a readable error, not a dead interface.
 const boot = decodeHash(location.hash);
-if (boot.ok) {
-  draft = boot.state;
-  regenerate({ forceFrame: true, fromHistory: true });
-  cleanState = normalizeState(draft);
-  cleanName = projectName;
-} else {
-  regenerate({ forceFrame: true, fromHistory: true });
-  if (last?.state) {
-    cleanState = normalizeState(last.state);
-    draft = { ...last.state };
-    writeUrl(encodeHash(last.state), "replace");
+try {
+  if (boot.ok) {
+    draft = boot.state;
+    regenerate({ forceFrame: true, fromHistory: true });
+    cleanState = normalizeState(draft);
+    cleanName = projectName;
+  } else {
+    regenerate({ forceFrame: true, fromHistory: true });
+    if (last?.state) {
+      cleanState = normalizeState(last.state);
+      draft = { ...last.state };
+      writeUrl(encodeHash(last.state), "replace");
+    }
   }
+} catch (err) {
+  console.error("boot:", err);
+  ui.setResult(
+    {
+      validation: {
+        ok: false,
+        errors: [{
+          key: "boot",
+          stage: "boot",
+          message: "Failed to build the model at startup — clear the URL hash or reload",
+        }],
+        warnings: [],
+      },
+      state: draft,
+      metrics: null,
+    },
+    { limits: null, invalid: true },
+  );
 }
 updateProjectStatus();
 // A shared link means the visitor came to see a specific shape — never

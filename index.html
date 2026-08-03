@@ -174,6 +174,29 @@
       background: color-mix(in srgb, var(--panel) 92%, transparent);
       backdrop-filter: blur(4px);
     }
+    .split-note {
+      font-family: var(--font-mono);
+      font-size: 0.62rem;
+      color: #d9a05b;
+      max-width: 220px;
+    }
+    .split-reorient {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 22px;
+      height: 22px;
+      padding: 0;
+      border: 1px solid var(--line);
+      border-radius: 3px;
+      background: transparent;
+      color: var(--text-dim);
+      font-size: 0.85rem;
+      line-height: 1;
+      cursor: pointer;
+    }
+    .split-reorient:hover { color: var(--accent); border-color: var(--accent); }
+    .split-reorient[hidden] { display: none; }
     .section-hud-toggle {
       display: flex;
       align-items: center;
@@ -525,6 +548,20 @@
     .control[data-inert="1"] {
       opacity: 0.38;
       pointer-events: none;
+    }
+
+    #panel[data-locked="1"] #panel-scroll {
+      opacity: 0.38;
+    }
+    .panel-lock-note {
+      margin: 0 0 8px;
+      padding: 8px 10px;
+      font-size: 12px;
+      line-height: 1.35;
+      color: var(--muted, #9a958c);
+      border: 1px solid var(--border, #2a2a30);
+      border-radius: 6px;
+      background: rgba(0, 0, 0, 0.2);
     }
 
     .start-group { margin: 0 0 4px; }

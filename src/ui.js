@@ -209,10 +209,15 @@ export function createPanel(panelEl, handlers) {
   });
 
   function refreshCurrentStart(statuses) {
-    const active = (statuses || []).find((s) => s.active);
-    const id = active?.id || "icosidodeca";
+    const list = statuses || [];
+    // Clean-recipe match wins; an edited draft keeps its base's chip
+    // rather than resetting to the default start.
+    const shown =
+      list.find((s) => s.active) ||
+      list.find((s) => s.kind === "base" && s.edited);
+    const id = shown?.id || "icosidodeca";
     const def = BASES[id];
-    const label = active?.name || def?.label || id;
+    const label = def?.label || id;
     currentLabel.textContent = label;
     currentThumb.innerHTML = safeThumb(recipeForBase(def ? id : "icosidodeca"));
     for (const btn of baseCards.querySelectorAll("[data-start-id]")) {
@@ -706,6 +711,32 @@ export function createPanel(panelEl, handlers) {
 
     setActionsVisible({ open }) {
       if (openBtn) openBtn.hidden = !open;
+    },
+
+    /**
+     * Lock the scrollable panel (Split preview). Uses native `inert` so
+     * pointer AND keyboard/focus are blocked; bottom bar stays live.
+     * @param {boolean} on
+     */
+    setLocked(on) {
+      scroll.inert = !!on;
+      panelEl.dataset.locked = on ? "1" : "0";
+      let note = panelEl.querySelector(".panel-lock-note");
+      if (on) {
+        if (!note) {
+          note = el("p", {
+            className: "panel-lock-note",
+            textContent:
+              "Split preview — controls locked. Turn off Split in the viewer to edit.",
+          });
+          panelEl.insertBefore(note, scroll);
+        }
+        note.hidden = false;
+        exportSvgBtn.title = "Exports the unsplit model (SVG is view-based)";
+      } else {
+        if (note) note.hidden = true;
+        exportSvgBtn.removeAttribute("title");
+      }
     },
 
     setCopyFeedback(ok) {

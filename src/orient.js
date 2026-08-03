@@ -14,7 +14,7 @@ import { newell } from "./skeleton.js";
  *   matrix is column-major 4×4
  */
 export function computeOrientation(skeleton, faceIndex) {
-  const { positions, faces } = skeleton;
+  const { faces } = skeleton;
   if (faceIndex < 0 || faceIndex >= faces.length) {
     throw new Error(`faceIndex ${faceIndex} out of range [0, ${faces.length})`);
   }
@@ -22,10 +22,24 @@ export function computeOrientation(skeleton, faceIndex) {
   // Use the true plane normal, not the centroid's radial direction: on an
   // irregular hull face those differ, and only the plane normal actually puts
   // the face flat on the bed. They coincide on the regular M1 solid.
-  const [nx, ny, nz] = toFaceFrame(skeleton, faceIndex).normal;
+  const normal = toFaceFrame(skeleton, faceIndex).normal;
+  return { faceIndex, matrix: orientationForDirection(skeleton, normal) };
+}
 
-  // Rotation that maps n → (0, 0, -1)
-  const R = alignVectors([nx, ny, nz], [0, 0, -1]);
+/**
+ * Placement matrix resting the skeleton with `down` (an outward skeleton
+ * direction — a face normal, a vertex ray, an axis) pointing at the bed:
+ * rotation down → (0,0,−1), then translate so min-z = 0. Session-only
+ * placements (split axis alignments) use this directly; the canonical
+ * face-down path goes through computeOrientation.
+ *
+ * @param {{ positions: Float64Array }} skeleton
+ * @param {number[]} down unit outward direction in skeleton coordinates
+ * @returns {Float64Array} column-major 4×4
+ */
+export function orientationForDirection(skeleton, down) {
+  const { positions } = skeleton;
+  const R = alignVectors(down, [0, 0, -1]);
 
   // Translate so min-z of oriented skeleton verts is 0
   let zMin = Infinity;
@@ -35,12 +49,11 @@ export function computeOrientation(skeleton, faceIndex) {
     if (zp < zMin) zMin = zp;
   }
 
-  // Full 4×4: [R | t] with t = (0, 0, -zMin)
   const M = new Float64Array(16);
   M.set(R);
   M[14] = -zMin;
   M[15] = 1;
-  return { faceIndex, matrix: M };
+  return M;
 }
 
 /**

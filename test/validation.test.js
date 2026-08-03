@@ -30,6 +30,7 @@ describe("compile() rejects invalid state without throwing", () => {
     ["edgeDiv 0", { edgeDiv: 0 }, "edgeDiv"],
     ["edgeDiv fractional", { edgeDiv: 2.5 }, "edgeDiv"],
     ["negative fillet", { filletMm: -0.1 }, "filletMm"],
+    ["negative rounding", { roundingMm: -0.1 }, "roundingMm"],
     ["negative border", { borderMm: -2 }, "borderMm"],
     ["unknown base", { base: "bogus" }, "base"],
     ["unknown depth", { depth: "squishy" }, "depth"],

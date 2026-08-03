@@ -16,6 +16,7 @@ export const STATE_KEYS = Object.freeze([
   "wallMm",
   "openings",
   "filletMm",
+  "roundingMm",
   "edgeDiv",
   "points",
   "seed",
@@ -41,6 +42,7 @@ export const DEFAULT_STATE = Object.freeze({
   wallMm: 1.4,
   openings: true,
   filletMm: 4.5,
+  roundingMm: 0,
   edgeDiv: 10,
   points: 24,
   seed: 1337,
@@ -254,6 +256,16 @@ export const CONTROL_DEFS = [
     max: 30,
     step: 0.1,
     inertWhen: (s) => !s.openings,
+  },
+  {
+    key: "roundingMm",
+    group: "form",
+    label: "Rounding",
+    type: "range",
+    unit: "mm",
+    min: 0,
+    max: 5,
+    step: 0.1,
   },
   {
     // Quality is UI-only vocabulary over canonical edgeDiv — one tessellation

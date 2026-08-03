@@ -214,6 +214,23 @@ subdivided globally so adjacent faces share identical points. The opening is
 sampled on matching centroid rays, preserving the prototype's non-intersecting
 annulus construction.
 
+**Rounding** (`roundingMm`) is a separate Form parameter that softens every
+hard edge of the model: quarter-circle roundovers on the opening lips (outer
+face → opening wall, and the inner mirror) AND affine-arc strips along every
+dihedral edge with sphere-patch fans at corners — a rounded cube is a die.
+It never changes the opening outline in-plane or the flat face planes.
+Default `0` keeps the hard construction byte-identical. Rounding applies to
+every depth/face mode (dihedral edges always; rims when hollow+open).
+
+Clamping is **proportional per feature**: each edge clamps to its own two
+faces' local flat allowances (60% of the border band along that edge on open
+faces, 45% of the centroid–edge distance on closed ones) and each rim to its
+face's remaining flat and wall — one small feature never caps the whole
+model. The applied range is reported as `metrics.roundingMm` {min,max}; the
+slider ceiling is the LARGEST useful value, not the tightest limit. Hollow
+depths mirror the rounding on the inner shell via the uniform inner scale.
+Arc segment count tracks the quality preset via edge subdivision.
+
 Mesh density is controlled by edge subdivision and fillet-arc sampling. A
 user-facing quality preset (Milestone 4) may raise or lower those counts;
 it must not introduce smooth shading that makes the preview diverge from the
@@ -225,9 +242,9 @@ not merely visual openness. The UI dynamically limits it using the smallest
 face and reports the resulting range and relative openness. Exactly one border
 representation is authoritative in state and project files.
 
-Opening, border, and applied-fillet measurements are retained per face and
-aggregated for status reporting. Metrics must not assume that faces with the
-same side count are congruent.
+Opening, border, applied-fillet, and applied-rounding measurements are retained
+per face and aggregated for status reporting. Metrics must not assume that
+faces with the same side count are congruent.
 
 ### Orientation
 
@@ -235,6 +252,34 @@ Clicking a face selects it as the resting face. The face's actual plane normal
 is aligned with `-Z`, then the shape is translated until its minimum `Z` is
 zero. Selection is stored as a skeleton face index; stale indices fall back to a
 stable default with a warning.
+
+### Model split (session-only)
+
+Viewport **Split** is a print helper, not canonical state: it is never written
+to the URL hash, project JSON, or `STATE_KEYS`. While Split is on:
+
+- the control panel is locked (`inert`); the bottom bar stays live;
+- Export STL downloads two bed-ready halves (`*_half-a.stl`, `*_half-b.stl`)
+  with half B flipped cut-face-down;
+- Export SVG still exports the unsplit model;
+- Share / URL omit the split;
+- regenerating the mesh, Undo/Back, or turning Split off clears the preview;
+- a **reorient** button (⟳) beside the toggle cycles session-only axis
+  alignments ranked by seam quality — the construction axis (the globe's
+  poles; the Sphere's lattice axis), face axes, and vertex axes, best ring
+  first. Canonical state (faceIndex, URL, history) is untouched and the
+  placement reverts when Split turns off; alignments that cannot seal are
+  skipped automatically.
+
+The cut plane prefers **natural seams**: z levels where a ring of skeleton
+vertices lies (the cuboctahedron's hexagonal girdle, the rhombic solids'
+equators), hugging the ring within the vertex-clearance policy. Seam
+candidates rank ahead of the generic rule even when their cross-section is
+larger — a cut along an existing edge loop reads as part of the design.
+Without a seam in the band, the plane is chosen near mid-height to avoid
+vertices and minimize the material cut area (hole loops subtract). Ranked
+candidates are tried in order until one seals; both halves are capped and
+must pass mesh invariants.
 
 ### Export
 
@@ -390,9 +435,11 @@ outputs must be a single connected body.
 The canvas is primary; controls are grouped by user intent:
 
 - **Shape:** base (start chooser), random density/seed, jitter, uniform scale.
-- **Form:** solid/hollow, wall, openings, border, fillet.
+- **Form:** solid/hollow, wall, openings, border, fillet, rounding.
 - **Make:** orientation, mesh quality preset, preview overlay, material/mass,
   project export/load.
+- **Viewport tools:** section plane, optional print-risk overlay, and session
+  Split (see Model split above).
 
 Fabrication dimensions and mesh stats live in the persistent status bar under
 the view (not a separate Inspect group). Share lives next to Export STL/SVG.

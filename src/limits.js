@@ -6,6 +6,7 @@
 import { faceFrames, projectToFrame } from "./faceframe.js";
 import { inradiusRange } from "./skeleton.js";
 import { filletRMax, insetScale, collapseMicroEdges } from "./geom/poly2.js";
+import { DEFAULT_STATE } from "./schema.js";
 
 /** Practical FDM floor (≈ 6 lines at 0.4 mm nozzle); see docs/BORDER_EVIDENCE.md. */
 export const PRINTABLE_BORDER_MM = 2.5;
@@ -41,8 +42,9 @@ export function borderPrintabilityWarning(state, limits) {
  *   openings?: boolean,
  *   borderMm?: number|null,
  *   borderFraction?: number|null,
+ *   wallMm?: number,  // rounding ceiling input; defaults to DEFAULT_STATE.wallMm
  * }} state
- * @returns {{ wallMmMax: number|null, borderMmMax: number|null, filletMmMax: number|null }}
+ * @returns {{ wallMmMax: number|null, borderMmMax: number|null, filletMmMax: number|null, roundingMmMax: number|null }}
  */
 export function computeLimits(skeleton, state) {
   const frames = faceFrames(skeleton);
@@ -54,10 +56,16 @@ export function computeLimits(skeleton, state) {
 
   let borderMmMax = null;
   let filletMmMax = null;
+  let roundingMmMax = null;
+  // Rounding clamps per feature (each edge by its own faces' allowances), so
+  // the slider ceiling is the LARGEST useful value, not the tightest limit —
+  // a small feature never caps the whole model.
+  let maxStage2 = 0;
 
   if (openings) {
     let minEdgeDist = Infinity;
     let minFillet = Infinity;
+    let minBorderFlat = Infinity;
     for (let fi = 0; fi < frames.length; fi++) {
       const frame = frames[fi];
       minEdgeDist = Math.min(minEdgeDist, frame.edgeDistMin);
@@ -82,11 +90,28 @@ export function computeLimits(skeleton, state) {
           minFillet,
           filletRMax(collapseMicroEdges(insetScale(corners, fraction))) * 0.999,
         );
+        minBorderFlat = Math.min(minBorderFlat, frame.edgeDistMin * fraction);
+        maxStage2 = Math.max(maxStage2, 0.6 * fraction * frame.edgeDistMax);
       }
     }
     borderMmMax = minEdgeDist * 0.95;
     filletMmMax = Number.isFinite(minFillet) ? minFillet : null;
-  }
 
-  return { wallMmMax, borderMmMax, filletMmMax };
+    if (depth === "hollow" && Number.isFinite(minBorderFlat)) {
+      const wallMm = state.wallMm ?? DEFAULT_STATE.wallMm;
+      const s = 1 - wallMm / inradius.min;
+      if (s > 0 && Number.isFinite(s)) {
+        const rimMax = 0.95 * Math.min(wallMm / 2, s * minBorderFlat);
+        if (rimMax > 0) maxStage2 = Math.max(maxStage2, rimMax);
+      }
+    }
+  } else {
+    // Closed faces (and solid depth): dihedral rounding only.
+    for (const frame of frames) {
+      maxStage2 = Math.max(maxStage2, 0.45 * frame.edgeDistMax);
+    }
+  }
+  roundingMmMax = maxStage2 > 0 ? maxStage2 : null;
+
+  return { wallMmMax, borderMmMax, filletMmMax, roundingMmMax };
 }

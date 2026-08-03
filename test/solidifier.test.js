@@ -2,8 +2,11 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { icosidodecahedronDirect, inradii } from "../src/points/icosidodeca.js";
-import { buildShell } from "../src/solid/shell.js";
+import { buildShell, roundingSegmentsFor } from "../src/solid/shell.js";
 import { assertMeshInvariants } from "../src/mesh.js";
+import { clearPipelineCache } from "../src/pipeline.js";
+import { compile } from "../src/compile.js";
+import { writeBinaryStl } from "../src/export/stl.js";
 import { edgeList } from "../src/skeleton.js";
 import { faceFrames, fromFaceFrame, projectToFrame } from "../src/faceframe.js";
 
@@ -124,4 +127,93 @@ describe("skeleton/faceframe (shape-agnostic layer)", () => {
     const [x2, y2] = projectToFrame(f, X, Y, Z);
     assert.ok(Math.abs(x - x2) < 1e-9 && Math.abs(y - y2) < 1e-9);
   });
+});
+
+describe("rim rounding (Stage 1)", () => {
+  const skel = icosidodecahedronDirect(50);
+  const baseOpts = {
+    wallMm: 1.4,
+    borderMm: 3.2,
+    filletMm: 4.5,
+    edgeDiv: 10,
+    openings: true,
+    depth: "hollow",
+  };
+
+  it("roundingSegmentsFor matches Draft/Normal/Fine", () => {
+    assert.equal(roundingSegmentsFor(4), 2);
+    assert.equal(roundingSegmentsFor(10), 3);
+    assert.equal(roundingSegmentsFor(20), 6);
+  });
+
+  it("roundingMm=0 is byte-identical to omitting the opt", () => {
+    const a = buildShell(skel, baseOpts);
+    const b = buildShell(skel, { ...baseOpts, roundingMm: 0 });
+    const bufA = new Uint8Array(writeBinaryStl(a.mesh));
+    const bufB = new Uint8Array(writeBinaryStl(b.mesh));
+    assert.deepEqual(bufA, bufB);
+  });
+
+  it("roundingMm=0.6 at Normal rounds rims AND dihedral edges, lower volume", () => {
+    const hard = buildShell(skel, baseOpts);
+    const soft = buildShell(skel, { ...baseOpts, roundingMm: 0.6 });
+    // Stage-1 rim rings (21600) + Stage-2 edge strips and corner fans.
+    assert.equal(soft.info.triangleCount, 35760);
+    assertMeshInvariants(soft.mesh);
+    assert.ok(soft.info.volume < hard.info.volume);
+    assert.ok(soft.info.roundingMm.max <= 0.6 + 1e-12);
+    assert.ok(soft.info.roundingMm.min > 0);
+  });
+
+  it("extreme roundingMm still clamps to a watertight mesh", () => {
+    const r = buildShell(skel, { ...baseOpts, roundingMm: 50 });
+    assertMeshInvariants(r.mesh);
+    assert.ok(r.info.roundingMm.max < 50);
+  });
+});
+
+describe("edge rounding (Stage 2)", () => {
+  it("rounds a solid cube's dihedral edges and corners", () => {
+    clearPipelineCache();
+    const r = compile({ base: "cube", depth: "solid", openings: false, roundingMm: 2 });
+    assert.equal(r.validation.ok, true);
+    assertMeshInvariants(r.mesh);
+    clearPipelineCache();
+    const sharp = compile({ base: "cube", depth: "solid", openings: false });
+    // Material is removed along all 12 edges + 8 corners …
+    assert.ok(r.metrics.volumeMm3 < sharp.metrics.volumeMm3);
+    assert.ok(sharp.metrics.volumeMm3 - r.metrics.volumeMm3 < 1500, "removal stays local");
+    // … and no vertex reaches the original sharp corners any more.
+    const pos = r.mesh.positions64;
+    let maxR = 0;
+    for (let i = 0; i < pos.length; i += 3) {
+      maxR = Math.max(maxR, Math.hypot(pos[i], pos[i + 1], pos[i + 2]));
+    }
+    assert.ok(maxR < 49, `corner still sharp: max vertex radius ${maxR}`);
+  });
+
+  it("clamps per feature: tight faces give less, the rest gets the full radius", () => {
+    clearPipelineCache();
+    const r = compile({ base: "icosidodeca", roundingMm: 1.2 });
+    assert.equal(r.validation.ok, true);
+    assertMeshInvariants(r.mesh);
+    // Triangle faces afford less than pentagons — proportional, not global.
+    assert.ok(r.metrics.roundingMm.min < r.metrics.roundingMm.max);
+    assert.ok(Math.abs(r.metrics.roundingMm.max - 1.2) < 1e-9);
+  });
+
+  for (const state of [
+    { base: "tetrahedron", roundingMm: 1 },
+    { base: "cube", depth: "hollow", openings: false, roundingMm: 1 },
+    { base: "rhombictriaconta", roundingMm: 0.8 },
+    { base: "globe", borderMm: 0.6, filletMm: 0.8, roundingMm: 0.3 },
+    { base: "sphere", borderMm: 1, filletMm: 1.5, roundingMm: 0.5 },
+  ]) {
+    it(`${state.base} (${state.depth ?? "hollow"}/${state.openings === false ? "closed" : "open"}) survives rounding`, () => {
+      clearPipelineCache();
+      const r = compile(state);
+      assert.equal(r.validation.ok, true, r.validation.errors[0]?.message);
+      assertMeshInvariants(r.mesh);
+    });
+  }
 });

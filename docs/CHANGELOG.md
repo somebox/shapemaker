@@ -7,6 +7,40 @@ surface is still moving, and git history is the detailed record. From **1.0**
 onward every release gets a full entry here, and breaking changes to the
 [project format](PROJECT_FORMAT.md) get a migration note.
 
+## [0.8.0] — 2026-08-02
+
+Stage-1 rim rounding plus a session-only model split for bed-ready STL halves.
+
+### Added
+
+- **Rounding** (`roundingMm`, Form): true rolling-ball fillets on opening
+  rims (outer and inner lips) AND on every dihedral edge and corner, with
+  `roundingMm` as the physical radius — circular-arc strips on the tangent
+  cylinder of each edge (tangency band `r·cot(ω/2)`), corner caps sampled
+  from the envelope of the corner's tangent sphere and those cylinders
+  (a rounded cube is a die; platonic solids verify against the Minkowski
+  ideal to 1e-14 mm). Applies to every depth/face mode; default `0` is a
+  byte-identical no-op. **Proportional per-feature clamping**: each edge
+  and rim clamps to its own faces' local allowances, so one small feature
+  never caps the whole model; `metrics.roundingMm` reports the applied
+  {min,max}. The slider ceiling is the largest useful value.
+- **Split** (viewport HUD, session-only): cut plane prefers **natural
+  seams** (z levels where a skeleton edge ring lies — the cuboctahedron's
+  girdle, the rhombic equators), else the minimal-material-cut plane near
+  mid-height; ranked candidates are tried until one seals. Preview with
+  half A lifted, panel locked while on; a **reorient** button (⟳) cycles
+  session-only axis alignments ranked by seam quality — construction axis
+  (globe poles, the Sphere's lattice axis), face and vertex axes — without
+  touching canonical state. One Export STL click downloads
+  `${stem}_half-a.stl` and `${stem}_half-b.stl` (B flipped cut-face-down).
+  Not in URL/state; regenerate and Back clear it. SVG stays unsplit.
+- Headless `export-stl.mjs --split` writes the same two halves (same seam
+  preference as the app).
+
+### Changed
+
+- Acceptance matrix: 74 STLs (65 + 3 rounding + 6 split halves).
+
 ## [0.7.0] — 2026-08-02
 
 Four new convex bases via point generators and registry wiring only.

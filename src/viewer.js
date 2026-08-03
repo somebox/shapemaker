@@ -13,6 +13,8 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
  *   onFacePick?: (faceIndex: number) => void,
  *   onEdgeHover?: (info: { edgeIndex: number, lengthMm: number }|null) => void,
  *   onEdgeSelect?: (info: { edgeIndex: number, lengthMm: number }|null) => void,
+ *   onSplitToggle?: (on: boolean) => void,
+ *   onSplitReorient?: () => void,
  * }} [opts]
  */
 export function createViewer(container, opts = {}) {
@@ -70,12 +72,22 @@ export function createViewer(container, opts = {}) {
       <input type="checkbox" data-print-risk />
       <span>Print risk</span>
     </label>
+    <label class="section-hud-toggle" title="Split for printing — preview two halves, export two STLs">
+      <input type="checkbox" data-split-on />
+      <span>Split</span>
+      <span class="split-note" data-split-note hidden></span>
+    </label>
+    <button type="button" class="split-reorient" data-split-reorient hidden
+      title="Reorient — cycle the resting face to find a cleaner split">&#x27F3;</button>
   `;
   container.appendChild(sectionHud);
   const sectionOnEl = sectionHud.querySelector("[data-section-on]");
   const sectionZEl = sectionHud.querySelector("[data-section-z]");
   const printRiskEl = sectionHud.querySelector("[data-print-risk]");
   const riskToggle = sectionHud.querySelector("[data-risk-toggle]");
+  const splitOnEl = sectionHud.querySelector("[data-split-on]");
+  const splitNoteEl = sectionHud.querySelector("[data-split-note]");
+  const splitReorientEl = sectionHud.querySelector("[data-split-reorient]");
 
   // In-view dimension callout (HTML overlay in container).
   const dimCallout = document.createElement("div");
@@ -97,6 +109,8 @@ export function createViewer(container, opts = {}) {
   let hasFramed = false;
   let lastHeightMm = 100;
   let lastExtents = null;
+  let splitGroup = null;
+  let splitActive = false;
   const raycaster = new THREE.Raycaster();
   raycaster.params.Line.threshold = 1.8;
   const pointer = new THREE.Vector2();
@@ -136,6 +150,14 @@ export function createViewer(container, opts = {}) {
   }
 
   function setMesh(mesh, orientation, { frame = false, skeleton = null, depth = "hollow", heightMm = null } = {}) {
+    // Defensive: drop any live split preview when the underlying mesh
+    // changes, and tell the session adapter so its lock state follows —
+    // regenerate() normally disables split first, but this must hold even
+    // if a future path calls setMesh directly.
+    if (splitActive) {
+      setSplitPreview(null);
+      opts.onSplitToggle?.(false);
+    }
     while (modelGroup.children.length) {
       const c = modelGroup.children[0];
       modelGroup.remove(c);
@@ -171,6 +193,11 @@ export function createViewer(container, opts = {}) {
     meshObj = new THREE.Mesh(geo, mat);
     modelGroup.add(meshObj);
 
+    // Selection persists by index, which only means anything while the edge
+    // list keeps its shape — a different count (base/density/subdiv change)
+    // would silently re-target an unrelated edge.
+    const edgeShapeKept = skeleton?.edges?.length === edgeLengths?.length;
+
     if (skeleton?.edges?.length) {
       edgeLengths = new Float64Array(skeleton.edges.length);
       const pts = [];
@@ -199,11 +226,18 @@ export function createViewer(container, opts = {}) {
       edgeLengths = null;
     }
 
-    // Re-apply selection highlight after rebuild
-    if (selectedEdge != null && edgeLengths && selectedEdge < edgeLengths.length) {
+    // Re-apply selection highlight after rebuild. Re-emit the selection so
+    // the pinned length readout tracks the new geometry (a size drag scales
+    // every edge; a base change may drop the index entirely).
+    if (selectedEdge != null && edgeShapeKept && edgeLengths) {
       showEdgeHighlight(selectedEdge, 0xc4a882);
-    } else {
+      opts.onEdgeSelect?.({
+        edgeIndex: selectedEdge,
+        lengthMm: edgeLengths[selectedEdge],
+      });
+    } else if (selectedEdge != null) {
       selectedEdge = null;
+      opts.onEdgeSelect?.(null);
     }
 
     // Apply orientation matrix to the group (not the buffers)
@@ -466,6 +500,108 @@ export function createViewer(container, opts = {}) {
   syncSectionHudUi();
 
   /**
+   * Show/hide split preview. Halves are already in placed coordinates;
+   * B rests on the plate, A lifts by gapMm. Pass null to clear.
+   * @param {{ a: object, b: object, planeZ: number, gapMm: number } | null} payload
+   */
+  function setSplitPreview(payload) {
+    setSplitNote(null);
+    if (splitGroup) {
+      scene.remove(splitGroup);
+      disposeObject3D(splitGroup);
+      splitGroup = null;
+    }
+    if (!payload) {
+      splitActive = false;
+      splitOnEl.checked = false;
+      splitReorientEl.hidden = true;
+      modelGroup.visible = true;
+      sectionOnEl.disabled = false;
+      riskToggle.style.pointerEvents = "";
+      riskToggle.style.opacity = "";
+      if (lastExtents) setDimensionCallout(lastExtents, true);
+      return;
+    }
+    splitActive = true;
+    splitOnEl.checked = true;
+    splitReorientEl.hidden = false;
+    // Force-off Section — its scene-level fill would linger.
+    setSectionPlane(null, { engage: false });
+    sectionOnEl.disabled = true;
+    riskToggle.style.pointerEvents = "none";
+    riskToggle.style.opacity = "0.4";
+    dimCallout.hidden = true;
+    modelGroup.visible = false;
+
+    const { a, b, planeZ, gapMm } = payload;
+    splitGroup = new THREE.Group();
+    const mkHalf = (mesh, zOff) => {
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute("position", new THREE.BufferAttribute(mesh.positions, 3));
+      geo.setIndex(new THREE.BufferAttribute(mesh.indices, 1));
+      const mat = new THREE.MeshStandardMaterial({
+        color: 0xc4a882,
+        metalness: 0.05,
+        roughness: 0.55,
+        side: THREE.DoubleSide,
+        flatShading: true,
+      });
+      const m = new THREE.Mesh(geo, mat);
+      m.position.z = zOff;
+      return m;
+    };
+    splitGroup.add(mkHalf(b, 0));
+    splitGroup.add(mkHalf(a, gapMm));
+
+    // Translucent cut-plane indicator between the halves.
+    const box = new THREE.Box3();
+    const pa = a.positions;
+    for (let i = 0; i < pa.length; i += 3) {
+      box.expandByPoint(new THREE.Vector3(pa[i], pa[i + 1], planeZ));
+    }
+    const size = box.getSize(new THREE.Vector3());
+    const center = box.getCenter(new THREE.Vector3());
+    const planeGeo = new THREE.PlaneGeometry(
+      Math.max(size.x, 1) * 1.05,
+      Math.max(size.y, 1) * 1.05,
+    );
+    const planeMat = new THREE.MeshBasicMaterial({
+      color: 0x6a9cff,
+      transparent: true,
+      opacity: 0.22,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    });
+    const planeMesh = new THREE.Mesh(planeGeo, planeMat);
+    // The gap opens above B (A lifts by gapMm), so the visual cut plane
+    // sits at the cut height plus half the gap — between the halves.
+    planeMesh.position.set(center.x, center.y, planeZ + gapMm * 0.5);
+    splitGroup.add(planeMesh);
+    scene.add(splitGroup);
+  }
+
+  /** Transient HUD message beside the Split toggle (null clears). */
+  function setSplitNote(text) {
+    if (!splitNoteEl) return;
+    splitNoteEl.textContent = text || "";
+    splitNoteEl.hidden = !text;
+  }
+
+  function setSplitEnabled(on) {
+    splitOnEl.disabled = !on;
+    splitOnEl.title = on
+      ? "Split for printing — preview two halves, export two STLs"
+      : "Fix errors to split";
+  }
+
+  splitOnEl.addEventListener("change", () => {
+    opts.onSplitToggle?.(splitOnEl.checked);
+  });
+  splitReorientEl.addEventListener("click", () => {
+    opts.onSplitReorient?.();
+  });
+
+  /**
    * Show/hide an in-view dimension callout near the model.
    * @param {{ width: number, depth: number, height: number } | null} extentsMm
    * @param {boolean} [visible]
@@ -539,24 +675,42 @@ export function createViewer(container, opts = {}) {
     );
   }
 
-  function pickEdge(ev) {
-    if (!edgePick || !edgeLengths) return null;
+  /**
+   * Raycast edges and surface together. The edge-line raycast is infinite —
+   * a ray through an opening passes within threshold of interior edge lines
+   * on the far side — so an edge only counts when its hit is not buried
+   * behind the surface the ray strikes first.
+   * @returns {{ edge: {edgeIndex:number, lengthMm:number}|null, faceId: number|null }}
+   */
+  function pickAt(ev) {
     const rect = renderer.domElement.getBoundingClientRect();
     pointer.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
     pointer.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
     updateEdgeThreshold();
     raycaster.setFromCamera(pointer, camera);
-    const hits = raycaster.intersectObject(edgePick, false);
-    if (!hits.length) return null;
-    const seg = hits[0].index;
-    if (seg == null) return null;
-    const edgeIndex = Math.floor(seg / 2);
-    if (edgeIndex < 0 || edgeIndex >= edgeLengths.length) return null;
-    return { edgeIndex, lengthMm: edgeLengths[edgeIndex] };
+    const faceHit = meshObj ? raycaster.intersectObject(meshObj, false)[0] : null;
+    let edge = null;
+    if (edgePick && edgeLengths) {
+      const hit = raycaster.intersectObject(edgePick, false)[0];
+      const seg = hit?.index;
+      if (seg != null) {
+        const edgeIndex = Math.floor(seg / 2);
+        const occluded =
+          faceHit &&
+          hit.distance > faceHit.distance + raycaster.params.Line.threshold * 2;
+        if (edgeIndex >= 0 && edgeIndex < edgeLengths.length && !occluded) {
+          edge = { edgeIndex, lengthMm: edgeLengths[edgeIndex] };
+        }
+      }
+    }
+    const tri = faceHit?.faceIndex;
+    const faceId = tri != null && faceIdAttr ? faceIdAttr[tri] : null;
+    return { edge, faceId };
   }
 
   function onPointerMove(ev) {
-    const info = pickEdge(ev);
+    if (splitActive) return;
+    const info = pickAt(ev).edge;
     const next = info?.edgeIndex ?? null;
     if (next === hoverEdge) return;
     hoverEdge = next;
@@ -567,24 +721,16 @@ export function createViewer(container, opts = {}) {
   }
 
   function onClickPick(ev) {
+    if (splitActive) return;
     // Prefer edge when close; otherwise face
-    const edge = pickEdge(ev);
+    const { edge, faceId } = pickAt(ev);
     if (edge) {
       selectedEdge = edge.edgeIndex;
       showEdgeHighlight(selectedEdge, 0xc4a882);
       opts.onEdgeSelect?.(edge);
       return;
     }
-    if (!meshObj || !opts.onFacePick) return;
-    const rect = renderer.domElement.getBoundingClientRect();
-    pointer.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
-    pointer.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
-    raycaster.setFromCamera(pointer, camera);
-    const hits = raycaster.intersectObject(meshObj, false);
-    if (!hits.length) return;
-    const tri = hits[0].faceIndex;
-    if (tri == null || !faceIdAttr) return;
-    opts.onFacePick(faceIdAttr[tri]);
+    if (faceId != null) opts.onFacePick?.(faceId);
   }
 
   // Distinguish click from drag
@@ -633,6 +779,9 @@ export function createViewer(container, opts = {}) {
     setPrintOverlay,
     setSectionPlane,
     setDimensionCallout,
+    setSplitPreview,
+    setSplitNote,
+    setSplitEnabled,
     frameObject,
     camera,
     controls,

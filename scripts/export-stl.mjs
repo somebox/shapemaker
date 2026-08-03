@@ -8,32 +8,35 @@
  *          [--openings=true|false] [--depth=hollow|solid] [--base=icosidodeca]
  *          [--seed=N] [--jitter=N] [--jitter-mode=surface|radial|both]
  *          [--subdiv=0|1|2] [--soften=0..100] [--points=N] [--separation=N]
+ *          [--rounding-mm=0] [--split]
+ *
+ * `--split` is a script flag (not a state key): writes two half-STLs next to
+ * the outfile stem (`stem_half-a.stl`, `stem_half-b.stl`).
  */
 import { writeFileSync } from "node:fs";
 import { compile } from "../src/compile.js";
 import { writeBinaryStl } from "../src/export/stl.js";
 import { clearPipelineCache } from "../src/pipeline.js";
 import { DEFAULT_STATE } from "../src/schema.js";
+import {
+  placeMesh,
+  findSplitPlane,
+  skeletonSeamLevels,
+  splitMeshAtPlane,
+  halfExportMatrices,
+} from "../src/split.js";
 
-/**
- * flag → state key, derived from the canonical schema so every new state
- * key is immediately settable headlessly (a hand-maintained list here let
- * jitterMode/subdiv/soften ship unsettable). Casts come from the default's
- * type. Unknown flags are an error: a silent typo in the acceptance harness
- * would test the defaults and report a false pass.
- */
 const kebab = (k) => k.replace(/([A-Z])/g, "-$1").toLowerCase();
 const castFor = (dflt) =>
   typeof dflt === "boolean"
     ? (v) => v !== "0" && v !== "false"
     : typeof dflt === "number"
-      ? Number
-      : String;
+    ? Number
+    : String;
 const FLAGS = {};
 for (const [key, dflt] of Object.entries(DEFAULT_STATE)) {
   FLAGS[kebab(key)] = [key, castFor(dflt)];
 }
-// Legacy short aliases (documented usage + existing callers).
 Object.assign(FLAGS, {
   wall: FLAGS["wall-mm"],
   border: FLAGS["border-mm"],
@@ -44,23 +47,31 @@ Object.assign(FLAGS, {
 
 const args = process.argv.slice(2);
 let outfile = null;
+let doSplit = false;
 const opts = {};
 for (const a of args) {
   if (!a.startsWith("--")) {
     outfile = a;
     continue;
   }
+  // Script flags (not schema state keys) — handle before FLAGS lookup.
+  // Accept both the bare and the house-style --split=true forms.
+  if (a === "--split" || a.startsWith("--split=")) {
+    const v = a.includes("=") ? a.split("=")[1] : "true";
+    doSplit = v !== "0" && v !== "false";
+    continue;
+  }
   const [k, v] = a.slice(2).split("=");
   const spec = FLAGS[k];
   if (!spec) {
-    console.error(`unknown flag --${k}; known: ${Object.keys(FLAGS).join(", ")}`);
+    console.error(`unknown flag --${k}; known: ${Object.keys(FLAGS).join(", ")}, split`);
     process.exit(2);
   }
   const [key, cast] = spec;
   opts[key] = cast(v);
 }
 if (!outfile) {
-  console.error("usage: node scripts/export-stl.mjs <outfile> [--flag=value ...]");
+  console.error("usage: node scripts/export-stl.mjs <outfile> [--flag=value ...] [--split]");
   process.exit(2);
 }
 
@@ -77,10 +88,46 @@ if (!result.validation.ok) {
   process.exit(1);
 }
 
-const buf = writeBinaryStl(result.mesh, {
-  header: `shapemaker_${result.state.circumdiameterMm}mm`,
-  matrix: result.orientation.matrix,
+if (!doSplit) {
+  const buf = writeBinaryStl(result.mesh, {
+    header: `shapemaker_${result.state.circumdiameterMm}mm`,
+    matrix: result.orientation.matrix,
+  });
+  writeFileSync(outfile, Buffer.from(buf));
+  const m = result.metrics;
+  console.log(`wrote ${outfile}  (${m.triangleCount} tris, ${m.volumeCm3.toFixed(3)} cm³)`);
+  process.exit(0);
+}
+
+const placed = placeMesh(result.mesh, result.orientation.matrix);
+const heightMm = result.metrics.heightMm;
+const { planeZ } = findSplitPlane(placed, {
+  heightMm,
+  seamZs: skeletonSeamLevels(result.skeleton, result.orientation.matrix),
 });
-writeFileSync(outfile, Buffer.from(buf));
-const m = result.metrics;
-console.log(`wrote ${outfile}  (${m.triangleCount} tris, ${m.volumeCm3.toFixed(3)} cm³)`);
+const { a, b, volumeMm3A, volumeMm3B } = splitMeshAtPlane(placed, planeZ);
+const { matrixA, matrixB } = halfExportMatrices(planeZ);
+
+const stem = outfile.replace(/\.stl$/i, "");
+const pathA = `${stem}_half-a.stl`;
+const pathB = `${stem}_half-b.stl`;
+
+writeFileSync(
+  pathA,
+  Buffer.from(writeBinaryStl(a, {
+    header: `shapemaker_${stem}_half-a`,
+    matrix: matrixA,
+  })),
+);
+writeFileSync(
+  pathB,
+  Buffer.from(writeBinaryStl(b, {
+    header: `shapemaker_${stem}_half-b`,
+    matrix: matrixB,
+  })),
+);
+console.log(
+  `wrote ${pathA} + ${pathB}  (plane z=${planeZ.toFixed(4)} mm; ` +
+  `A ${a.indices.length / 3} tris ${(volumeMm3A / 1000).toFixed(3)} cm³; ` +
+  `B ${b.indices.length / 3} tris ${(volumeMm3B / 1000).toFixed(3)} cm³)`,
+);

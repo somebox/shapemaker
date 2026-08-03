@@ -267,6 +267,7 @@ export function applyLimits(lim, ranges, limitLabels, defs) {
     wallMm: lim.wallMmMax,
     borderMm: lim.borderMmMax,
     filletMm: lim.filletMmMax,
+    roundingMm: lim.roundingMmMax,
   };
   for (const [key, max] of Object.entries(map)) {
     if (max == null || !Number.isFinite(max)) continue;

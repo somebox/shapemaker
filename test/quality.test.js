@@ -100,4 +100,14 @@ describe("Unit 4 policy helpers", () => {
     assert.equal(seed.inertWhen({ base: "sphere", jitter: 5 }), false);
     assert.equal(seed.inertWhen({ base: "cube", jitter: 0 }), true);
   });
+
+  it("rounding control is always live (rims + dihedral edges)", async () => {
+    const { CONTROL_DEFS, normalizeState } = await import("../src/schema.js");
+    const rounding = CONTROL_DEFS.find((d) => d.key === "roundingMm");
+    // Stage 2 rounds dihedral edges on every depth/face mode.
+    assert.equal(rounding.inertWhen, undefined);
+    // Legacy hashes/projects without roundingMm normalize to 0.
+    const n = normalizeState({ base: "cube" });
+    assert.equal(n.roundingMm, 0);
+  });
 });

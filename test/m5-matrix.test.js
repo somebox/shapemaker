@@ -106,4 +106,29 @@ describe("M5 compile matrix", () => {
     );
     assert.ok(result.state.borderMm > 0);
   });
+
+  it("roundingMm=0.5 compiles on representative bases", () => {
+    for (const opts of [
+      { base: "cube" },
+      { base: "icosidodeca" },
+      { base: "sphere", points: 24, borderMm: 1, filletMm: 1.5 },
+      { base: "random", seed: 1337, jitter: 10, borderMm: 1, filletMm: 1.5 },
+      { base: "cube", subdiv: 1 },
+    ]) {
+      clearPipelineCache();
+      const r = compile({
+        depth: "hollow",
+        openings: true,
+        wallMm: 1.4,
+        borderMm: 2,
+        filletMm: 2,
+        roundingMm: 0.5,
+        ...opts,
+      });
+      assert.equal(r.validation.ok, true, () =>
+        JSON.stringify({ opts, errors: r.validation.errors }),
+      );
+      assert.ok(r.mesh);
+    }
+  });
 });

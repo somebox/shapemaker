@@ -32,7 +32,7 @@ const BED_EPS_MM = 0.01;
  * @param {{ triangleCount: number, volume: number, wall: {min: number|null, max: number|null}, borderMm: object }} args.info
  * @param {{ matrix: Float64Array }} args.orientation
  * @param {boolean} args.watertight
- * @param {{ wallMmMax: number|null, borderMmMax: number|null, filletMmMax: number|null }} [args.limits]
+ * @param {{ wallMmMax: number|null, borderMmMax: number|null, filletMmMax: number|null, roundingMmMax?: number|null }} [args.limits]
  */
 export function computeMetrics({ skeleton, info, orientation, watertight, limits }) {
   const edgeStats = edgeLengthStats(skeleton);
@@ -48,11 +48,17 @@ export function computeMetrics({ skeleton, info, orientation, watertight, limits
     wallMm: info.wall,
     borderMm: info.borderMm,
     filletMm: info.filletMm,
+    roundingMm: info.roundingMm ?? { min: null, max: null },
     openingMinDiameterMm: info.openingMinDiameterMm,
     faceMetrics: info.faceMetrics,
     edgeMm: edgeStats,
     watertight,
-    limits: limits ?? { wallMmMax: null, borderMmMax: null, filletMmMax: null },
+    limits: limits ?? {
+      wallMmMax: null,
+      borderMmMax: null,
+      filletMmMax: null,
+      roundingMmMax: null,
+    },
     // placed
     bboxMm: bbox.bbox,
     extentsMm: bbox.extents,
