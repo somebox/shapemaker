@@ -80,6 +80,9 @@ export function validateState(state) {
   if (!["surface", "radial", "both"].includes(state.jitterMode)) {
     err("points", "jitterMode", "Jitter direction must be surface, radial, or both");
   }
+  if (!(Number.isFinite(state.truncate) && state.truncate >= 0 && state.truncate <= 50)) {
+    err("points", "truncate", "Truncate must be between 0 and 50 %");
+  }
   if (!(Number.isInteger(state.subdiv) && state.subdiv >= 0 && state.subdiv <= 2)) {
     err("points", "subdiv", "Subdivide must be 0, 1, or 2");
   }

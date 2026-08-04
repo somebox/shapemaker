@@ -21,7 +21,7 @@ OUT="${ROOT}/test/out/acceptance"
 rm -rf "$OUT"
 mkdir -p "$OUT"
 EXPORT=(node scripts/export-stl.mjs)
-EXPECTED=74
+EXPECTED=75
 
 while IFS=$'\t' read -ra parts; do
   [[ ${#parts[@]} -gt 0 ]] || continue
@@ -199,6 +199,11 @@ emitHollowOpen("icosidodeca_rounding06__hollow_open.stl", {
 });
 emitHollowOpen("sphere_rounding04__hollow_open.stl", {
   base: "sphere", roundingMm: 0.4, points: 24, borderMm: 1, filletMm: 1.5,
+});
+
+// Truncation — the soccer ball (icosahedron at 33%).
+emitHollowOpen("icosahedron_t33__hollow_open.stl", {
+  base: "icosahedron", truncate: 33,
 });
 
 // Model split — each --split run emits two half-STLs (counted by meshcheck).

@@ -7,7 +7,28 @@ surface is still moving, and git history is the detailed record. From **1.0**
 onward every release gets a full entry here, and breaking changes to the
 [project format](PROJECT_FORMAT.md) get a migration note.
 
-## [0.9.0] — 2026-08-04
+## [0.10.0] — 2026-08-04
+
+### Added
+
+- **Truncate** (`truncate`, Shape 0–50%): vertex-truncation skeleton
+  operator — edge points at t/1−t re-hulled with coplanar merge, unit
+  circumradius restored. Cube at 50 = cuboctahedron, icosahedron at 33 =
+  the soccer ball, dodecahedron at 50 = icosidodecahedron; composes with
+  jitter, subdivide (both patterns), smooth, rounding, and split. Additive
+  default 0 — old hashes and projects normalize unchanged. Acceptance
+  matrix: 75 STLs (+ the soccer ball).
+
+### Changed
+
+- **Smooth melt phase**: above soften 50 the remaining deep flats of
+  mixed-plane-distance solids (icosidodeca, Catalans) clip spherically
+  toward the inscribed ball, so soften 100 reaches the ball on every base
+  (previously the fillet capped at the shallowest plane and deep faces
+  survived as flats). A no-op on uniform solids and below 50 — the fillet
+  regime and cube anchors are untouched.
+
+## [0.9.0] — 2026-08-03
 
 ### Added
 

@@ -52,10 +52,11 @@ Shipped in 0.7.0: cuboctahedron, rhombic dodecahedron, rhombic triacontahedron,
 and a lat/long globe (Density → meridians). Further vocabulary ideas:
 
 - Additional opening generators such as circle or mirrored-face openings.
-- Skeleton operators still open: truncate and dual (subdivide + smooth already
-  ship). Possible follow-ups: higher subdivision levels behind a performance
-  check; a geodesic (outward spherify) mode if wanted — the Sphere base covers
-  most of that ground.
+- Skeleton operators still open: dual (truncate, subdivide + smooth ship —
+  truncate's re-hull is the template a dual operator would follow). Possible
+  follow-ups: higher subdivision levels behind a performance check; a
+  geodesic (outward spherify) mode if wanted — the Sphere base covers most
+  of that ground.
 - Scale-to-target mean edge for irregular forms.
 - Separate jitter seed.
 - User preset store (“Yours”) separate from immutable built-ins; Save-as-preset

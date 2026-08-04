@@ -215,6 +215,7 @@ function exportStem(state) {
   const parts = [];
   if (BASES[base]?.seeded || jitter > 0) parts.push(`s${seed}`);
   if (BASES[base]?.parametric) parts.push(`p${points}`);
+  if (state.truncate > 0) parts.push(`t${state.truncate}`);
   const tag = parts.length ? `_${parts.join("_")}` : "";
   return `${base}_${size}mm${tag}`;
 }
@@ -533,6 +534,7 @@ const SKELETON_KEYS = [
   "separation",
   "jitter",
   "jitterMode",
+  "truncate",
   "subdiv",
   "subdivStyle",
   "soften",

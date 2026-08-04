@@ -16,6 +16,7 @@ import { DEFAULT_STATE } from "./schema.js";
 import { jitterPoints } from "./points/jitter.js";
 import { perturbSkeletonPlanes } from "./plane-perturb.js";
 import { subdivideSkeleton } from "./subdivide.js";
+import { truncateSkeleton } from "./truncate.js";
 
 /**
  * Generator + jitter params for a base — minimal, so cache keys stay small.
@@ -24,7 +25,9 @@ import { subdivideSkeleton } from "./subdivide.js";
 function generatorParams(base, state) {
   const jitter = state.jitter ?? DEFAULT_STATE.jitter;
   const subdiv = state.subdiv ?? DEFAULT_STATE.subdiv;
+  const truncate = state.truncate ?? DEFAULT_STATE.truncate;
   const out = {
+    ...(truncate > 0 ? { truncate } : {}),
     ...(jitter > 0
       ? {
           jitter,
@@ -97,6 +100,9 @@ function buildUnitSkeleton(base, cloud, merge, params) {
       jitter: params.jitter,
       mode: params.mode,
     });
+  }
+  if (params.truncate > 0) {
+    sk = truncateSkeleton(sk, params.truncate / 100);
   }
   if (params.subdiv > 0) {
     sk = subdivideSkeleton(

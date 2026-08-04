@@ -94,7 +94,7 @@ Rules:
 ## Geometry pipeline
 
 ```text
-base points -> (jitter) -> convex hull -> (plane-perturb) -> subdivide/smooth -> scale -> shell -> orient -> export
+base points -> (jitter) -> convex hull -> (plane-perturb) -> truncate -> subdivide/smooth -> scale -> shell -> orient -> export
 ```
 
 From Milestone 3 the interactive path is points → hull+merge+face-identity
@@ -138,7 +138,16 @@ separation derives from the count (matching the retired Sparse / Medium /
 Dense anchors at 12/24/48). On the globe the same control sets meridian count:
 the base advertises its effective range (6–36) through the registry
 (`pointsRange`), and the slider clamps to it so no positions are dead.
-**Subdivide** (0/1/2) is the first fixed-order
+**Truncate** (0–50%) is a fixed-order skeleton
+operator that cuts every corner: each edge contributes the points at t and
+1−t of its length, and the re-hull (with coplanar merge) is the truncated
+solid, renormalized to unit circumradius so Size keeps meaning
+circumdiameter. Classic stops fall out of the slider: a cube at 50 is the
+cuboctahedron, an icosahedron at 33 is the truncated icosahedron (the
+soccer ball), a dodecahedron at 50 the icosidodecahedron. On irregular or
+jittered solids the cut points are generally not coplanar and the hull
+approximates the cut with triangles — still convex, degrading gradually.
+**Subdivide** (0/1/2) is the next
 skeleton operator: each level splits every face flat, in its own plane, so
 mixed-face solids stay closed and level alone only adds resolution.
 **Pattern** picks the polygon split: *Radial* (default) fans 2k triangles
@@ -153,10 +162,12 @@ solid — the parent inset by the radius, Minkowski-expanded back by it.
 Edges and corners round proportionally from the first step (including
 inner-radius Catalan corners) while flat face interiors are exact fixed
 points — overall dimensions hold, only sharpness melts (most pronounced
-on cube and tetra). At 100 a cube reaches its inscribed ball;
-mixed-plane-distance solids keep a rounded remnant of their form.
+on cube and tetra). Above 50 a melt phase additionally clips the deeper
+flats of mixed-plane-distance solids spherically toward the inscribed
+ball, so 100 reaches the ball on every base.
 
-Operation order is fixed and load-bearing: **jitter → subdivide → smooth**.
+Operation order is fixed and load-bearing: **jitter → truncate → subdivide →
+smooth**.
 Jitter distorts the simple base form (plane perturbation on regulars, point
 jitter before the hull on parametric bases), subdivision adds resolution to
 the distorted solid, and smooth fillets its edges. Running jitter after

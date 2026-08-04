@@ -183,6 +183,34 @@ describe("subdivideSkeleton", () => {
     assert.ok(checked >= 6, "sampled all six face centres");
   });
 
+  it("soften 1 reaches the inscribed ball on mixed-distance solids too", () => {
+    // The fillet radius caps at the min plane distance; without the melt
+    // phase the deeper faces of an icosidodecahedron would survive soften 1
+    // as large flats.
+    const s1 = subdivideSkeleton(exact("icosidodeca"), 2, 1);
+    let rMin = Infinity, rMax = 0;
+    for (let i = 0; i < s1.positions.length; i += 3) {
+      const r = Math.hypot(s1.positions[i], s1.positions[i + 1], s1.positions[i + 2]);
+      rMin = Math.min(rMin, r);
+      rMax = Math.max(rMax, r);
+    }
+    assert.ok(rMax - rMin < 1e-9, `full ball at soften 1: ${rMin} .. ${rMax}`);
+  });
+
+  it("melt phase never touches soften ≤ 0.5 (fillet-only regime)", () => {
+    // Below the melt threshold, deep-face interiors must remain exactly on
+    // their planes even on mixed-distance solids.
+    const half = subdivideSkeleton(exact("icosidodeca"), 2, 0.5);
+    let rMax = 0;
+    for (let i = 0; i < half.positions.length; i += 3) {
+      rMax = Math.max(rMax, Math.hypot(
+        half.positions[i], half.positions[i + 1], half.positions[i + 2]));
+    }
+    // Triangle-face plane distance of the unit icosidodecahedron ≈ 0.939;
+    // its face centres must still be there at soften 0.5.
+    assert.ok(rMax > 0.93, `deep flats untouched at 0.5: rMax ${rMax}`);
+  });
+
   it("clamps to SUBDIV_MAX and is deterministic", () => {
     const a = subdivideSkeleton(exact("cube"), 99);
     const b = subdivideSkeleton(exact("cube"), SUBDIV_MAX);

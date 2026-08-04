@@ -24,6 +24,7 @@ export const STATE_KEYS = Object.freeze([
   "separation",
   "jitter",
   "jitterMode",
+  "truncate",
   "subdiv",
   "subdivStyle",
   "soften",
@@ -52,6 +53,7 @@ export const DEFAULT_STATE = Object.freeze({
   separation: 0.5,
   jitter: 0,
   jitterMode: "surface",
+  truncate: 0,
   subdiv: 0,
   subdivStyle: "radial",
   soften: 0,
@@ -176,6 +178,20 @@ export const CONTROL_DEFS = [
       { value: "both", label: "Both" },
     ],
     inertWhen: (s) => !(s.jitter > 0),
+  },
+  {
+    // Vertex truncation (skeleton operator, before subdivide): cuts each
+    // corner by re-hulling edge points at t% along every edge. 50 is full
+    // rectification (cube → cuboctahedron); an icosahedron at ~33 is the
+    // soccer ball. Composes with jitter, subdivide, smooth, and rounding.
+    key: "truncate",
+    group: "shape",
+    label: "Truncate",
+    type: "range",
+    unit: "%",
+    min: 0,
+    max: 50,
+    step: 1,
   },
   {
     // Surface subdivision (skeleton operator): triangles split 4:1,

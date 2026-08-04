@@ -19,9 +19,10 @@
  * parent inradius, and every vertex projects onto the rounded parent solid
  * (parent inset by R, Minkowski-expanded by R). Edges and corners round
  * proportionally from the first percent while flat face interiors are
- * exact fixed points — overall dimensions hold, only sharpness melts. At
- * soften 1 a cube reaches its inscribed ball; mixed-plane-distance solids
- * keep a rounded remnant of their form.
+ * exact fixed points — overall dimensions hold, only sharpness melts.
+ * Above soften 0.5 a melt phase additionally clips the deeper flats of
+ * mixed-plane-distance solids spherically, so soften 1 reaches the
+ * inscribed ball on every base.
  *
  * The result stays a convex triangulation, so all solidifier guarantees
  * hold. Runs AFTER jitter (plane perturbation on regulars, point jitter on
@@ -69,9 +70,16 @@ export function subdivideSkeleton(skeleton, level, soften = 0, style = "radial")
     // Catalan inner-ring corners were skipped, and clipping their outer
     // neighbours actually sharpened the crease). Cube corners follow the
     // identical trajectory as the old clip (radius 1 − s(1 − r_in)), so
-    // historical anchors hold. At soften 1 the inset collapses toward the
-    // deepest planes: a cube becomes its inscribed ball; mixed-distance
-    // solids keep a rounded remnant of their identity.
+    // historical anchors hold.
+    //
+    // The fillet radius caps at the min plane distance, so on
+    // mixed-distance solids (icosidodeca, Catalans) the DEEPER faces
+    // would survive soften 1 as large flats — the smoothing "stops
+    // prematurely". A melt phase in the upper half of the slider clips
+    // those remaining flats spherically toward the inscribed ball, so
+    // soften 1 reaches the ball on every base. On uniform solids (cube)
+    // every post-fillet radius already sits inside the melt clip, so the
+    // melt is a no-op there and anchors still hold.
     let rEnd = Infinity;
     const planes = [];
     for (const f of faceFrames(skeleton)) {
@@ -89,6 +97,19 @@ export function subdivideSkeleton(skeleton, level, soften = 0, style = "radial")
         positions[i] = q[0] + dx * k;
         positions[i + 1] = q[1] + dy * k;
         positions[i + 2] = q[2] + dz * k;
+      }
+    }
+    const MELT_START = 0.5;
+    if (s > MELT_START) {
+      const clip = 1 - ((s - MELT_START) / (1 - MELT_START)) * (1 - rEnd);
+      for (let i = 0; i < positions.length; i += 3) {
+        const r = Math.hypot(positions[i], positions[i + 1], positions[i + 2]);
+        if (r > clip) {
+          const k = clip / r;
+          positions[i] *= k;
+          positions[i + 1] *= k;
+          positions[i + 2] *= k;
+        }
       }
     }
   }
