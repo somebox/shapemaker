@@ -303,8 +303,45 @@ function exportSvgFile() {
 }
 
 /**
+ * Compute a sealed split for one placement, or null.
+ * @param {Float64Array} matrix
+ * @returns {{ a: object, b: object, planeZ: number, gapMm: number } | null}
+ */
+function splitForMatrix(matrix) {
+  try {
+    const placed = placeMesh(last.mesh, matrix);
+    let zLo = Infinity, zHi = -Infinity;
+    const p = placed.positions64;
+    for (let i = 2; i < p.length; i += 3) {
+      if (p[i] < zLo) zLo = p[i];
+      if (p[i] > zHi) zHi = p[i];
+    }
+    const heightMm = zHi - zLo;
+    const ranked = rankSplitPlanes(placed, {
+      heightMm,
+      seamZs: skeletonSeamLevels(last.skeleton, matrix),
+    });
+    // A plane that probed clean can still fail the full split (sliver
+    // caps near a seam ring) — fall through the ranking until one seals.
+    for (const cand of ranked) {
+      try {
+        const { a, b, planeZ } = splitMeshAtPlane(placed, cand.planeZ);
+        return { a, b, planeZ, gapMm: Math.max(6, 0.08 * heightMm) };
+      } catch {
+        /* next candidate */
+      }
+    }
+  } catch {
+    /* no valid plane for this placement */
+  }
+  return null;
+}
+
+/**
  * @param {Float64Array|null} [matrixOverride] session-only placement for
- *   the reorient cycle; null uses the canonical resting orientation.
+ *   the reorient cycle; null tries the canonical resting orientation and
+ *   falls back through the ranked axis alignments (a tilted dense mesh —
+ *   subdivided globe — may have no valid cut until the rings align).
  */
 function enableSplit(matrixOverride = null) {
   if (!draftValid || !last?.mesh) {
@@ -312,45 +349,25 @@ function enableSplit(matrixOverride = null) {
     viewer.setSplitPreview(null);
     return;
   }
-  try {
-    const matrix = matrixOverride ?? last.orientation.matrix;
-    const placed = placeMesh(last.mesh, matrix);
-    // Override placements change the bounding height — measure it placed.
-    let heightMm = last.metrics.heightMm;
-    if (matrixOverride) {
-      let zLo = Infinity, zHi = -Infinity;
-      const p = placed.positions64;
-      for (let i = 2; i < p.length; i += 3) {
-        if (p[i] < zLo) zLo = p[i];
-        if (p[i] > zHi) zHi = p[i];
-      }
-      heightMm = zHi - zLo;
-    }
-    const ranked = rankSplitPlanes(placed, {
-      heightMm,
-      seamZs: skeletonSeamLevels(last.skeleton, matrix),
-    });
-    // A plane that probed clean can still fail the full split (sliver
-    // caps near a seam ring) — fall through the ranking until one seals.
-    let halves = null;
-    let lastErr = null;
-    for (const cand of ranked) {
-      try {
-        halves = splitMeshAtPlane(placed, cand.planeZ);
-        break;
-      } catch (err) {
-        lastErr = err;
+  let data = null;
+  if (matrixOverride) {
+    data = splitForMatrix(matrixOverride);
+  } else {
+    data = splitForMatrix(last.orientation.matrix);
+    if (!data) {
+      const list = rankSplitOrientations(last.skeleton);
+      for (let i = 0; i < list.length && !data; i++) {
+        data = splitForMatrix(list[i].matrix);
+        if (data) splitOrients = { list, index: i };
       }
     }
-    if (!halves) throw lastErr ?? new Error("split: no candidate sealed");
-    const { a, b, planeZ } = halves;
-    const gapMm = Math.max(6, 0.08 * heightMm);
-    splitData = { a, b, planeZ, gapMm };
+  }
+  if (data) {
+    splitData = data;
     splitActive = true;
     ui.setLocked(true);
     viewer.setSplitPreview(splitData);
-  } catch (err) {
-    console.warn("split failed:", err);
+  } else {
     splitActive = false;
     splitData = null;
     splitOrients = null;
@@ -517,6 +534,7 @@ const SKELETON_KEYS = [
   "jitter",
   "jitterMode",
   "subdiv",
+  "subdivStyle",
   "soften",
 ];
 
@@ -559,7 +577,11 @@ function applyEdit(patchIn, commit) {
   // rounded to 0) heals on the next edit of any kind, not only reshapes.
   const brokenBorder =
     (normalized.openings ?? draft.openings) &&
-    !((normalized.borderMm ?? draft.borderMm) > 0);
+    !(
+      ((normalized.borderMm ?? draft.borderMm) > 0) ||
+      ((normalized.borderFraction ?? draft.borderFraction) > 0 &&
+        (normalized.borderFraction ?? draft.borderFraction) < 1)
+    );
   if (reshapes || brokenBorder) {
     const nextBase = normalized.base ?? draft.base;
     // Guard against a draft carrying an unknown base (e.g. a corrupt URL

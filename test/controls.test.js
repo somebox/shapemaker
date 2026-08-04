@@ -81,6 +81,10 @@ describe("panel policy helpers", () => {
     const dens = normalizePatch({ points: 24 });
     assert.equal(dens.points, 24);
     assert.equal(typeof dens.separation, "number");
+    assert.deepEqual(normalizePatch({ borderFraction: 0.4 }), {
+      borderFraction: 0.4,
+      borderMm: null,
+    });
   });
 
   it("heavy mode suppresses live drag patches", () => {

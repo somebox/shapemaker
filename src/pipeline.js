@@ -33,7 +33,15 @@ function generatorParams(base, state) {
         }
       : {}),
     ...(subdiv > 0
-      ? { subdiv, soften: state.soften ?? DEFAULT_STATE.soften }
+      ? {
+          subdiv,
+          subdivStyle: state.subdivStyle ?? DEFAULT_STATE.subdivStyle,
+          // Smooth is a radial-only companion; grid ignores it, so it
+          // must not fragment the cache key there either.
+          ...((state.subdivStyle ?? DEFAULT_STATE.subdivStyle) === "grid"
+            ? {}
+            : { soften: state.soften ?? DEFAULT_STATE.soften }),
+        }
       : {}),
   };
   if (!BASES[base]?.parametric) return out;
@@ -91,7 +99,12 @@ function buildUnitSkeleton(base, cloud, merge, params) {
     });
   }
   if (params.subdiv > 0) {
-    sk = subdivideSkeleton(sk, params.subdiv, (params.soften ?? 0) / 100);
+    sk = subdivideSkeleton(
+      sk,
+      params.subdiv,
+      (params.soften ?? 0) / 100,
+      params.subdivStyle,
+    );
   }
   return sk;
 }

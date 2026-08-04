@@ -1,16 +1,27 @@
 /**
  * Fixed-order surface subdivision — the first skeleton operator. Each level
- * splits every face flat, in its own plane: triangles 4:1 via edge
- * midpoints, larger polygons as centroid fans over the midpoint-split
- * boundary. Every edge splits at its midpoint, so mixed-face solids
+ * splits every face flat, in its own plane. Two styles:
+ *
+ * - "radial" (default): triangles 4:1 via edge midpoints, larger polygons
+ *   as centroid fans over the midpoint-split boundary — 2k triangles per
+ *   k-gon (8 openings per cube side at level 1).
+ * - "grid": triangles still 4:1; larger polygons split into k corner
+ *   QUADS (corner, edge midpoint, centroid, previous midpoint) — k per
+ *   k-gon (4 openings per cube side at level 1, 16 at level 2). Quads
+ *   stay planar because splitting is flat, which is why Smooth is a
+ *   radial-only companion: the sphere clip would bend them out of plane.
+ *
+ * Every edge splits at its midpoint in both styles, so mixed-face solids
  * (icosidodeca: pentagons meeting triangles) stay closed with no
  * T-junctions.
  *
- * Smooth is an outer-edge fillet by sphere clip: vertices outside a clip
- * radius pull radially onto it, so corners and edges round off while flat
- * face interiors keep their planes — overall dimensions hold, only
- * sharpness melts. The clip radius runs from the circumsphere (soften 0,
- * no effect) down to the nearest face plane (soften 1, a full ball).
+ * Smooth is a true edge fillet: soften sets a rounding radius R = s × the
+ * parent inradius, and every vertex projects onto the rounded parent solid
+ * (parent inset by R, Minkowski-expanded by R). Edges and corners round
+ * proportionally from the first percent while flat face interiors are
+ * exact fixed points — overall dimensions hold, only sharpness melts. At
+ * soften 1 a cube reaches its inscribed ball; mixed-plane-distance solids
+ * keep a rounded remnant of their form.
  *
  * The result stays a convex triangulation, so all solidifier guarantees
  * hold. Runs AFTER jitter (plane perturbation on regulars, point jitter on
@@ -32,30 +43,52 @@ export const SUBDIV_MAX = 2;
  * @param {number} level  0 returns the input untouched; clamped to SUBDIV_MAX
  * @param {number} [soften]  0–1 edge fillet: 0 keeps the exact flat solid
  *   (grids of openings on planar faces), 1 rounds everything down to the
- *   inscribed ball. Default 0.
+ *   inscribed ball. Default 0. Ignored (forced 0) for style "grid" — the
+ *   clip would make the quads non-planar.
+ * @param {"radial"|"grid"} [style]  polygon split pattern. Default "radial".
  * @returns {{ positions: Float64Array, faces: number[][], edges: number[][] }}
  */
-export function subdivideSkeleton(skeleton, level, soften = 0) {
+export function subdivideSkeleton(skeleton, level, soften = 0, style = "radial") {
   const n = Math.min(SUBDIV_MAX, Math.floor(level ?? 0));
   if (!(n > 0)) return skeleton;
-  const s = Math.min(1, Math.max(0, soften));
+  const grid = style === "grid";
+  const s = grid ? 0 : Math.min(1, Math.max(0, soften));
 
   let cur = { positions: skeleton.positions, faces: skeleton.faces };
-  for (let i = 0; i < n; i++) cur = subdivideOnce(cur);
+  for (let i = 0; i < n; i++) cur = subdivideOnce(cur, grid);
 
   const positions = Float64Array.from(cur.positions);
   if (s > 0) {
-    // Fillet clip: from the circumsphere down to the nearest face plane.
+    // Rounding clip: soften defines a fillet radius R = s × inradius and
+    // every vertex projects onto the ROUNDED PARENT SOLID — the Minkowski
+    // body {dist(p, parent inset by R) ≤ R}, the same construction the
+    // shell-level rounding uses. Face interiors are exact fixed points
+    // (their inset foot is R straight below), while every edge and corner
+    // rounds from the first percent — including features the old sphere
+    // clip could never reach (a cube's edges stayed 90° until soften ~0.69;
+    // Catalan inner-ring corners were skipped, and clipping their outer
+    // neighbours actually sharpened the crease). Cube corners follow the
+    // identical trajectory as the old clip (radius 1 − s(1 − r_in)), so
+    // historical anchors hold. At soften 1 the inset collapses toward the
+    // deepest planes: a cube becomes its inscribed ball; mixed-distance
+    // solids keep a rounded remnant of their identity.
     let rEnd = Infinity;
-    for (const f of faceFrames(skeleton)) rEnd = Math.min(rEnd, f.inradius);
-    const clip = 1 - s * (1 - rEnd);
+    const planes = [];
+    for (const f of faceFrames(skeleton)) {
+      rEnd = Math.min(rEnd, f.inradius);
+      planes.push({ n: f.normal, d: f.inradius });
+    }
+    const R = s * rEnd;
     for (let i = 0; i < positions.length; i += 3) {
-      const r = Math.hypot(positions[i], positions[i + 1], positions[i + 2]);
-      if (r > clip) {
-        const k = clip / r;
-        positions[i] *= k;
-        positions[i + 1] *= k;
-        positions[i + 2] *= k;
+      const p = [positions[i], positions[i + 1], positions[i + 2]];
+      const q = projectOntoInset(p, planes, R);
+      const dx = p[0] - q[0], dy = p[1] - q[1], dz = p[2] - q[2];
+      const dist = Math.hypot(dx, dy, dz);
+      if (dist > R + 1e-12 && dist > 1e-12) {
+        const k = R / dist;
+        positions[i] = q[0] + dx * k;
+        positions[i + 1] = q[1] + dy * k;
+        positions[i + 2] = q[2] + dz * k;
       }
     }
   }
@@ -66,10 +99,45 @@ export function subdivideSkeleton(skeleton, level, soften = 0) {
 }
 
 /**
+ * Nearest point of the parent solid inset by R — Dykstra's alternating
+ * projection onto {q : n_f·q ≤ d_f − R}. Only planes a point could
+ * interact with (violated within a 2R margin) enter the cycle; interior
+ * face points converge in one pass, edge/corner points in a few dozen.
+ *
+ * @param {number[]} p
+ * @param {{ n: number[], d: number }[]} planes  parent face planes (unit n)
+ * @param {number} R  inset depth
+ * @returns {number[]} nearest point in the inset body
+ */
+function projectOntoInset(p, planes, R) {
+  const active = planes.filter(
+    ({ n, d }) => n[0] * p[0] + n[1] * p[1] + n[2] * p[2] > d - 2 * R - 1e-9,
+  );
+  const q = [p[0], p[1], p[2]];
+  /** Dykstra correction per constraint. */
+  const corr = active.map(() => [0, 0, 0]);
+  for (let iter = 0; iter < 120; iter++) {
+    let moved = 0;
+    for (let c = 0; c < active.length; c++) {
+      const { n, d } = active[c];
+      const y = [q[0] + corr[c][0], q[1] + corr[c][1], q[2] + corr[c][2]];
+      const excess = n[0] * y[0] + n[1] * y[1] + n[2] * y[2] - (d - R);
+      const nx = excess > 0 ? [y[0] - n[0] * excess, y[1] - n[1] * excess, y[2] - n[2] * excess] : y;
+      corr[c] = [y[0] - nx[0], y[1] - nx[1], y[2] - nx[2]];
+      moved = Math.max(moved, Math.abs(nx[0] - q[0]), Math.abs(nx[1] - q[1]), Math.abs(nx[2] - q[2]));
+      q[0] = nx[0]; q[1] = nx[1]; q[2] = nx[2];
+    }
+    if (moved < 1e-12) break;
+  }
+  return q;
+}
+
+/**
  * @param {{ positions: ArrayLike<number>, faces: number[][] }} skel
+ * @param {boolean} [grid]  corner quads instead of centroid fans on n-gons
  * @returns {{ positions: number[], faces: number[][] }}
  */
-function subdivideOnce({ positions, faces }) {
+function subdivideOnce({ positions, faces }, grid = false) {
   /** @type {number[]} */
   const pos = Array.from(positions);
   /** @type {Map<number, number>} undirected edge → midpoint vertex */
@@ -105,7 +173,8 @@ function subdivideOnce({ positions, faces }) {
       out.push([a, ab, ca], [ab, b, bc], [ca, bc, c], [ab, bc, ca]);
       continue;
     }
-    // n-gon: flat centroid fan over the midpoint-split boundary.
+    // n-gon: flat split about the centroid — corner quads (grid) or a
+    // centroid fan of triangles (radial). Both stay in the face plane.
     let cx = 0, cy = 0, cz = 0;
     for (const vi of ring) {
       cx += pos[vi * 3];
@@ -113,10 +182,19 @@ function subdivideOnce({ positions, faces }) {
       cz += pos[vi * 3 + 2];
     }
     const center = push(cx / k, cy / k, cz / k);
-    for (let i = 0; i < k; i++) {
-      const a = ring[i], b = ring[(i + 1) % k];
-      const m = midpoint(a, b);
-      out.push([center, a, m], [center, m, b]);
+    if (grid) {
+      for (let i = 0; i < k; i++) {
+        const a = ring[i];
+        const mPrev = midpoint(ring[(i - 1 + k) % k], a);
+        const mNext = midpoint(a, ring[(i + 1) % k]);
+        out.push([mPrev, a, mNext, center]);
+      }
+    } else {
+      for (let i = 0; i < k; i++) {
+        const a = ring[i], b = ring[(i + 1) % k];
+        const m = midpoint(a, b);
+        out.push([center, a, m], [center, m, b]);
+      }
     }
   }
   return { positions: pos, faces: out };

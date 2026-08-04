@@ -157,11 +157,11 @@ performance budget, and export guarantees before promoting it from backlog.
   dimensions and edge inspection are first-class.
 - **Free uniform scaling is the default.** Edge-length constraints are optional
   workflows, not a competing size model.
-- **Border is authored in millimetres for version 1.** Relative openness is a
-  readout. **Retained after irregular-hull evidence (v0.4):** proportional
-  authoring would not rescue dense Ø100 lace balls (physics, not units);
-  clamp warnings guide scale-up or lower density when the fitted border falls
-  below ~2.5 mm. See [`BORDER_EVIDENCE.md`](BORDER_EVIDENCE.md).
+- **Border is authored as a relative fraction for version 1+.** Constant
+  millimetres remain a supported legacy/API spelling. Relative authoring
+  scales frames with face size (subdiv, globe, irregular hulls); printability
+  warnings still guide scale-up when the thinnest applied border falls below
+  ≈2.5 mm. See [`BORDER_EVIDENCE.md`](BORDER_EVIDENCE.md).
 - **Projects are portable files.** URL state is for sharing; local recovery is
   convenience; neither replaces `.shapemaker.json`.
 - **Mesh “smoothness” is tessellation, not shading.** Preview stays flat-shaded

@@ -83,6 +83,9 @@ export function validateState(state) {
   if (!(Number.isInteger(state.subdiv) && state.subdiv >= 0 && state.subdiv <= 2)) {
     err("points", "subdiv", "Subdivide must be 0, 1, or 2");
   }
+  if (!["radial", "grid"].includes(state.subdivStyle)) {
+    err("points", "subdivStyle", "Subdivide pattern must be radial or grid");
+  }
   if (!(Number.isFinite(state.soften) && state.soften >= 0 && state.soften <= 100)) {
     err("points", "soften", "Smooth must be between 0 and 100 %");
   }

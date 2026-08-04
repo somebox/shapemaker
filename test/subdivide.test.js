@@ -94,6 +94,95 @@ describe("subdivideSkeleton", () => {
     assert.ok(Math.abs(minR - inradius) < 1e-9, `face centers hold the planes: ${minR}`);
   });
 
+  it("grid style: corner quads per n-gon, 4:1 triangles, planar faces", () => {
+    // cube: 6 quads → 4 corner quads each (4 openings per side, not 8);
+    // icosa: triangles ignore style (4:1 both ways);
+    // icosidodeca: 12×5 quads + 20×4 triangles.
+    for (const [base, l1, l2] of [
+      ["cube", 24, 96],
+      ["icosahedron", 80, 320],
+      ["icosidodeca", 140, 560],
+    ]) {
+      const s1 = subdivideSkeleton(exact(base), 1, 0, "grid");
+      const s2 = subdivideSkeleton(exact(base), 2, 0, "grid");
+      assert.equal(s1.faces.length, l1, `${base} grid level 1`);
+      assert.equal(s2.faces.length, l2, `${base} grid level 2`);
+    }
+    const g = subdivideSkeleton(exact("cube"), 1, 0, "grid");
+    assert.ok(g.faces.every((f) => f.length === 4), "cube grid is all quads");
+    assertSkeletonHasOnlyParentPlanes(g, 6);
+  });
+
+  it("grid style ignores soften — the flat quads must stay planar", () => {
+    const a = subdivideSkeleton(exact("cube"), 1, 0.7, "grid");
+    const b = subdivideSkeleton(exact("cube"), 1, 0, "grid");
+    assert.deepEqual(Array.from(a.positions), Array.from(b.positions));
+  });
+
+  it("soften rounds edges from the first step, on every base", () => {
+    // The old sphere clip left a cube's edges at the full 90° crease until
+    // soften ≈ 0.69 (it only reached corner vertices), and on two-radius
+    // Catalan solids it pulled outer corners past the inner ring, making
+    // creases SHARPER. The rounding clip must strictly reduce the worst
+    // crease at moderate soften for every base.
+    const maxCrease = (sk) => {
+      const { positions: pos, faces, edges } = sk;
+      const normals = faces.map((ring) => {
+        let nx = 0, ny = 0, nz = 0;
+        for (let i = 0; i < ring.length; i++) {
+          const a = ring[i] * 3, b = ring[(i + 1) % ring.length] * 3;
+          nx += (pos[a + 1] - pos[b + 1]) * (pos[a + 2] + pos[b + 2]);
+          ny += (pos[a + 2] - pos[b + 2]) * (pos[a] + pos[b]);
+          nz += (pos[a] - pos[b]) * (pos[a + 1] + pos[b + 1]);
+        }
+        const l = Math.hypot(nx, ny, nz) || 1;
+        return [nx / l, ny / l, nz / l];
+      });
+      const owner = new Map();
+      for (let f = 0; f < faces.length; f++) {
+        const ring = faces[f];
+        for (let i = 0; i < ring.length; i++) {
+          owner.set(ring[i] * 0x100000 + ring[(i + 1) % ring.length], f);
+        }
+      }
+      let worst = 0;
+      for (const [a, b] of edges) {
+        const f1 = owner.get(a * 0x100000 + b), f2 = owner.get(b * 0x100000 + a);
+        if (f1 == null || f2 == null) continue;
+        const [x1, y1, z1] = normals[f1], [x2, y2, z2] = normals[f2];
+        worst = Math.max(worst, Math.acos(Math.max(-1, Math.min(1,
+          x1 * x2 + y1 * y2 + z1 * z2))));
+      }
+      return (worst * 180) / Math.PI;
+    };
+    for (const base of ["cube", "tetrahedron", "rhombicdodeca", "rhombictriaconta"]) {
+      const sharp = maxCrease(subdivideSkeleton(exact(base), 2, 0));
+      const soft = maxCrease(subdivideSkeleton(exact(base), 2, 0.3));
+      assert.ok(soft < sharp - 1e-6,
+        `${base}: soften 0.3 must reduce the worst crease (${sharp.toFixed(1)}° → ${soft.toFixed(1)}°)`);
+    }
+  });
+
+  it("soften keeps flat face interiors exactly in plane", () => {
+    // Face-interior vertices are fixed points of the rounding clip: their
+    // inset foot is R straight below, so they sit exactly on the rounded
+    // solid already.
+    const flat = subdivideSkeleton(exact("cube"), 2, 0.4);
+    // Cube face-center region: vertices whose max |coord| axis value equals
+    // the face-plane distance (1/√3) and other coords well inside.
+    const d = 1 / Math.sqrt(3);
+    let checked = 0;
+    for (let i = 0; i < flat.positions.length; i += 3) {
+      const c = [flat.positions[i], flat.positions[i + 1], flat.positions[i + 2]];
+      const abs = c.map(Math.abs).sort((a, b) => b - a);
+      if (abs[1] < d * 0.3) { // near a face centre
+        assert.ok(Math.abs(abs[0] - d) < 1e-9, `face centre moved: ${abs[0]}`);
+        checked++;
+      }
+    }
+    assert.ok(checked >= 6, "sampled all six face centres");
+  });
+
   it("clamps to SUBDIV_MAX and is deterministic", () => {
     const a = subdivideSkeleton(exact("cube"), 99);
     const b = subdivideSkeleton(exact("cube"), SUBDIV_MAX);
@@ -179,6 +268,28 @@ describe("subdivision through the pipeline", () => {
     const r = compile({ base: "cube", subdiv: 3 });
     assert.equal(r.validation.ok, false);
     assert.ok(r.validation.errors.some((e) => e.key === "subdiv"));
+  });
+
+  it("rejects an unknown subdivStyle; legacy states default to radial", () => {
+    clearPipelineCache();
+    const bad = compile({ base: "cube", subdiv: 1, subdivStyle: "spiral" });
+    assert.equal(bad.validation.ok, false);
+    assert.ok(bad.validation.errors.some((e) => e.key === "subdivStyle"));
+    const legacy = decodeHash(encodeHash({ base: "cube", subdiv: 1 }));
+    assert.equal(legacy.state.subdivStyle, "radial");
+  });
+
+  it("grid through compile: 4 openings per cube side at Once, 16 at Twice", () => {
+    for (const [subdiv, faces] of [[1, 24], [2, 96]]) {
+      clearPipelineCache();
+      const r = compile({
+        base: "cube", subdiv, subdivStyle: "grid",
+        depth: "hollow", wallMm: 1.4, openings: true, borderMm: 2, filletMm: 2,
+      });
+      assert.equal(r.validation.ok, true, JSON.stringify(r.validation.errors));
+      assert.equal(r.skeleton.faces.length, faces);
+      assert.ok(r.skeleton.faces.every((f) => f.length === 4));
+    }
   });
 });
 

@@ -247,7 +247,7 @@ describe("direct vs hull icosidodecahedron", () => {
     const F = hull.faces.length;
     assert.equal(V - E.size + F, 2);
 
-    const result = compile({});
+    const result = compile({ borderMm: 3.2 });
     assert.equal(result.validation.ok, true);
     assert.equal(result.metrics.triangleCount, ref.triangleCount);
     assert.ok(

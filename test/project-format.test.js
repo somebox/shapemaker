@@ -32,7 +32,8 @@ describe("serializeProjectV1", () => {
     assert.equal(obj.name, "Prototype TPU");
     assert.equal(obj.createdWith, VERSION);
     assert.equal(obj.view, undefined);
-    assert.equal(obj.state.borderFraction, undefined);
+    assert.equal(obj.state.borderFraction, 0.36);
+    assert.equal(obj.state.borderMm, undefined);
     assert.equal(obj.state.base, "icosidodeca");
   });
 
@@ -125,17 +126,25 @@ describe("canonical codec", () => {
   it("normalizeState fills defaults", () => {
     const s = normalizeState({ circumdiameterMm: 80 });
     assert.equal(s.circumdiameterMm, 80);
+    assert.equal(s.borderFraction, 0.36);
+    assert.equal(s.borderMm, undefined);
+  });
+
+  it("normalizeState keeps legacy borderMm without inheriting fraction", () => {
+    const s = normalizeState({ borderMm: 3.2 });
     assert.equal(s.borderMm, 3.2);
     assert.equal(s.borderFraction, undefined);
   });
 
-  it("serializeState omits nulls and borderFraction", () => {
+  it("serializeState keeps borderFraction and drops inactive mm", () => {
     const s = serializeState({
       ...normalizeState({}),
       borderFraction: 0.2,
+      borderMm: 3.2,
       junk: 1,
     });
-    assert.equal(s.borderFraction, undefined);
+    assert.equal(s.borderFraction, 0.2);
+    assert.equal(s.borderMm, undefined);
     assert.equal(s.junk, undefined);
   });
 

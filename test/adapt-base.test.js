@@ -64,7 +64,8 @@ describe("adaptStateForBase", () => {
       nextBase: "cube",
       nextLimits: { wallMmMax: 30, borderMmMax: 8, filletMmMax: null },
     });
-    assert.ok(patch.borderMm > 0 && patch.borderMm <= 8);
+    assert.equal(patch.borderMm, null);
+    assert.equal(patch.borderFraction, 0.36);
     assert.ok(warnings.length >= 1);
   });
 

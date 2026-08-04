@@ -56,6 +56,7 @@ export function computeMetrics({ skeleton, info, orientation, watertight, limits
     limits: limits ?? {
       wallMmMax: null,
       borderMmMax: null,
+      borderFractionMax: null,
       filletMmMax: null,
       roundingMmMax: null,
     },

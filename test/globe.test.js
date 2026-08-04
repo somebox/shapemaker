@@ -131,7 +131,7 @@ describe("globe through the pipeline", () => {
     for (const [points, fit] of [
       [8, {}],
       [24, {}],
-      [36, { borderMm: 0.4, filletMm: 0.8 }],
+      [36, { filletMm: 0.8 }],
     ]) {
       clearPipelineCache();
       const r = compile({ ...recipeForBase("globe"), points, ...fit });

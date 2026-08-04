@@ -12,7 +12,9 @@ const ref = JSON.parse(readFileSync(join(__dirname, "reference.json"), "utf8"));
 
 describe("compile", () => {
   clearPipelineCache();
-  const result = compile();
+  // Parity anchors are the constant-mm prototype (border 3.2). Default
+  // authoring is relative border; pass mm explicitly for the fixture.
+  const result = compile({ borderMm: 3.2 });
 
   it("returns the contract shape", () => {
     assert.ok(result.skeleton);

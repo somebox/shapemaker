@@ -35,10 +35,15 @@ const castFor = (dflt) =>
     : String;
 const FLAGS = {};
 for (const [key, dflt] of Object.entries(DEFAULT_STATE)) {
+  if (dflt === null || dflt === undefined) continue;
   FLAGS[kebab(key)] = [key, castFor(dflt)];
 }
+// Constant-mm border is optional (legacy / acceptance fits) — not in defaults.
+FLAGS["border-mm"] = ["borderMm", Number];
+FLAGS["border-fraction"] = ["borderFraction", Number];
 Object.assign(FLAGS, {
   wall: FLAGS["wall-mm"],
+  // `--border=N` keeps meaning millimetres for acceptance / scripts.
   border: FLAGS["border-mm"],
   fillet: FLAGS["fillet-mm"],
   diameter: FLAGS["circumdiameter-mm"],

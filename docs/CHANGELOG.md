@@ -7,6 +7,44 @@ surface is still moving, and git history is the detailed record. From **1.0**
 onward every release gets a full entry here, and breaking changes to the
 [project format](PROJECT_FORMAT.md) get a migration note.
 
+## [0.9.0] — 2026-08-04
+
+### Added
+
+- **Subdivide Pattern** (`subdivStyle`): *Radial* (default, the previous
+  behavior — centroid fans, 8 openings per cube side at Once) or *Grid*
+  (corner quads — 4 per cube side at Once, 16 at Twice). Triangles split
+  4:1 in both. Smooth is a Radial-only companion (the sphere clip would
+  bend Grid's flat quads out of plane): inert and ignored under Grid.
+  Additive default — old hashes and projects normalize unchanged.
+
+### Changed
+
+- **Smooth is a true edge fillet**: soften sets a rounding radius (fraction
+  of the parent inradius) and vertices project onto the rounded parent
+  solid (inset + Minkowski expand). Edges and corners round from the first
+  step — the old sphere clip left a cube's edges at 90° until soften ≈ 0.7
+  and made two-radius Catalan creases SHARPER; both fixed. Cube corners
+  follow the identical trajectory as before, so shared cubes look the same.
+- **Split on dense meshes**: candidate planes are banded (a subdivided
+  globe could get a cut at 96% height when no mid gap cleared the vertex
+  clearance) with tighter clearance tiers, and enabling split falls back
+  through the ranked axis alignments when the canonical resting orientation
+  has no valid cut.
+- **Border is relative by default** (`borderFraction`, Form %): scales with
+  each face so subdiv/globe/mixed openings no longer hard-fail on the
+  smallest strut. Applied mm range stays in the status strip. Constant
+  `borderMm` remains valid for legacy links, projects, and `--border=`
+  acceptance fits. Default fraction `0.36` ≈ the old 3.2 mm on the
+  smallest icosidodeca face; parity fixtures still pass `borderMm: 3.2`.
+
+### Fixed
+
+- Pattern switches re-run wall/border adaptation (same as Subdivide itself),
+  so Grid→Radial no longer leaves an oversized border invalid.
+- Rounding slider ceiling under Subdivide uses the pre-subdivision solid
+  (same rescue as Fillet) — both soft-clamp per feature in the shell.
+
 ## [0.8.0] — 2026-08-02
 
 Stage-1 rim rounding plus a session-only model split for bed-ready STL halves.

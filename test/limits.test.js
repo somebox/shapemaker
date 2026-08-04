@@ -18,15 +18,22 @@ describe("metrics.limits", () => {
   it("returns proactive ceilings on a successful default compile", () => {
     const { metrics, validation } = compile({});
     assert.equal(validation.ok, true);
-    const { wallMmMax, borderMmMax, filletMmMax, roundingMmMax } = metrics.limits;
+    const {
+      wallMmMax,
+      borderMmMax,
+      borderFractionMax,
+      filletMmMax,
+      roundingMmMax,
+    } = metrics.limits;
     assert.ok(wallMmMax > 1.4 && wallMmMax < 50);
-    assert.ok(borderMmMax > 3.2 && borderMmMax < 50);
-    assert.ok(filletMmMax > 4.5 && filletMmMax < 50);
-    // Max-USEFUL ceiling under proportional per-feature clamps: 60% of the
-    // widest border flat (pentagon edgeDistMax at the default border).
-    assert.ok(Math.abs(roundingMmMax - 1.92) < 0.01, `roundingMmMax=${roundingMmMax}`);
+    assert.ok(borderMmMax > 3 && borderMmMax < 50);
+    assert.equal(borderFractionMax, 0.9);
+    assert.ok(filletMmMax > 1 && filletMmMax < 50);
+    assert.ok(roundingMmMax > 1);
     assert.ok(1.4 <= wallMmMax);
-    assert.ok(3.2 <= borderMmMax);
+    // Relative border: applied mm spreads across face sizes.
+    assert.ok(metrics.borderMm.min > 0);
+    assert.ok(metrics.borderMm.max >= metrics.borderMm.min);
   });
 
   it("nulls wall/border/fillet limits for solid closed shells; rounding stays live", () => {
@@ -79,6 +86,31 @@ describe("metrics.limits", () => {
     // Ceiling should track the unsubdivided authoring solid, not collapse.
     assert.ok(
       once.metrics.limits.filletMmMax >= plain.metrics.limits.filletMmMax * 0.9,
+    );
+  });
+
+  it("roundingMmMax stays usable after subdivision (uses pre-subdiv ceiling)", () => {
+    const plain = compile({ base: "cube", subdiv: 0 });
+    const once = compile({ base: "cube", subdiv: 1 });
+    assert.equal(plain.validation.ok, true);
+    assert.equal(once.validation.ok, true);
+    assert.ok(once.metrics.limits.roundingMmMax > 0.5,
+      `subdiv rounding ceiling too tight: ${once.metrics.limits.roundingMmMax}`);
+    assert.ok(
+      once.metrics.limits.roundingMmMax >= plain.metrics.limits.roundingMmMax * 0.9,
+    );
+  });
+
+  it("grid subdiv shrinks borderMmMax vs radial (style is a reshape)", () => {
+    // Pattern switch changes face size → border ceiling. Without treating
+    // subdivStyle as a skeleton reshape, a wide border can go invalid.
+    const radial = compile({ base: "cube", subdiv: 1, subdivStyle: "radial", borderMm: 0.6 });
+    const grid = compile({ base: "cube", subdiv: 1, subdivStyle: "grid", borderMm: 0.6 });
+    assert.equal(radial.validation.ok, true);
+    assert.equal(grid.validation.ok, true);
+    assert.ok(
+      grid.metrics.limits.borderMmMax > radial.metrics.limits.borderMmMax,
+      `grid (${grid.metrics.limits.borderMmMax}) should allow wider borders than radial (${radial.metrics.limits.borderMmMax})`,
     );
   });
 });

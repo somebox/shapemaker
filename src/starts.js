@@ -15,16 +15,15 @@ import { BASES, BASE_IDS, isKnownBase } from "./bases.js";
  * fillet on their small faces.
  */
 const BASE_PACKS = Object.freeze({
+  // Relative border is the default for every base. Parametric hulls only
+  // need a softer fillet on their small faces.
   globe: Object.freeze({
-    borderMm: 1,
     filletMm: 1.5,
   }),
   sphere: Object.freeze({
-    borderMm: 1,
     filletMm: 1.5,
   }),
   random: Object.freeze({
-    borderMm: 1,
     filletMm: 1.5,
   }),
 });

@@ -114,6 +114,8 @@ describe("M5 compile matrix", () => {
       { base: "sphere", points: 24, borderMm: 1, filletMm: 1.5 },
       { base: "random", seed: 1337, jitter: 10, borderMm: 1, filletMm: 1.5 },
       { base: "cube", subdiv: 1 },
+      { base: "cube", subdiv: 1, subdivStyle: "grid" },
+      { base: "icosidodeca", subdiv: 1, subdivStyle: "grid", borderMm: 1.5, filletMm: 1.5 },
     ]) {
       clearPipelineCache();
       const r = compile({

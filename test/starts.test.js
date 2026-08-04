@@ -73,7 +73,7 @@ describe("startStatuses", () => {
   });
 
   it("marks base edited when draft is modified from that pack", () => {
-    const draft = { ...recipeForBase("cube"), borderMm: 5, faceIndex: 0 };
+    const draft = { ...recipeForBase("cube"), borderFraction: 0.5, faceIndex: 0 };
     const statuses = startStatuses({
       draft,
       projectName: "Cube",

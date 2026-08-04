@@ -47,6 +47,12 @@ export function normalizePatch(patch) {
   if (next.points != null && next.separation == null) {
     next.separation = separationForPoints(next.points);
   }
+  // Border exclusivity: UI authors fraction; clearing the other spelling
+  // keeps validateState happy when the draft still carries a legacy mm.
+  if (next.borderFraction != null) next.borderMm = null;
+  if (next.borderMm != null && next.borderFraction === undefined) {
+    next.borderFraction = null;
+  }
   return next;
 }
 
@@ -631,6 +637,7 @@ export function createPanel(panelEl, handlers) {
         setSegment("openings", String(!!state.openings));
         setSegment("edgeDiv", state.edgeDiv);
         setSegment("subdiv", state.subdiv);
+        setSegment("subdivStyle", state.subdivStyle);
         setSegment("jitterMode", state.jitterMode);
         const customTag = panelEl.querySelector('[data-custom-key="edgeDiv"]');
         if (customTag) {

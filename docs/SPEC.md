@@ -114,9 +114,7 @@ angular separation. Parametric point count (sphere and random) tops out near
 60 until interactive performance is measured; on the globe the same Density
 slider means meridian count (clamped 6–36), so edges follow latitude/longitude
 lines after coplanar merge. The sphere's density sets how faceted it is, while
-Quality only refines the shell tessellation. Smooth's sphere clip reaches
-inner-radius Catalan corners only above roughly mid-range soften — accepted
-artistic behavior for the first non-circumsphere bases.
+Quality only refines the shell tessellation.
 
 The jitter UI exposes 0–50%; an experimental soft amplitude scale maps that
 range so low-slider values stay subtle (jitter 0 remains identity — exact
@@ -141,15 +139,22 @@ Dense anchors at 12/24/48). On the globe the same control sets meridian count:
 the base advertises its effective range (6–36) through the registry
 (`pointsRange`), and the slider clamps to it so no positions are dead.
 **Subdivide** (0/1/2) is the first fixed-order
-skeleton operator: each level splits every face flat, in its own plane —
-4:1 for triangles, centroid fans over midpoint-split edges for larger
-polygons — so mixed-face solids stay closed and level alone only adds
-resolution (grids of openings). **Smooth** (0–100%) is an outer-edge
-fillet by sphere clip: vertices outside a shrinking clip radius pull onto
-it, rounding corners and edges while flat face interiors keep their planes
-— overall dimensions hold, only sharpness melts (most pronounced on cube
-and tetra). At 100 the clip reaches the nearest face plane and the solid
-becomes the inscribed ball.
+skeleton operator: each level splits every face flat, in its own plane, so
+mixed-face solids stay closed and level alone only adds resolution.
+**Pattern** picks the polygon split: *Radial* (default) fans 2k triangles
+per k-gon from the centroid (8 openings per cube side at level 1);
+*Grid* cuts k corner quads (4 per cube side at level 1, 16 at level 2).
+Triangles split 4:1 in both. Smooth requires Radial — its sphere clip
+would bend Grid's flat quads out of plane, so under Grid the Smooth
+control is inert and its value ignored. **Smooth** (0–100%) is a true edge
+fillet: soften sets a rounding radius (that fraction of the parent
+inradius) and every subdivided vertex projects onto the rounded parent
+solid — the parent inset by the radius, Minkowski-expanded back by it.
+Edges and corners round proportionally from the first step (including
+inner-radius Catalan corners) while flat face interiors are exact fixed
+points — overall dimensions hold, only sharpness melts (most pronounced
+on cube and tetra). At 100 a cube reaches its inscribed ball;
+mixed-plane-distance solids keep a rounded remnant of their form.
 
 Operation order is fixed and load-bearing: **jitter → subdivide → smooth**.
 Jitter distorts the simple base form (plane perturbation on regulars, point
@@ -236,11 +241,14 @@ user-facing quality preset (Milestone 4) may raise or lower those counts;
 it must not introduce smooth shading that makes the preview diverge from the
 exported triangle mesh. The viewer uses flat shading so preview ≡ STL.
 
-Border width is authored in millimetres in version 1. This is useful across
-physical fabrication methods because it describes the actual width of material,
-not merely visual openness. The UI dynamically limits it using the smallest
-face and reports the resulting range and relative openness. Exactly one border
-representation is authoritative in state and project files.
+Border width is authored as a **fraction of each face's apothem**
+(`borderFraction`, shown as % in Form). That scales the frame with every
+opening so subdiv, globe bands, and mixed face sizes stay valid without a
+global hard-fail on the smallest face. Applied millimetre widths are reported
+as a {min,max} range in status. Legacy **constant `borderMm`** remains valid
+in hashes, projects, and headless export (`--border=`); exactly one spelling
+is authoritative. Printability warnings fire when the thinnest applied border
+falls below ≈2.5 mm.
 
 Opening, border, applied-fillet, and applied-rounding measurements are retained
 per face and aggregated for status reporting. Metrics must not assume that

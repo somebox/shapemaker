@@ -219,7 +219,7 @@ export function skeletonSeamLevels(skeleton, matrix) {
  * @param {number} seamZ
  * @returns {number[]} 0–2 candidate z values, nearest first
  */
-export function seamPlaneCandidates(positions, seamZ) {
+export function seamPlaneCandidates(positions, seamZ, minGap = PLANE_GAP_MIN_MM) {
   const n = positions.length / 3;
   /** @type {number[]} */
   const zs = [];
@@ -234,7 +234,7 @@ export function seamPlaneCandidates(positions, seamZ) {
     const lo = uniq[i], hi = uniq[i + 1];
     const midG = (lo + hi) / 2;
     const ulp = Math.max(Number.EPSILON * Math.abs(midG) * 4, 1e-15);
-    const clr = Math.max(PLANE_GAP_MIN_MM, ulp);
+    const clr = Math.max(minGap, ulp);
     if (hi - lo < clr * 2) continue;
     const z = Math.min(Math.max(seamZ, lo + clr), hi - clr);
     if (z <= seamZ && (below == null || seamZ - z < seamZ - below)) below = z;
@@ -245,6 +245,49 @@ export function seamPlaneCandidates(positions, seamZ) {
   if (above != null && above !== below) out.push(above);
   out.sort((a, b) => Math.abs(a - seamZ) - Math.abs(b - seamZ));
   return out;
+}
+
+/**
+ * Nearest valid plane to `target` whose gap-clearance interval intersects
+ * the band [lo, hi] — unlike snapPlaneZ, this never escapes the band: on
+ * dense meshes (subdivided globes) every mid-band gap can be tighter than
+ * the clearance, and the nearest-gap rule would then return a plane near
+ * the top of the model.
+ *
+ * @param {Float64Array|Float32Array} positions
+ * @param {number} target
+ * @param {number} lo band floor (mm)
+ * @param {number} hi band ceiling (mm)
+ * @param {number} [minGap] vertex clearance (mm)
+ * @returns {number|null}
+ */
+export function snapPlaneZInBand(positions, target, lo, hi, minGap = PLANE_GAP_MIN_MM) {
+  const n = positions.length / 3;
+  const zs = [];
+  for (let i = 0; i < n; i++) zs.push(positions[i * 3 + 2]);
+  zs.sort((a, b) => a - b);
+  const uniq = [];
+  for (const z of zs) {
+    if (!uniq.length || Math.abs(z - uniq[uniq.length - 1]) > 1e-12) uniq.push(z);
+  }
+  let best = null;
+  let bestDist = Infinity;
+  for (let i = 0; i < uniq.length - 1; i++) {
+    const gLo = uniq[i], gHi = uniq[i + 1];
+    const midG = (gLo + gHi) / 2;
+    const ulp = Math.max(Number.EPSILON * Math.abs(midG) * 4, 1e-15);
+    const clr = Math.max(minGap, ulp);
+    const usableLo = Math.max(gLo + clr, lo);
+    const usableHi = Math.min(gHi - clr, hi);
+    if (usableLo > usableHi) continue;
+    const z = Math.min(Math.max(target, usableLo), usableHi);
+    const dist = Math.abs(z - target);
+    if (dist < bestDist) {
+      bestDist = dist;
+      best = z;
+    }
+  }
+  return best;
 }
 
 /** A "seam" plane that had to move this far off its ring is no longer one. */
@@ -284,15 +327,22 @@ export function rankSplitPlanes(placedMesh, opts) {
     candidates.push({ z, area, dist: Math.abs(z - mid), seam, seamOff });
   };
 
-  for (const seamZ of seamZs) {
-    if (seamZ < lo || seamZ > hi) continue;
-    for (const z of seamPlaneCandidates(positions, seamZ)) {
-      if (Math.abs(z - seamZ) <= SEAM_MAX_OFFSET_MM) consider(z, true, Math.abs(z - seamZ));
+  // Dense meshes (subdivided globes) can leave no gap in the band at the
+  // default clearance — retry with tighter ones (the last tier is 0.5µm,
+  // still ~130 float32 ULP at 50mm, so exact-sign classification holds)
+  // before giving up.
+  for (const minGap of [PLANE_GAP_MIN_MM, PLANE_GAP_MIN_MM / 4, PLANE_GAP_MIN_MM / 40]) {
+    for (const seamZ of seamZs) {
+      if (seamZ < lo || seamZ > hi) continue;
+      for (const z of seamPlaneCandidates(positions, seamZ, minGap)) {
+        if (Math.abs(z - seamZ) <= SEAM_MAX_OFFSET_MM) consider(z, true, Math.abs(z - seamZ));
+      }
     }
-  }
-  for (let s = 0; s < samples; s++) {
-    const t = samples === 1 ? 0.5 : s / (samples - 1);
-    consider(snapPlaneZ(positions, lo + t * (hi - lo)), false);
+    for (let s = 0; s < samples; s++) {
+      const t = samples === 1 ? 0.5 : s / (samples - 1);
+      consider(snapPlaneZInBand(positions, lo + t * (hi - lo), lo, hi, minGap), false);
+    }
+    if (candidates.length) break;
   }
   if (!candidates.length) throw splitError("split: no valid plane in band");
 

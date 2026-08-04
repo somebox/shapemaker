@@ -1,5 +1,5 @@
 {
-  "description": "Icosidodecahedron hollow frame at prototype defaults (Ø100, border 3.2, wall 1.4, fillet 4.5 mm, edge_div 10). Orientation-invariant anchors from Python/existing STL; pentagon-down height is analytic (2×r5).",
+  "description": "Icosidodecahedron hollow frame at constant-mm prototype (Ø100, borderMm 3.2, wall 1.4, fillet 4.5 mm, edge_div 10). Default authoring uses borderFraction; parity fixtures pass borderMm explicitly. Orientation-invariant anchors from Python/existing STL; pentagon-down height is analytic (2×r5).",
   "defaults": {
     "circumdiameterMm": 100,
     "borderMm": 3.2,

@@ -19,7 +19,7 @@ locally in the browser.
   "state": {
     "base": "icosidodeca",
     "circumdiameterMm": 100,
-    "borderMm": 3.2,
+    "borderFraction": 0.36,
     "depth": "hollow",
     "wallMm": 1.4,
     "openings": true,
@@ -125,10 +125,11 @@ change like this requires a format-version bump with a migration (or a
 geometry-based `faceKey`).
 
 Exactly one representation of a physical parameter is authoritative. For
-version 1, border width is stored as `borderMm`; a proportional openness value
-is derived rather than stored beside it. Opening corner radius is stored as
-`filletMm`; the applied radius may be lower on a face whose geometry cannot fit
-the requested value. Per-face applied millimetres are reported in metrics.
+version 1+, border is stored as `borderFraction` (relative to face apothem)
+by default; legacy `borderMm` remains a supported exclusive spelling. Opening
+corner radius is stored as `filletMm`; the applied radius may be lower on a
+face whose geometry cannot fit the requested value. Per-face applied
+millimetres (border and fillet) are reported in metrics.
 
 ### `view`
 

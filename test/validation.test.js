@@ -104,24 +104,30 @@ describe("compile() recovers from a stale resting face", () => {
 });
 
 describe("border has exactly one authoritative spelling", () => {
-  it("an explicit borderFraction displaces the default borderMm", () => {
-    const mm = compileFresh({});
-    const frac = compileFresh({ borderFraction: 0.28 });
+  it("default relative border spreads mm; constant mm stays uniform", () => {
+    const frac = compileFresh({});
+    const mm = compileFresh({ borderMm: 3.2 });
     assert.equal(frac.validation.ok, true, frac.validation.errors[0]?.message);
+    assert.equal(mm.validation.ok, true, mm.validation.errors[0]?.message);
     assert.notEqual(
       frac.metrics.volumeCm3, mm.metrics.volumeCm3,
-      "fraction must change the shape, not be silently ignored",
+      "fraction default must differ from constant-mm parity fixture",
     );
-    // A constant fraction scales border with face size, so mm must vary.
     assert.ok(
       frac.metrics.borderMm.max - frac.metrics.borderMm.min > 1,
       `expected a spread of mm widths, got ${JSON.stringify(frac.metrics.borderMm)}`,
     );
-    // A constant mm is uniform across every face.
     assert.ok(
       Math.abs(mm.metrics.borderMm.max - mm.metrics.borderMm.min) < 1e-9,
       "constant mm should be uniform",
     );
+  });
+
+  it("an explicit borderFraction displaces a legacy borderMm default", () => {
+    const frac = compileFresh({ borderFraction: 0.28 });
+    assert.equal(frac.validation.ok, true, frac.validation.errors[0]?.message);
+    assert.ok(frac.state.borderMm == null);
+    assert.equal(frac.state.borderFraction, 0.28);
   });
 
   it("supplying both spellings is rejected, not silently resolved", () => {

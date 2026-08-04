@@ -25,12 +25,19 @@ function emptyResult(state, validation) {
 export function compile(partial = {}) {
   const state = { ...DEFAULT_STATE, ...partial };
 
-  // Border has two mutually exclusive spellings and they describe different
-  // shapes: a constant mm gives every face the same frame width, a constant
-  // fraction scales frame width with face size. An explicit borderFraction
-  // therefore displaces the default borderMm rather than being ignored by it;
-  // supplying both explicitly is a validation error, not a silent precedence.
-  if (partial.borderFraction != null && partial.borderMm === undefined) {
+  // Border has two mutually exclusive spellings. Fraction scales with face
+  // size; millimetres keep a constant strut (legacy / headless fits). An
+  // explicit spelling displaces the other — including the default fraction.
+  const inMm = partial.borderMm !== undefined && partial.borderMm !== null;
+  const inFrac =
+    partial.borderFraction !== undefined && partial.borderFraction !== null;
+  if (inMm && !inFrac) {
+    state.borderMm = partial.borderMm;
+    state.borderFraction = null;
+  } else if (inFrac && !inMm) {
+    state.borderFraction = partial.borderFraction;
+    state.borderMm = null;
+  } else if (!inMm && !inFrac) {
     state.borderMm = null;
   }
 
@@ -69,12 +76,12 @@ export function compile(partial = {}) {
   try {
     orientation = computeOrientation(skeleton, faceIndex);
     // Wall and border ceilings must come from the skeleton the shell will
-    // actually solidify — exceeding them is a hard validation error. Only
-    // the FILLET ceiling may use the pre-subdivision solid when subdivided:
-    // tiny sub-faces would crush that slider to near-zero, and the shell
-    // clamps fillet per-face at solidify time, so a generous ceiling is safe.
+    // actually solidify — exceeding them is a hard validation error. Fillet
+    // and rounding may use the pre-subdivision solid when subdivided: tiny
+    // sub-faces would crush those sliders to near-zero, and the shell clamps
+    // both per-feature at solidify time, so a generous ceiling is safe.
     const limits = computeLimits(skeleton, state);
-    if ((state.subdiv ?? 0) > 0 && limits.filletMmMax != null) {
+    if ((state.subdiv ?? 0) > 0) {
       const unit = hullSkeletonForBase(state.base, {
         ...state,
         subdiv: 0,
@@ -84,13 +91,19 @@ export function compile(partial = {}) {
         scaleSkeleton(unit, state.circumdiameterMm / 2),
         state,
       );
-      if (preSub.filletMmMax != null) {
+      if (limits.filletMmMax != null && preSub.filletMmMax != null) {
         limits.filletMmMax = Math.max(limits.filletMmMax, preSub.filletMmMax);
+      }
+      if (limits.roundingMmMax != null && preSub.roundingMmMax != null) {
+        limits.roundingMmMax = Math.max(
+          limits.roundingMmMax,
+          preSub.roundingMmMax,
+        );
       }
     }
     // State-derived, so shared links / presets / project opens see it too —
     // not only the edit that clamped a border.
-    const guidance = borderPrintabilityWarning(state, limits);
+    const guidance = borderPrintabilityWarning(state, limits, solid.info.borderMm);
     if (guidance) validation.warnings.push(guidance);
     metrics = computeMetrics({
       skeleton,

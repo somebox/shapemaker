@@ -68,7 +68,7 @@ files, the URL hash, and dirty tracking.
 |---|---|---|
 | `base` | `icosidodeca` | shape family id (`BASES` in `src/bases.js`) |
 | `circumdiameterMm` | 100 | outer diameter across opposite vertices |
-| `borderMm` | 3.2 | frame width at edge midpoints |
+| `borderFraction` | 0.36 | frame width ÷ face apothem (Form %); legacy `borderMm` via `--border=` |
 | `wallMm` | 1.4 | minimum wall thickness |
 | `filletMm` | 4.5 | requested opening corner radius; clamped per face |
 | `jitter` | 0 | distort amount |

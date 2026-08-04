@@ -12,26 +12,47 @@ import { DEFAULT_STATE } from "./schema.js";
 export const PRINTABLE_BORDER_MM = 2.5;
 
 /**
- * Printability guidance when this shape cannot reach the FDM border floor —
- * derived from state + limits, so it fires on every entry path (edit, URL
- * hash, preset, project open), not only when an edit clamps the value.
- * The single emitting site for border printability wording.
+ * Printability guidance when the thinnest applied border cannot reach the
+ * FDM floor — derived from state + limits + optional applied min mm.
  *
- * @param {{ openings?: boolean }} state
+ * @param {{ openings?: boolean, borderFraction?: number|null, borderMm?: number|null }} state
  * @param {{ borderMmMax: number|null }} limits
+ * @param {{ min?: number|null }} [appliedBorderMm]  metrics.borderMm when known
  * @returns {{ stage: string, key: string, message: string } | null}
  */
-export function borderPrintabilityWarning(state, limits) {
+export function borderPrintabilityWarning(state, limits, appliedBorderMm = null) {
   if (state.openings === false) return null;
-  const max = limits.borderMmMax;
-  if (max == null || !Number.isFinite(max) || max >= PRINTABLE_BORDER_MM) {
+
+  let thinnest = null;
+  if (appliedBorderMm?.min != null && Number.isFinite(appliedBorderMm.min)) {
+    thinnest = appliedBorderMm.min;
+  } else if (state.borderMm != null && Number.isFinite(state.borderMm)) {
+    thinnest = state.borderMm;
+  } else if (
+    state.borderFraction != null &&
+    Number.isFinite(state.borderFraction) &&
+    limits.borderMmMax != null
+  ) {
+    // Constant fraction → thinnest strut ≈ frac × minEdgeDist;
+    // borderMmMax = minEdgeDist × 0.95.
+    thinnest = state.borderFraction * (limits.borderMmMax / 0.95);
+  } else {
+    const max = limits.borderMmMax;
+    if (max == null || !Number.isFinite(max) || max >= PRINTABLE_BORDER_MM) {
+      return null;
+    }
+    thinnest = max;
+  }
+
+  if (thinnest == null || !Number.isFinite(thinnest) || thinnest >= PRINTABLE_BORDER_MM) {
     return null;
   }
+  const key = state.borderFraction != null ? "borderFraction" : "borderMm";
   return {
     stage: "limits",
-    key: "borderMm",
+    key,
     message:
-      `Borders on this shape are limited to ${max.toFixed(1)} mm — below the ` +
+      `Thinnest borders on this shape are ${thinnest.toFixed(1)} mm — below the ` +
       `≈${PRINTABLE_BORDER_MM} mm printable floor. Scale up or reduce density to print this.`,
   };
 }
@@ -44,7 +65,7 @@ export function borderPrintabilityWarning(state, limits) {
  *   borderFraction?: number|null,
  *   wallMm?: number,  // rounding ceiling input; defaults to DEFAULT_STATE.wallMm
  * }} state
- * @returns {{ wallMmMax: number|null, borderMmMax: number|null, filletMmMax: number|null, roundingMmMax: number|null }}
+ * @returns {{ wallMmMax: number|null, borderMmMax: number|null, borderFractionMax: number|null, filletMmMax: number|null, roundingMmMax: number|null }}
  */
 export function computeLimits(skeleton, state) {
   const frames = faceFrames(skeleton);
@@ -55,6 +76,7 @@ export function computeLimits(skeleton, state) {
   const wallMmMax = depth === "hollow" ? inradius.min * 0.9 : null;
 
   let borderMmMax = null;
+  let borderFractionMax = null;
   let filletMmMax = null;
   let roundingMmMax = null;
   // Rounding clamps per feature (each edge by its own faces' allowances), so
@@ -66,6 +88,7 @@ export function computeLimits(skeleton, state) {
     let minEdgeDist = Infinity;
     let minFillet = Infinity;
     let minBorderFlat = Infinity;
+    borderFractionMax = 0.9;
     for (let fi = 0; fi < frames.length; fi++) {
       const frame = frames[fi];
       minEdgeDist = Math.min(minEdgeDist, frame.edgeDistMin);
@@ -94,6 +117,7 @@ export function computeLimits(skeleton, state) {
         maxStage2 = Math.max(maxStage2, 0.6 * fraction * frame.edgeDistMax);
       }
     }
+    // Constant-mm ceiling (legacy / printability): still the smallest face.
     borderMmMax = minEdgeDist * 0.95;
     filletMmMax = Number.isFinite(minFillet) ? minFillet : null;
 
@@ -113,5 +137,5 @@ export function computeLimits(skeleton, state) {
   }
   roundingMmMax = maxStage2 > 0 ? maxStage2 : null;
 
-  return { wallMmMax, borderMmMax, filletMmMax, roundingMmMax };
+  return { wallMmMax, borderMmMax, borderFractionMax, filletMmMax, roundingMmMax };
 }

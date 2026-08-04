@@ -346,6 +346,30 @@ describe("splitMeshAtPlane", () => {
     assert.equal(ranked[0].ringSize, 0);
   });
 
+  it("dense tilted meshes still find an in-band plane (subdivided globe)", () => {
+    // A subdivided globe resting on a face packs vertex z-levels so tightly
+    // that no mid-band gap clears the default vertex clearance; the old
+    // nearest-gap snap then escaped to a plane near the top of the model
+    // (z/H ≈ 0.96). Banded snapping + tighter clearance tiers must keep the
+    // cut in the band.
+    const r = compileFresh({ base: "globe", points: 24, subdiv: 1,
+      depth: "hollow", wallMm: 1.4, openings: true });
+    assert.ok(r.validation.ok, JSON.stringify(r.validation.errors));
+    const placed = placedOf(r);
+    const { heightMm } = heightOf(placed);
+    const ranked = rankSplitPlanes(placed, {
+      heightMm,
+      seamZs: skeletonSeamLevels(r.skeleton, r.orientation.matrix),
+    });
+    let chosen = null;
+    for (const c of ranked) {
+      try { splitMeshAtPlane(placed, c.planeZ); chosen = c; break; } catch {}
+    }
+    assert.ok(chosen, "a candidate seals");
+    const frac = chosen.planeZ / heightMm;
+    assert.ok(frac >= 0.35 && frac <= 0.65, `plane stays in band: ${frac.toFixed(3)}`);
+  });
+
   it("snapPlaneZ never returns a vertex z", () => {
     const r = compileFresh({ base: "cube", depth: "solid", openings: false });
     const placed = placedOf(r);

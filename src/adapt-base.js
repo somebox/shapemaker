@@ -1,6 +1,7 @@
 /**
  * Pure base-change adaptation: one patch, optional one-line warning.
- * Clamps only values that make validation fail (wall, border) — never fillet.
+ * Clamps only values that make validation fail (wall, constant-mm border) —
+ * never fillet, and never relative border (fraction always fits).
  * Printability guidance lives in limits.js (borderPrintabilityWarning),
  * where every entry path passes through — not here on the edit path.
  */
@@ -38,18 +39,41 @@ export function adaptStateForBase({ currentState, nextBase, nextLimits }) {
     reduced = true;
   }
 
-  // Border ceiling depends on openings; when closed, leave border as portable intent.
+  // Relative border always fits; only constant-mm mode can exceed a ceiling.
+  const usingFraction =
+    currentState.borderFraction != null && currentState.borderMm == null;
   const borderMax = nextLimits.borderMmMax;
-  if (currentState.openings && borderMax != null && Number.isFinite(borderMax)) {
+  if (
+    !usingFraction &&
+    currentState.openings &&
+    borderMax != null &&
+    Number.isFinite(borderMax)
+  ) {
     if (Number.isFinite(currentState.borderMm) && currentState.borderMm > borderMax) {
       patch.borderMm = positiveClamp(borderMax);
       reduced = true;
-    } else if (!(currentState.borderMm > 0)) {
-      // Heal a non-positive border (a past over-eager clamp could round to
-      // exactly 0 and leave the state stuck invalid).
-      patch.borderMm = positiveClamp(Math.min(1, borderMax));
+    } else if (!(currentState.borderMm > 0) && currentState.borderFraction == null) {
+      // Heal a non-positive mm border (past over-eager clamp). Prefer
+      // switching to the default relative border when mm is broken.
+      patch.borderMm = null;
+      patch.borderFraction = 0.36;
       reduced = true;
     }
+  }
+
+  // Heal a missing/invalid fraction when openings and no mm.
+  if (
+    currentState.openings &&
+    currentState.borderMm == null &&
+    !(
+      Number.isFinite(currentState.borderFraction) &&
+      currentState.borderFraction > 0 &&
+      currentState.borderFraction < 1
+    )
+  ) {
+    patch.borderFraction = 0.36;
+    patch.borderMm = null;
+    reduced = true;
   }
 
   return {

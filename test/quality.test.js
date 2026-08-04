@@ -58,7 +58,7 @@ describe("quality levels compile to valid meshes with expected density", () => {
 
   it("Normal keeps the parity anchors untouched (identity-preserving)", () => {
     clearPipelineCache();
-    const r = compile({});
+    const r = compile({ borderMm: 3.2 });
     assert.equal(r.state.edgeDiv, 10, "default is Normal");
     assert.equal(r.metrics.triangleCount, 7200);
     const rel = Math.abs(r.metrics.volumeCm3 - 16.14979675) / 16.14979675;
@@ -70,11 +70,11 @@ describe("quality levels compile to valid meshes with expected density", () => {
     // opening area grows toward the true curve ⇒ frame volume shrinks
     // monotonically. Draft > Normal > Fine, all within a small band.
     clearPipelineCache();
-    const draft = compile({ edgeDiv: 4 }).metrics.volumeCm3;
+    const draft = compile({ borderMm: 3.2, edgeDiv: 4 }).metrics.volumeCm3;
     clearPipelineCache();
-    const normal = compile({ edgeDiv: 10 }).metrics.volumeCm3;
+    const normal = compile({ borderMm: 3.2, edgeDiv: 10 }).metrics.volumeCm3;
     clearPipelineCache();
-    const fine = compile({ edgeDiv: 20 }).metrics.volumeCm3;
+    const fine = compile({ borderMm: 3.2, edgeDiv: 20 }).metrics.volumeCm3;
     assert.ok(draft > normal && normal > fine, `${draft} > ${normal} > ${fine} failed`);
     assert.ok((draft - fine) / normal < 0.05, "levels differ by more than 5%");
   });

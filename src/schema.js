@@ -11,6 +11,7 @@ import { BASES } from "./bases.js";
 export const STATE_KEYS = Object.freeze([
   "base",
   "circumdiameterMm",
+  "borderFraction",
   "borderMm",
   "depth",
   "wallMm",
@@ -24,20 +25,22 @@ export const STATE_KEYS = Object.freeze([
   "jitter",
   "jitterMode",
   "subdiv",
+  "subdivStyle",
   "soften",
   "faceIndex",
 ]);
 
 /**
- * Authoring defaults — millimetre border only (no borderFraction).
+ * Authoring defaults — relative border (fraction of face apothem). Constant
+ * millimetres remain valid for legacy hashes/projects and headless fits;
+ * exactly one of borderFraction / borderMm is authoritative when openings.
  * points/seed/separation drive the random base (and seed will drive jitter);
- * they are canonical for every base so hashes and projects stay uniform, and
- * they are additive-with-defaults, so pre-0.4 files normalize unchanged.
+ * they are canonical for every base so hashes and projects stay uniform.
  */
 export const DEFAULT_STATE = Object.freeze({
   base: "icosidodeca",
   circumdiameterMm: 100,
-  borderMm: 3.2,
+  borderFraction: 0.36,
   depth: "hollow",
   wallMm: 1.4,
   openings: true,
@@ -50,6 +53,7 @@ export const DEFAULT_STATE = Object.freeze({
   jitter: 0,
   jitterMode: "surface",
   subdiv: 0,
+  subdivStyle: "radial",
   soften: 0,
   faceIndex: -1,
 });
@@ -189,10 +193,27 @@ export const CONTROL_DEFS = [
     ],
   },
   {
-    // Outer-edge fillet by sphere clip: 0 keeps the exact flat solid,
-    // rising values round corners and edges onto a shrinking sphere while
-    // flat face interiors hold, 100 reaches the inscribed ball. Needs
-    // Subdivide for resolution; most pronounced on cube and tetra.
+    // Polygon split pattern: Radial fans 2k triangles per k-gon from the
+    // centroid (8 openings per cube side at Once); Grid cuts k corner
+    // quads (4 per cube side at Once, 16 at Twice). Triangles split 4:1
+    // either way. Smooth needs Radial — its sphere clip would bend the
+    // flat quads out of plane, so it is inert (and ignored) under Grid.
+    key: "subdivStyle",
+    group: "shape",
+    label: "Pattern",
+    type: "segments",
+    options: [
+      { value: "radial", label: "Radial" },
+      { value: "grid", label: "Grid" },
+    ],
+    inertWhen: (s) => !(s.subdiv > 0),
+  },
+  {
+    // Edge fillet by rounding clip: soften sets a radius (fraction of the
+    // inradius) and vertices project onto the rounded parent solid, so
+    // edges AND corners soften from the first step while flat interiors
+    // hold. 100 turns a cube into its inscribed ball. Needs Subdivide for
+    // resolution; most pronounced on cube and tetra.
     key: "soften",
     group: "shape",
     label: "Smooth",
@@ -201,7 +222,7 @@ export const CONTROL_DEFS = [
     min: 0,
     max: 100,
     step: 1,
-    inertWhen: (s) => !(s.subdiv > 0),
+    inertWhen: (s) => !(s.subdiv > 0) || s.subdivStyle === "grid",
   },
   {
     key: "depth",
@@ -236,14 +257,20 @@ export const CONTROL_DEFS = [
     inertWhen: (s) => s.depth === "solid",
   },
   {
-    key: "borderMm",
+    // Relative border: fraction of each face's centroid–edge distance
+    // (apothem). Scales with every opening — subdiv/globe/mixed faces no
+    // longer hard-fail on the smallest strut. Applied mm range is reported
+    // in the status strip. Legacy borderMm remains valid via hash/API.
+    key: "borderFraction",
     group: "form",
     label: "Border",
     type: "range",
-    unit: "mm",
-    min: 0.5,
-    max: 30,
-    step: 0.1,
+    unit: "%",
+    min: 5,
+    max: 90,
+    step: 1,
+    toState: (v) => v / 100,
+    fromState: (v) => (v == null ? 0 : v * 100),
     inertWhen: (s) => !s.openings,
   },
   {
@@ -307,6 +334,20 @@ export function normalizeState(input = {}) {
       out[key] = input[key];
     }
   }
+  // Border: exactly one spelling. Legacy mm-only input must not inherit the
+  // default fraction; fraction-only (or default) clears mm.
+  const inMm = input.borderMm !== undefined && input.borderMm !== null;
+  const inFrac =
+    input.borderFraction !== undefined && input.borderFraction !== null;
+  if (inMm && !inFrac) {
+    out.borderMm = input.borderMm;
+    delete out.borderFraction;
+  } else if (inFrac && !inMm) {
+    out.borderFraction = input.borderFraction;
+    delete out.borderMm;
+  } else if (!inMm && !inFrac) {
+    delete out.borderMm;
+  }
   // Heal Density from legacy hashes/projects so state matches the mesh the
   // generator actually builds (and export filenames stay honest).
   const clamped = clampPointsForBase(/** @type {string} */ (out.base), /** @type {number} */ (out.points));
@@ -318,7 +359,8 @@ export function normalizeState(input = {}) {
 }
 
 /**
- * Canonical serializable state (no nulls, no extras, no borderFraction).
+ * Canonical serializable state (no nulls, no extras).
+ * Omits the inactive border spelling so hashes stay exclusive.
  * @param {object} state
  */
 export function serializeState(state) {
@@ -328,6 +370,10 @@ export function serializeState(state) {
     const v = state[key];
     if (v === undefined || v === null) continue;
     out[key] = v;
+  }
+  // Prefer fraction when both somehow appear; never emit both.
+  if (out.borderFraction != null && out.borderMm != null) {
+    delete out.borderMm;
   }
   return out;
 }

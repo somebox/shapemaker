@@ -265,6 +265,9 @@ export function buildControl(def, inputs, ranges, errNodes, limitLabels) {
 export function applyLimits(lim, ranges, limitLabels, defs) {
   const map = {
     wallMm: lim.wallMmMax,
+    borderFraction: lim.borderFractionMax != null
+      ? lim.borderFractionMax * 100
+      : null,
     borderMm: lim.borderMmMax,
     filletMm: lim.filletMmMax,
     roundingMm: lim.roundingMmMax,
