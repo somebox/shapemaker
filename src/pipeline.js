@@ -226,7 +226,9 @@ export function scaleSkeleton(unit, radius) {
     positions[i] = unit.positions[i] * radius;
   }
   const faces = unit.faces.map((f) => f.slice());
-  return { positions, faces, edges: edgeList(faces) };
+  const out = { positions, faces, edges: edgeList(faces) };
+  if (unit.macroFaceId) out.macroFaceId = unit.macroFaceId.slice();
+  return out;
 }
 
 const shared = createPipeline();

@@ -232,11 +232,18 @@ annulus construction.
 
 **Rounding** (`roundingMm`) is a separate Form parameter that softens every
 hard edge of the model: quarter-circle roundovers on the opening lips (outer
-face → opening wall, and the inner mirror) AND affine-arc strips along every
+face → opening wall, and the inner mirror) AND circular-arc strips along every
 dihedral edge with sphere-patch fans at corners — a rounded cube is a die.
 It never changes the opening outline in-plane or the flat face planes.
 Default `0` keeps the hard construction byte-identical. Rounding applies to
 every depth/face mode (dihedral edges always; rims when hollow+open).
+
+Subdivide seams that stay coplanar with their parent face are **not** rounding
+features: Stage-2 follows the parent (macro) graph so a subdivided icosahedron
+rounds the original 30 edges rather than leaving sharp midpoints on the 4:1
+split. Smooth can bend those parent groups out of plane; the resulting facets
+are then independent dihedrals. An internal invariant failure during rounding
+does not emit a corrupt mesh — the last valid preview stays on screen.
 
 Clamping is **proportional per feature**: each edge clamps to its own two
 faces' local flat allowances (60% of the border band along that edge on open

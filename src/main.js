@@ -658,7 +658,35 @@ function regenerate({
 } = {}) {
   if (splitActive) disableSplit();
   const t0 = performance.now();
-  const next = compile(draft);
+  let next;
+  try {
+    next = compile(draft);
+  } catch (err) {
+    console.error("compile:", err);
+    draftValid = false;
+    viewer.setSplitEnabled(false);
+    ui.setResult(
+      {
+        skeleton: last?.skeleton ?? null,
+        mesh: null,
+        metrics: last?.metrics ?? null,
+        orientation: last?.orientation ?? null,
+        validation: {
+          ok: false,
+          errors: [{
+            key: "compile",
+            stage: "compile",
+            message: "Failed to generate this shape — try a smaller Rounding value or fewer subdivisions",
+          }],
+          warnings,
+        },
+        state: draft,
+      },
+      { limits: lastLimits, invalid: true, warnings },
+    );
+    updateProjectStatus();
+    return;
+  }
   if (!next.validation.ok) {
     draftValid = false;
     viewer.setSplitEnabled(false);

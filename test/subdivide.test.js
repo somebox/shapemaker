@@ -217,6 +217,28 @@ describe("subdivideSkeleton", () => {
     assert.deepEqual(Array.from(a.positions), Array.from(b.positions));
     assert.deepEqual(a.faces, b.faces);
   });
+
+  it("tags child faces with the root parent index through both levels", () => {
+    const cube = exact("cube");
+    const s1 = subdivideSkeleton(cube, 1);
+    assert.equal(s1.macroFaceId.length, s1.faces.length);
+    const c1 = new Map();
+    for (const id of s1.macroFaceId) c1.set(id, (c1.get(id) ?? 0) + 1);
+    assert.equal(c1.size, 6);
+    for (const n of c1.values()) assert.equal(n, 8);
+
+    const s2 = subdivideSkeleton(cube, 2);
+    const c2 = new Map();
+    for (const id of s2.macroFaceId) c2.set(id, (c2.get(id) ?? 0) + 1);
+    assert.equal(c2.size, 6);
+    for (const n of c2.values()) assert.equal(n, 32);
+
+    const ico = subdivideSkeleton(exact("icosahedron"), 1);
+    const ci = new Map();
+    for (const id of ico.macroFaceId) ci.set(id, (ci.get(id) ?? 0) + 1);
+    assert.equal(ci.size, 20);
+    for (const n of ci.values()) assert.equal(n, 4);
+  });
 });
 
 describe("subdivision through the pipeline", () => {

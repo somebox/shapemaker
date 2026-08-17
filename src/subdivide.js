@@ -47,7 +47,12 @@ export const SUBDIV_MAX = 2;
  *   inscribed ball. Default 0. Ignored (forced 0) for style "grid" — the
  *   clip would make the quads non-planar.
  * @param {"radial"|"grid"} [style]  polygon split pattern. Default "radial".
- * @returns {{ positions: Float64Array, faces: number[][], edges: number[][] }}
+ * @returns {{
+ *   positions: Float64Array,
+ *   faces: number[][],
+ *   edges: number[][],
+ *   macroFaceId: number[],
+ * }}
  */
 export function subdivideSkeleton(skeleton, level, soften = 0, style = "radial") {
   const n = Math.min(SUBDIV_MAX, Math.floor(level ?? 0));
@@ -55,7 +60,11 @@ export function subdivideSkeleton(skeleton, level, soften = 0, style = "radial")
   const grid = style === "grid";
   const s = grid ? 0 : Math.min(1, Math.max(0, soften));
 
-  let cur = { positions: skeleton.positions, faces: skeleton.faces };
+  let cur = {
+    positions: skeleton.positions,
+    faces: skeleton.faces,
+    parentId: skeleton.faces.map((_, i) => i),
+  };
   for (let i = 0; i < n; i++) cur = subdivideOnce(cur, grid);
 
   const positions = Float64Array.from(cur.positions);
@@ -113,8 +122,14 @@ export function subdivideSkeleton(skeleton, level, soften = 0, style = "radial")
       }
     }
   }
-  const faces = applyFaceIdentity(positions, cur.faces);
-  const out = { positions, faces, edges: edgeList(faces) };
+  const identified = applyFaceIdentity(positions, cur.faces, cur.parentId);
+  const faces = identified.faces;
+  const out = {
+    positions,
+    faces,
+    edges: edgeList(faces),
+    macroFaceId: identified.tags,
+  };
   assertSkeleton(out);
   return out;
 }
@@ -154,11 +169,11 @@ function projectOntoInset(p, planes, R) {
 }
 
 /**
- * @param {{ positions: ArrayLike<number>, faces: number[][] }} skel
+ * @param {{ positions: ArrayLike<number>, faces: number[][], parentId?: number[] }} skel
  * @param {boolean} [grid]  corner quads instead of centroid fans on n-gons
- * @returns {{ positions: number[], faces: number[][] }}
+ * @returns {{ positions: number[], faces: number[][], parentId: number[] }}
  */
-function subdivideOnce({ positions, faces }, grid = false) {
+function subdivideOnce({ positions, faces, parentId }, grid = false) {
   /** @type {number[]} */
   const pos = Array.from(positions);
   /** @type {Map<number, number>} undirected edge → midpoint vertex */
@@ -186,12 +201,23 @@ function subdivideOnce({ positions, faces }, grid = false) {
 
   /** @type {number[][]} */
   const out = [];
-  for (const ring of faces) {
+  /** @type {number[]} */
+  const outId = [];
+  const emit = (ring, id) => {
+    out.push(ring);
+    outId.push(id);
+  };
+  for (let fi = 0; fi < faces.length; fi++) {
+    const ring = faces[fi];
+    const id = parentId ? parentId[fi] : fi;
     const k = ring.length;
     if (k === 3) {
       const [a, b, c] = ring;
       const ab = midpoint(a, b), bc = midpoint(b, c), ca = midpoint(c, a);
-      out.push([a, ab, ca], [ab, b, bc], [ca, bc, c], [ab, bc, ca]);
+      emit([a, ab, ca], id);
+      emit([ab, b, bc], id);
+      emit([ca, bc, c], id);
+      emit([ab, bc, ca], id);
       continue;
     }
     // n-gon: flat split about the centroid — corner quads (grid) or a
@@ -208,15 +234,16 @@ function subdivideOnce({ positions, faces }, grid = false) {
         const a = ring[i];
         const mPrev = midpoint(ring[(i - 1 + k) % k], a);
         const mNext = midpoint(a, ring[(i + 1) % k]);
-        out.push([mPrev, a, mNext, center]);
+        emit([mPrev, a, mNext, center], id);
       }
     } else {
       for (let i = 0; i < k; i++) {
         const a = ring[i], b = ring[(i + 1) % k];
         const m = midpoint(a, b);
-        out.push([center, a, m], [center, m, b]);
+        emit([center, a, m], id);
+        emit([center, m, b], id);
       }
     }
   }
-  return { positions: pos, faces: out };
+  return { positions: pos, faces: out, parentId: outId };
 }

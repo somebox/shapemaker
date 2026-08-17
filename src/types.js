@@ -12,7 +12,14 @@
  * This module is documentation-only (SPEC.md contract); nothing imports it.
  */
 
-/** @typedef {{ positions: Float64Array, faces: number[][], edges: number[][] }} Skeleton */
+/**
+ * @typedef {{
+ *   positions: Float64Array,
+ *   faces: number[][],
+ *   edges: number[][],
+ *   macroFaceId?: number[],  // per-face parent id after subdivision (optional)
+ * }} Skeleton
+ */
 /** @typedef {{ positions: Float32Array, indices: Uint32Array, faceId: Uint32Array, positions64?: Float64Array }} Mesh */
 /** @typedef {{ faceIndex: number, matrix: Float64Array }} Orientation */
 /** @typedef {{ ok: boolean, errors: object[], warnings: object[] }} Validation */

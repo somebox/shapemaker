@@ -116,6 +116,11 @@ describe("M5 compile matrix", () => {
       { base: "cube", subdiv: 1 },
       { base: "cube", subdiv: 1, subdivStyle: "grid" },
       { base: "icosidodeca", subdiv: 1, subdivStyle: "grid", borderMm: 1.5, filletMm: 1.5 },
+      { base: "icosahedron", subdiv: 1 },
+      { base: "tetrahedron", subdiv: 1 },
+      { base: "octahedron", subdiv: 2 },
+      { base: "sphere", points: 24, subdiv: 1, borderMm: 1, filletMm: 1.5 },
+      { base: "icosahedron", subdiv: 1, soften: 40 },
     ]) {
       clearPipelineCache();
       const r = compile({

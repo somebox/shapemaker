@@ -217,3 +217,110 @@ describe("edge rounding (Stage 2)", () => {
     });
   }
 });
+
+describe("edge rounding with subdivision", () => {
+  function parentEdgeMidpoints(base) {
+    clearPipelineCache();
+    const { skeleton } = compile({ base, subdiv: 0, openings: false, depth: "solid" });
+    const mids = [];
+    const pos = skeleton.positions;
+    const seen = new Set();
+    for (const ring of skeleton.faces) {
+      for (let k = 0; k < ring.length; k++) {
+        const a = ring[k], b = ring[(k + 1) % ring.length];
+        const key = a < b ? `${a},${b}` : `${b},${a}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        mids.push([
+          (pos[a * 3] + pos[b * 3]) / 2,
+          (pos[a * 3 + 1] + pos[b * 3 + 1]) / 2,
+          (pos[a * 3 + 2] + pos[b * 3 + 2]) / 2,
+        ]);
+      }
+    }
+    return mids;
+  }
+
+  function meshHasPoint(mesh, x, y, z, tol = 1e-6) {
+    const p = mesh.positions64;
+    for (let i = 0; i < p.length; i += 3) {
+      if (Math.hypot(p[i] - x, p[i + 1] - y, p[i + 2] - z) < tol) return true;
+    }
+    return false;
+  }
+
+  for (const base of ["tetrahedron", "octahedron", "icosahedron"]) {
+    for (const subdiv of [1, 2]) {
+      for (const style of ["radial", "grid"]) {
+        it(`${base} subdiv=${subdiv} ${style} rounds watertight`, () => {
+          clearPipelineCache();
+          const r = compile({
+            base, subdiv, subdivStyle: style, roundingMm: 0.5, edgeDiv: 4,
+          });
+          assert.equal(r.validation.ok, true, r.validation.errors[0]?.message);
+          assertMeshInvariants(r.mesh);
+          assert.ok(r.metrics.roundingMm.min > 0.4, JSON.stringify(r.metrics.roundingMm));
+          assert.ok(Math.abs(r.metrics.roundingMm.max - 0.5) < 1e-6);
+        });
+      }
+    }
+  }
+
+  it("icosahedron subdiv=1 removes parent-edge midpoints and lowers solid volume", () => {
+    clearPipelineCache();
+    const sharp = compile({
+      base: "icosahedron", subdiv: 1, depth: "solid", openings: false, edgeDiv: 4,
+    });
+    clearPipelineCache();
+    const rounded = compile({
+      base: "icosahedron", subdiv: 1, roundingMm: 0.5,
+      depth: "solid", openings: false, edgeDiv: 4,
+    });
+    assert.equal(rounded.validation.ok, true, rounded.validation.errors[0]?.message);
+    assertMeshInvariants(rounded.mesh);
+    assert.ok(rounded.metrics.volumeMm3 < sharp.metrics.volumeMm3);
+    for (const [x, y, z] of parentEdgeMidpoints("icosahedron")) {
+      assert.equal(
+        meshHasPoint(rounded.mesh, x, y, z),
+        false,
+        `parent-edge midpoint still sharp at ${x.toFixed(3)},${y.toFixed(3)},${z.toFixed(3)}`,
+      );
+    }
+  });
+
+  it("closed shells round too (solid and hollow)", () => {
+    for (const extra of [
+      { depth: "solid", openings: false },
+      { depth: "hollow", openings: false },
+    ]) {
+      clearPipelineCache();
+      const r = compile({
+        base: "icosahedron", subdiv: 1, roundingMm: 0.5, edgeDiv: 4, ...extra,
+      });
+      assert.equal(r.validation.ok, true, r.validation.errors[0]?.message);
+      assertMeshInvariants(r.mesh);
+      assert.ok(r.metrics.roundingMm.max > 0);
+    }
+  });
+
+  it("tiny rounding is a no-op; 0.1 mm applies without overshoot", () => {
+    clearPipelineCache();
+    const z = compile({ base: "cube", roundingMm: 1e-8, edgeDiv: 4 });
+    assert.equal(z.validation.ok, true);
+    assert.equal(z.metrics.roundingMm.max, 0);
+    clearPipelineCache();
+    const r = compile({ base: "cube", roundingMm: 0.1, edgeDiv: 4 });
+    assert.equal(r.validation.ok, true);
+    assert.ok(Math.abs(r.metrics.roundingMm.max - 0.1) < 1e-9);
+    assert.ok(r.metrics.roundingMm.min <= 0.1 + 1e-12);
+  });
+
+  it("smooth-bent icosahedron still rounds watertight", () => {
+    clearPipelineCache();
+    const r = compile({
+      base: "icosahedron", subdiv: 1, soften: 40, roundingMm: 0.5, edgeDiv: 4,
+    });
+    assert.equal(r.validation.ok, true, r.validation.errors[0]?.message);
+    assertMeshInvariants(r.mesh);
+  });
+});

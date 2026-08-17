@@ -3,8 +3,8 @@
 #
 # Matrix: 12 bases × 4 entries (3 shell combos + stress) = 48, plus
 # Draft/Fine on the default solid (2) + jittered random (1) + 3 random
-# seeds × Draft/Fine (6) + M5 irregular extremes (8) = 65, plus 2 rounding
-# + 6 split halves = 73 STLs.
+# seeds × Draft/Fine (6) + M5 irregular extremes (8) = 65, plus rounding,
+# truncate, split halves, and subdiv+rounding. Count is EXPECTED below.
 #
 # Requires: node, and .venv with prototype/requirements.txt installed.
 set -euo pipefail
@@ -21,7 +21,7 @@ OUT="${ROOT}/test/out/acceptance"
 rm -rf "$OUT"
 mkdir -p "$OUT"
 EXPORT=(node scripts/export-stl.mjs)
-EXPECTED=75
+EXPECTED=76
 
 while IFS=$'\t' read -ra parts; do
   [[ ${#parts[@]} -gt 0 ]] || continue
@@ -199,6 +199,9 @@ emitHollowOpen("icosidodeca_rounding06__hollow_open.stl", {
 });
 emitHollowOpen("sphere_rounding04__hollow_open.stl", {
   base: "sphere", roundingMm: 0.4, points: 24, borderMm: 1, filletMm: 1.5,
+});
+emitHollowOpen("icosahedron_subdiv1_rounding05__hollow_open.stl", {
+  base: "icosahedron", subdiv: 1, roundingMm: 0.5,
 });
 
 // Truncation — the soccer ball (icosahedron at 33%).

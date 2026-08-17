@@ -376,15 +376,24 @@ function isConvexRing(positions, ring) {
 
 /**
  * Deterministic face identity: ring start + winding, then face sort.
- * Does not renumber vertices.
+ * Does not renumber vertices. Optional `tags[i]` rides along with `faces[i]`
+ * through the same permutation (subdivision parent-face ids).
  * @param {Float64Array} positions
  * @param {number[][]} faces
- * @returns {number[][]}
+ * @param {number[]} [tags]
+ * @returns {number[][] | { faces: number[][], tags: number[] }}
  */
-export function applyFaceIdentity(positions, faces) {
-  const rings = faces.map((ring) => canonicalizeRing(positions, ring.slice()));
-  rings.sort((a, b) => compareFaceKeys(faceSortKey(positions, a), faceSortKey(positions, b)));
-  return rings;
+export function applyFaceIdentity(positions, faces, tags) {
+  const items = faces.map((ring, i) => ({
+    ring: canonicalizeRing(positions, ring.slice()),
+    tag: tags ? tags[i] : undefined,
+  }));
+  items.sort((a, b) =>
+    compareFaceKeys(faceSortKey(positions, a.ring), faceSortKey(positions, b.ring)),
+  );
+  const out = items.map((x) => x.ring);
+  if (tags) return { faces: out, tags: items.map((x) => x.tag) };
+  return out;
 }
 
 function canonicalizeRing(positions, ring) {

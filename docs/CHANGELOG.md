@@ -28,6 +28,16 @@ onward every release gets a full entry here, and breaking changes to the
   survived as flats). A no-op on uniform solids and below 50 — the fillet
   regime and cube anchors are untouched.
 
+### Fixed
+
+- **Rounding on subdivided meshes**: Stage-2 follows the parent-face graph
+  instead of treating coplanar 4:1 seams as zero-radius edges. Icosahedron /
+  tetrahedron / octahedron with Subdivide Once or Twice now round the original
+  dihedrals (watertight, midpoints leave the sharp parent edges). Tiny
+  rounding values below a scale-aware floor are a no-op instead of minting
+  degenerate triangles; an internal generate failure keeps the last valid
+  preview and names the error.
+
 ## [0.9.0] — 2026-08-03
 
 ### Added

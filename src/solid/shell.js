@@ -118,8 +118,11 @@ export function buildShell(skeleton, opts) {
   }
   const s = depth === "hollow" ? 1.0 - wallMm / inradius.min : null;
 
-  const EPS_R = 1e-9;
-  const roundingActive = roundingMm > EPS_R;
+  // Scale-aware floor: values below this cannot form a representable strip
+  // (the old 1e-4 mm clamp could both overshoot a tiny request and mint
+  // degenerate triangles just above the activation epsilon).
+  const rEps = Math.max(1e-7, 1e-6 * inradius.min);
+  const roundingActive = roundingMm > rEps;
 
   const verts = [];
   for (let i = 0; i < nCorners; i++) {
@@ -186,7 +189,8 @@ export function buildShell(skeleton, opts) {
     stage2 = buildEdgeRounding(skeleton, frames, {
       radiusForEdge: (key) => {
         const a = allow.get(key) ?? roundingMm;
-        return Math.max(1e-4, Math.min(roundingMm, a));
+        const r = Math.min(roundingMm, a);
+        return r > rEps ? r : 0;
       },
       // Raw band-width budget: on acute dihedrals the tangency band is
       // wider than the radius (w = r·cot(ω/2) > r) and must still fit.
@@ -350,7 +354,7 @@ export function buildShell(skeleton, opts) {
 
     // Per-face rounding clamp from exact per-ray flat widths + wall lengths.
     let rFace = 0;
-    if (roundingMm > EPS_R && depth === "hollow" && s != null) {
+    if (roundingMm > rEps && depth === "hollow" && s != null) {
       let minFlat = Infinity;
       let minWall = Infinity;
       for (let k = 0; k < m; k++) {
@@ -363,7 +367,7 @@ export function buildShell(skeleton, opts) {
       }
       // 2r < wall; r < inner flat (≈ s·outer flat). Outer flat is looser.
       rFace = Math.min(roundingMm, 0.499 * minWall, 0.95 * s * minFlat);
-      if (!(rFace > EPS_R)) rFace = 0;
+      if (!(rFace > rEps)) rFace = 0;
     }
 
     const BO = BOr;
@@ -374,7 +378,7 @@ export function buildShell(skeleton, opts) {
     /** @type {number[]} */
     let OI = [];
 
-    if (rFace > EPS_R) {
+    if (rFace > rEps) {
       // Stage-1 rim roundovers: OO/OI are virtual; emit arc rings instead.
       const J = roundingSegmentsFor(edgeDiv);
       const uvec = [ux, uy, uz];
