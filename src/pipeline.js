@@ -9,7 +9,7 @@
 
 import { BASES, isKnownBase } from "./bases.js";
 import { hullToSkeleton, MERGE_POLICY_ID, MERGE_SKIP_ID } from "./hull.js";
-import { edgeList } from "./skeleton.js";
+import { edgeList, assertStarShaped } from "./skeleton.js";
 import { buildShell } from "./solid/shell.js";
 import { validationError } from "./validate.js";
 import { DEFAULT_STATE } from "./schema.js";
@@ -17,6 +17,7 @@ import { jitterPoints } from "./points/jitter.js";
 import { perturbSkeletonPlanes } from "./plane-perturb.js";
 import { subdivideSkeleton } from "./subdivide.js";
 import { truncateSkeleton } from "./truncate.js";
+import { spikeSkeleton } from "./solid/spike.js";
 
 /**
  * Generator + jitter params for a base — minimal, so cache keys stay small.
@@ -26,8 +27,10 @@ function generatorParams(base, state) {
   const jitter = state.jitter ?? DEFAULT_STATE.jitter;
   const subdiv = state.subdiv ?? DEFAULT_STATE.subdiv;
   const truncate = state.truncate ?? DEFAULT_STATE.truncate;
+  const spike = state.spike ?? DEFAULT_STATE.spike;
   const out = {
     ...(truncate > 0 ? { truncate } : {}),
+    ...(spike > 0 ? { spike } : {}),
     ...(jitter > 0
       ? {
           jitter,
@@ -41,7 +44,8 @@ function generatorParams(base, state) {
           subdivStyle: state.subdivStyle ?? DEFAULT_STATE.subdivStyle,
           // Smooth is a radial-only companion; grid ignores it, so it
           // must not fragment the cache key there either.
-          ...((state.subdivStyle ?? DEFAULT_STATE.subdivStyle) === "grid"
+          ...((state.subdivStyle ?? DEFAULT_STATE.subdivStyle) === "grid" ||
+          spike > 0
             ? {}
             : { soften: state.soften ?? DEFAULT_STATE.soften }),
         }
@@ -85,12 +89,13 @@ function withJitter(base, cloud, params) {
 
 /**
  * Hull stage for one base. Operation order is load-bearing:
- * jitter (distort the form) → subdivide (add resolution) → smooth (fillet).
+ * jitter (distort the form) → truncate → spike → subdivide → smooth.
  * Plane perturbation must run on the simple base solid — perturbing the
  * near-coplanar plane families a subdivision creates makes most of them
  * non-binding, silently discarding the subdivision and its smoothing. The
  * parametric bases follow the same order naturally (points jitter before
- * the hull).
+ * the hull). Spike runs after truncate so a soccer ball can still grow
+ * pyramids; it must not re-hull (that would fill the valleys).
  */
 function buildUnitSkeleton(base, cloud, merge, params) {
   let sk = hullToSkeleton(cloud, merge === MERGE_SKIP_ID ? { merge: false } : {});
@@ -104,13 +109,32 @@ function buildUnitSkeleton(base, cloud, merge, params) {
   if (params.truncate > 0) {
     sk = truncateSkeleton(sk, params.truncate / 100);
   }
+  if (params.spike > 0) {
+    sk = spikeSkeleton(sk, params.spike);
+  }
   if (params.subdiv > 0) {
+    // Smooth is omitted from generatorParams when spike > 0 (and under
+    // Grid), so params.soften is undefined here and ?? 0 is the ignore
+    // path. Rounding stays live; the solidifier skips reflex valleys.
     sk = subdivideSkeleton(
       sk,
       params.subdiv,
       (params.soften ?? 0) / 100,
       params.subdivStyle,
     );
+  }
+  if (params.spike > 0) {
+    try {
+      assertStarShaped(sk);
+    } catch (err) {
+      if (err?.validation) throw err;
+      throw validationError(
+        "points",
+        "spike",
+        "This spike height folds the surface — try a lower value",
+        { clampTo: 0 },
+      );
+    }
   }
   return sk;
 }
@@ -176,6 +200,7 @@ export function createPipeline() {
         buildUnitSkeleton(state.base, cloud, merge, params),
       );
 
+      const roundingMm = state.roundingMm ?? 0;
       const solidKey = JSON.stringify({
         hullKey,
         circumdiameterMm: state.circumdiameterMm,
@@ -183,7 +208,7 @@ export function createPipeline() {
         borderMm: state.borderMm ?? null,
         borderFraction: state.borderFraction ?? null,
         filletMm: state.filletMm,
-        roundingMm: state.roundingMm ?? 0,
+        roundingMm,
         edgeDiv: state.edgeDiv,
         openings: state.openings,
         depth: state.depth,
@@ -197,7 +222,7 @@ export function createPipeline() {
           borderMm: state.borderMm,
           borderFraction: state.borderFraction,
           filletMm: state.filletMm,
-          roundingMm: state.roundingMm ?? 0,
+          roundingMm,
           edgeDiv: state.edgeDiv,
           openings: state.openings,
           depth: state.depth,

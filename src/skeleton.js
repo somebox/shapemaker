@@ -1,9 +1,13 @@
 /**
- * Generic operations on a Skeleton (convex V/E/F) — shape-family agnostic.
+ * Generic operations on a Skeleton (V/E/F) — shape-family agnostic.
  *
  * Nothing here may know which polyhedron it is looking at. Point generators
  * produce skeletons; the solidifier consumes them through this module, which
  * is what lets M3 add platonic bases without touching solid/shell.js.
+ *
+ * Convexity is the hull stage's job. Spike may emit origin-star-convex
+ * meshes (every ray from the origin hits the surface once); assertStarShaped
+ * is the certificate the hollow scale and face openings rely on.
  */
 
 /**
@@ -138,6 +142,75 @@ export function assertSkeleton(skeleton, opts = {}) {
     }
   }
   return true;
+}
+
+/**
+ * Solid-angle cover of the origin: ∑Ω / 4π == 1 iff every ray from the
+ * origin meets the surface exactly once (origin-star-convex, origin inside).
+ * Fan-triangulates n-gons. Throws if the cover is not 1.
+ *
+ * @param {{ positions: Float64Array, faces: number[][] }} skeleton
+ * @param {number} [tol]  relative |cover − 1| allowed (default 1e-6)
+ * @returns {true}
+ */
+export function assertStarShaped(skeleton, tol = 1e-6) {
+  const cover = starCover(skeleton);
+  if (!Number.isFinite(cover) || Math.abs(cover - 1) > tol) {
+    throw new Error(
+      `origin does not see every face once (cover ${cover.toFixed(6)})`,
+    );
+  }
+  return true;
+}
+
+/**
+ * ∑ signed solid angle of origin-projected faces, in units of 4π.
+ * 1 = origin inside and star-convex; 0 = origin outside; other = overlap.
+ *
+ * @param {{ positions: Float64Array, faces: number[][] }} skeleton
+ * @returns {number}
+ */
+export function starCover(skeleton) {
+  const { positions, faces } = skeleton;
+  let sum = 0;
+  for (const ring of faces) {
+    for (let i = 1; i < ring.length - 1; i++) {
+      sum += triangleSolidAngle(
+        positions, ring[0], ring[i], ring[i + 1],
+      );
+    }
+  }
+  return sum / (4 * Math.PI);
+}
+
+/**
+ * Van Oosterom–Strackee solid angle of triangle ABC as seen from the origin.
+ * Sign follows the winding (positive when ABC is CCW as seen from outside
+ * an origin-inside solid).
+ *
+ * @param {Float64Array} p
+ * @param {number} ia
+ * @param {number} ib
+ * @param {number} ic
+ */
+function triangleSolidAngle(p, ia, ib, ic) {
+  const ax = p[ia * 3], ay = p[ia * 3 + 1], az = p[ia * 3 + 2];
+  const bx = p[ib * 3], by = p[ib * 3 + 1], bz = p[ib * 3 + 2];
+  const cx = p[ic * 3], cy = p[ic * 3 + 1], cz = p[ic * 3 + 2];
+  const al = Math.hypot(ax, ay, az);
+  const bl = Math.hypot(bx, by, bz);
+  const cl = Math.hypot(cx, cy, cz);
+  if (!(al > 0 && bl > 0 && cl > 0)) return 0;
+  const triple =
+    ax * (by * cz - bz * cy) +
+    ay * (bz * cx - bx * cz) +
+    az * (bx * cy - by * cx);
+  const denom =
+    al * bl * cl +
+    (ax * bx + ay * by + az * bz) * cl +
+    (bx * cx + by * cy + bz * cz) * al +
+    (cx * ax + cy * ay + cz * az) * bl;
+  return 2 * Math.atan2(triple, denom);
 }
 
 /**

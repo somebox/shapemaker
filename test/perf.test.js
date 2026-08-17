@@ -41,4 +41,20 @@ describe("predictedCompileMs", () => {
     assert.equal(predictedCompileMs(0, null, { subdiv: 2 }), 0);
     assert.equal(predictedCompileMs(60, undefined, undefined), 60);
   });
+
+  it("quadruples when spike turns on (n-gons become n triangles)", () => {
+    assert.equal(predictedCompileMs(50, { spike: 0 }, { spike: 1.7 }), 200);
+    assert.equal(predictedCompileMs(400, { spike: 1.7 }, { spike: 0 }), 100);
+  });
+
+  it("changing spike height is topology-neutral", () => {
+    assert.equal(predictedCompileMs(80, { spike: 1.2 }, { spike: 2.4 }), 80);
+  });
+
+  it("composes spike and subdiv scales", () => {
+    assert.equal(
+      predictedCompileMs(50, { subdiv: 0, spike: 0 }, { subdiv: 1, spike: 1.7 }),
+      800,
+    );
+  });
 });

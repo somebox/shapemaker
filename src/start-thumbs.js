@@ -15,11 +15,20 @@ const TILT = 0.44;
 const cache = new Map();
 
 /**
- * @param {{ base: string, points?: number, seed?: number, separation?: number, jitter?: number }} state
+ * @param {{ base: string, points?: number, seed?: number, separation?: number, jitter?: number, truncate?: number, spike?: number, subdiv?: number }} state
  * @returns {string} standalone `<svg>` markup (aria-hidden; stroke = currentColor)
  */
 export function startThumbSvg(state) {
-  const key = [state.base, state.points, state.seed, state.separation, state.jitter].join("|");
+  const key = [
+    state.base,
+    state.points,
+    state.seed,
+    state.separation,
+    state.jitter,
+    state.truncate,
+    state.spike,
+    state.subdiv,
+  ].join("|");
   const hit = cache.get(key);
   if (hit) return hit;
 

@@ -52,11 +52,14 @@ Shipped in 0.7.0: cuboctahedron, rhombic dodecahedron, rhombic triacontahedron,
 and a lat/long globe (Density → meridians). Further vocabulary ideas:
 
 - Additional opening generators such as circle or mirrored-face openings.
-- Skeleton operators still open: dual (truncate, subdivide + smooth ship —
-  truncate's re-hull is the template a dual operator would follow). Possible
-  follow-ups: higher subdivision levels behind a performance check; a
-  geodesic (outward spherify) mode if wanted — the Sphere base covers most
-  of that ground.
+- Skeleton operators still open: dual (truncate, spike, subdivide + smooth
+  ship — truncate's re-hull is the template a dual operator would follow).
+  Possible follow-ups: higher subdivision levels behind a performance check;
+  a geodesic (outward spherify) mode if wanted — the Sphere base covers most
+  of that ground. Spike after subdivide on an icosahedron already covers
+  similar visual territory to an echidnahedron; a dedicated 20-plane
+  echidnahedron (or 92-vertex table) stays Later — tiny openings, one fixed
+  shape, Kepler–Poinsot pentagram faces out of version 1.
 - Scale-to-target mean edge for irregular forms.
 - Separate jitter seed.
 - User preset store (“Yours”) separate from immutable built-ins; Save-as-preset
@@ -169,6 +172,11 @@ performance budget, and export guarantees before promoting it from backlog.
   so it matches STL; quality presets only increase facet density.
 - **True struts remain backlog.** No geometry dependency is chosen without a
   demonstrated use case.
+- **Origin-star-convex meshes are in scope; general concave / booleans are
+  not.** Hollow walls are a uniform scale about the origin, so every ray
+  from the origin must hit the surface once. Spike (pyramids and dimples)
+  passes that certificate; CSG, true offset walls, and Kepler–Poinsot
+  pentagram faces stay unscheduled.
 - **First `localStorage` use is onboarding (and collapsible panel groups), not
   session recovery.** The seen-flag / group-open keys are convenience UI state;
   portable projects and URL hash remain the recovery paths. Optional local

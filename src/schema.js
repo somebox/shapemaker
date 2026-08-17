@@ -25,11 +25,15 @@ export const STATE_KEYS = Object.freeze([
   "jitter",
   "jitterMode",
   "truncate",
+  "spike",
   "subdiv",
   "subdivStyle",
   "soften",
   "faceIndex",
 ]);
+
+/** Spike slider / validation ceiling (apex radius in parent circumradius units). */
+export const SPIKE_T_MAX = 4;
 
 /**
  * Authoring defaults — relative border (fraction of face apothem). Constant
@@ -54,6 +58,7 @@ export const DEFAULT_STATE = Object.freeze({
   jitter: 0,
   jitterMode: "surface",
   truncate: 0,
+  spike: 0,
   subdiv: 0,
   subdivStyle: "radial",
   soften: 0,
@@ -89,11 +94,13 @@ export function separationForPoints(points) {
 }
 
 /**
- * The mean-edge ↔ scale link is a bijection only on exact regular shapes;
- * on any parametric hull or under jitter the Edge field becomes a readout.
+ * The mean-edge ↔ scale link is a bijection only on exact regular shapes
+ * (every edge the same length). Jitter breaks that. Spike still scales
+ * uniformly, but ridges and valleys have different lengths, so Edge is a
+ * readout of the mean rather than a single-length input.
  */
 export function isEdgeInputReadOnly(state) {
-  return !BASES[state.base]?.regular || state.jitter > 0;
+  return !BASES[state.base]?.regular || state.jitter > 0 || state.spike > 0;
 }
 
 /** @type {ControlDef[]} */
@@ -180,10 +187,10 @@ export const CONTROL_DEFS = [
     inertWhen: (s) => !(s.jitter > 0),
   },
   {
-    // Vertex truncation (skeleton operator, before subdivide): cuts each
-    // corner by re-hulling edge points at t% along every edge. 50 is full
-    // rectification (cube → cuboctahedron); an icosahedron at ~33 is the
-    // soccer ball. Composes with jitter, subdivide, smooth, and rounding.
+    // Vertex truncation (skeleton operator, before spike / subdivide): cuts
+    // each corner by re-hulling edge points at t% along every edge. 50 is
+    // full rectification (cube → cuboctahedron); an icosahedron at ~33 is
+    // the soccer ball. Composes with jitter, spike, subdivide, and rounding.
     key: "truncate",
     group: "shape",
     label: "Truncate",
@@ -194,9 +201,23 @@ export const CONTROL_DEFS = [
     step: 1,
   },
   {
+    // Pyramid on every face (after truncate, before subdivide). t is the
+    // apex radius in parent circumradius units; 0 skips. t above the face
+    // inradius spikes; t below dimples. Smooth is inert (halfspace inset
+    // is the convex hull of a star). Rounding stays live but ridge-only:
+    // reflex valleys skip the rolling-ball strip.
+    key: "spike",
+    group: "shape",
+    label: "Spike",
+    type: "range",
+    min: 0,
+    max: SPIKE_T_MAX,
+    step: 0.01,
+  },
+  {
     // Surface subdivision (skeleton operator): triangles split 4:1,
     // polygons fan over midpoint-split edges. Order is load-bearing:
-    // jitter → subdivide → smooth. Smooth clips corners inward.
+    // jitter → truncate → spike → subdivide → smooth.
     key: "subdiv",
     group: "shape",
     label: "Subdivide",
@@ -238,7 +259,7 @@ export const CONTROL_DEFS = [
     min: 0,
     max: 100,
     step: 1,
-    inertWhen: (s) => !(s.subdiv > 0) || s.subdivStyle === "grid",
+    inertWhen: (s) => !(s.subdiv > 0) || s.subdivStyle === "grid" || s.spike > 0,
   },
   {
     key: "depth",
@@ -301,6 +322,9 @@ export const CONTROL_DEFS = [
     inertWhen: (s) => !s.openings,
   },
   {
+    // Dihedral rounding. On spiked meshes only convex ridges (and apexes)
+    // take a radius — reflex valleys skip, because the blend centre would
+    // sit outside the fold.
     key: "roundingMm",
     group: "form",
     label: "Rounding",

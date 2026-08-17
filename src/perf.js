@@ -21,26 +21,40 @@ export const HEAVY_COMPILE_MS = 100;
 const FLOOR_MS_PER_FACE = 0.6;
 
 /**
- * Predict the next compile duration from the last measured one. Subdivision
- * is the one control whose single click multiplies the workload before any
- * measurement exists: each level at least quadruples the face count and
- * compile time is roughly linear in faces, so scale by 4 per level either
- * way (shrinking promptly leaves heavy mode when the user backs off) and
- * apply the per-face floor to the projected count.
+ * Spike replaces each n-gon with n triangles (typical 3–5× faces). Use 4
+ * so a first-spike click from a light compile trips heavy mode the way
+ * subdiv does. Changing t on an already-spiked mesh is topology-neutral.
+ */
+const SPIKE_FACE_SCALE = 4;
+
+/**
+ * Predict the next compile duration from the last measured one.
+ * Subdivision multiplies faces ~4× per level; turning Spike on multiplies
+ * ~4× (n-gons → n triangles). Scales compose when both change. Shrinking
+ * promptly leaves heavy mode when the user backs off. The per-face floor
+ * catches overhead-dominated measurements on the first heavy click.
  *
  * @param {number} lastMs  last measured compile duration (0 = no data)
- * @param {{ subdiv?: number } | null | undefined} prevState
- * @param {{ subdiv?: number } | null | undefined} nextState
+ * @param {{ subdiv?: number, spike?: number } | null | undefined} prevState
+ * @param {{ subdiv?: number, spike?: number } | null | undefined} nextState
  * @param {number} [prevFaces]  face count of the last compiled skeleton
  * @returns {number} estimated milliseconds
  */
 export function predictedCompileMs(lastMs, prevState, nextState, prevFaces = 0) {
   const est = lastMs > 0 ? lastMs : 0;
-  const d = (nextState?.subdiv ?? 0) - (prevState?.subdiv ?? 0);
-  if (d === 0) return est;
-  const scale = Math.pow(4, d);
+  const dSub = (nextState?.subdiv ?? 0) - (prevState?.subdiv ?? 0);
+  const prevSpike = (prevState?.spike ?? 0) > 0;
+  const nextSpike = (nextState?.spike ?? 0) > 0;
+  const spikeScale = !prevSpike && nextSpike
+    ? SPIKE_FACE_SCALE
+    : prevSpike && !nextSpike
+      ? 1 / SPIKE_FACE_SCALE
+      : 1;
+  const subdivScale = dSub === 0 ? 1 : Math.pow(4, dSub);
+  const scale = spikeScale * subdivScale;
+  if (scale === 1) return est;
   const scaled = est * scale;
-  if (d > 0 && prevFaces > 0) {
+  if (scale > 1 && prevFaces > 0) {
     return Math.max(scaled, FLOOR_MS_PER_FACE * prevFaces * scale);
   }
   return scaled;

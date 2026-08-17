@@ -7,6 +7,22 @@ surface is still moving, and git history is the detailed record. From **1.0**
 onward every release gets a full entry here, and breaking changes to the
 [project format](PROJECT_FORMAT.md) get a migration note.
 
+## [0.11.0] — 2026-08-17
+
+### Added
+
+- **Spike** (`spike`, Shape 0–4): pyramid (or dimple) on every face after
+  truncate, before subdivide. Apex sits on the centroid ray at radius `t`
+  (parent circumradius = 1); schema 0 skips. One triangle per side, no
+  coplanar merge, then renormalize so Size still means circumdiameter.
+  Origin-star-convex certificate (`assertStarShaped`); Smooth is inert when
+  spiked. Rounding stays live but ridge-only (points round, valleys stay
+  sharp). Additive default 0 — old hashes and projects
+  normalize unchanged. Named stars are presets (stella octangula, small
+  stellated dodecahedron, small triambic icosahedron, great stellated
+  dodecahedron,   great dodecahedron dimple), not new bases. Acceptance
+  matrix: 85 STLs.
+
 ## [0.10.0] — 2026-08-04
 
 ### Added

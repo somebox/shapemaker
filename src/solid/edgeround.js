@@ -1,6 +1,9 @@
 /**
- * Stage-2 edge rounding: dihedral edge strips + corner patches for the
- * outer surface of a convex skeleton.
+ * Stage-2 edge rounding: dihedral edge strips + corner patches.
+ *
+ * The rolling-ball construction assumes a convex dihedral (centre inside
+ * both face planes). Reflex valleys (spike folds) skip: r = 0 on those
+ * edges, so the points round and the gutters stay sharp.
  *
  * Rounding follows the MACRO feature graph: coplanar subdivision seams are
  * refinement, not dihedrals, so they never get a zero-radius strip. Each
@@ -128,12 +131,20 @@ export function buildEdgeRounding(skeleton, frames, opts) {
     const t0 = norm(cross(frames[me.fa].normal, d));
     const t1 = norm(cross(frames[me.fb].normal, mul(d, -1)));
     const flat = dot(frames[me.fa].normal, frames[me.fb].normal) > 1 - 1e-9;
+    // Outward-normal test: the other face's centroid sits outside this
+    // plane iff the dihedral is reflex (a spike valley). The rolling-ball
+    // centre formula puts c on the wrong side of those folds — skip them
+    // and only round ridges (convex edges and pyramid apexes).
+    const reflex = dot(
+      frames[me.fa].normal,
+      sub(frames[me.fb].origin, frames[me.fa].origin),
+    ) > 1e-9;
     const cosw = Math.max(-1, Math.min(1, dot(t0, t1)));
     const sinw = Math.sqrt(Math.max(1 - cosw * cosw, 0));
     const cotHalf = sinw > 1e-9 ? (1 + cosw) / sinw : 1;
     let r = 0;
     let budget = 0;
-    if (!flat) {
+    if (!flat && !reflex) {
       r = Math.min(...me.keys.map((k) => radiusForEdge(k)));
       budget = Math.min(...me.keys.map((k) => allowForEdge?.(k) ?? r));
       if (!(r > 0) || !Number.isFinite(r)) r = 0;

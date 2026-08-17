@@ -10,6 +10,7 @@
 
 import { transformPoint } from "./orient.js";
 import { newell } from "./skeleton.js";
+import { SPIKE_T_MAX } from "./schema.js";
 
 /** Edges within this tilt of horizontal flag as flat-bridge risk. */
 export const FLAT_TILT_RAD = (5 * Math.PI) / 180;
@@ -59,6 +60,8 @@ export function computeMetrics({ skeleton, info, orientation, watertight, limits
       borderFractionMax: null,
       filletMmMax: null,
       roundingMmMax: null,
+      spikeMin: 0,
+      spikeMax: SPIKE_T_MAX,
     },
     // placed
     bboxMm: bbox.bbox,

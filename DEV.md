@@ -72,6 +72,8 @@ files, the URL hash, and dirty tracking.
 | `wallMm` | 1.4 | minimum wall thickness |
 | `filletMm` | 4.5 | requested opening corner radius; clamped per face |
 | `jitter` | 0 | distort amount |
+| `truncate` | 0 | vertex cut % (re-hull) |
+| `spike` | 0 | apex radius in parent circumradius units (0 skips) |
 | `subdiv` / `soften` | 0 | subdivision level and smooth |
 | `edgeDiv` | 10 | tessellation density (**Quality** control) |
 | `faceIndex` | auto (−1) | resting face; default is max-area face |
@@ -97,7 +99,7 @@ index.html          entry (import map → ./vendor/…, vendored fonts, tokens)
 vendor/three/       Three.js r170 ESM + OrbitControls
 vendor/quickhull3d/ QuickHull ESM bundle (MIT)
 vendor/fonts/       Archivo + IBM Plex Mono WOFF2 subsets
-presets.json        versioned preset recipes (may be empty)
+presets.json        versioned preset recipes (named stars)
 src/
   main.js           session owner: draft state, history, save/open, export
   ui.js             panel — owns DOM, emits patches, never owns state
@@ -107,12 +109,13 @@ src/
   bases.js          flat BASES registry
   hull.js           QuickHull wrapper + coplanar merge + face identity
   compile.js        THE regeneration API — never throws for bad input
-  pipeline.js       points → jitter → subdivide → smooth → scale → shell
-  skeleton.js       edgeList, inradiusRange, assertSkeleton
+  pipeline.js       points → jitter → truncate → spike → subdivide → scale → shell
+  skeleton.js       edgeList, inradiusRange, assertSkeleton, assertStarShaped
   faceframe.js      toFaceFrame / fromFaceFrame
   points/           platonic, icosidodeca, cuboctahedron, rhombic, globe, sphere, random, jitter
   geom/             poly2, edgesub, annulus
   solid/shell.js    depth × OpeningGenerator
+  solid/spike.js    face pyramids / dimples (origin-star-convex)
   export/stl.js     binary STL writer
   export/svg.js     camera-projected SVG
   viewer.js         only module that imports Three.js

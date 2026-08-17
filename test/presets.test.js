@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { parsePresetsEnvelope } from "../src/presets.js";
 import { statesEqual } from "../src/schema.js";
 import { compile } from "../src/compile.js";
+import { countPlanes } from "../src/solid/spike.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const envelope = JSON.parse(
@@ -13,10 +14,23 @@ const envelope = JSON.parse(
 );
 
 describe("presets.json", () => {
-  it("validates an empty preset list (bases-only chooser)", () => {
+  it("validates the shipped star presets", () => {
     const r = parsePresetsEnvelope(envelope);
     assert.equal(r.ok, true, r.error);
-    assert.equal(r.presets.length, 0);
+    assert.equal(r.presets.length, 5);
+    const planes = {
+      "stella-octangula": 8,
+      "small-stellated-dodeca": 12,
+      "small-triambic-icosa": 20,
+      "great-stellated-dodeca": 12,
+      "great-dodecahedron": 12,
+    };
+    for (const p of r.presets) {
+      assert.ok(p.state.spike > 0, p.id);
+      const c = compile(p.state);
+      assert.equal(c.validation.ok, true, `${p.id}: ${c.validation.errors[0]?.message}`);
+      assert.equal(countPlanes(c.skeleton), planes[p.id], p.id);
+    }
   });
 
   it("still validates and compiles non-empty envelopes", () => {

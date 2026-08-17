@@ -16,7 +16,7 @@ required. On first visit, a short tip walks through the loop:
 
 1. **Pick a start** — choose a built-in shape from the Start from row.
 2. **Adjust** — tune Size, Form (hollow/solid, wall, border, fillet), and
-   optional distort (jitter, subdivide, smooth).
+   optional distort (jitter, truncate, spike, subdivide, smooth).
 3. **Click a face** — set which side rests on the print bed.
 4. **Export** — download STL for the slicer, or SVG for a clean outline.
 
@@ -42,10 +42,10 @@ flat-bridge overlays, and a height clip to inspect cavities.
 
 | Area | Controls |
 |---|---|
-| Start | Platonic solids, icosidodecahedron, cuboctahedron, rhombic 12/30, globe, sphere, random hull |
+| Start | Platonic solids, icosidodecahedron, cuboctahedron, rhombic 12/30, globe, sphere, random hull; named star presets |
 | Size | Overall diameter; Edge length on regular shapes |
 | Form | Hollow or solid, open or closed faces, wall, border, fillet |
-| Distort | Jitter (amount, direction, seed), subdivide, smooth |
+| Distort | Jitter (amount, direction, seed), truncate, spike, subdivide, smooth |
 | Make | Resting face, mesh quality (Draft / Normal / Fine), material / mass estimate |
 
 Quality densifies real triangles in both the preview and the STL — the view

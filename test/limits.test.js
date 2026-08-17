@@ -4,6 +4,7 @@ import { compile } from "../src/compile.js";
 import { filletRMax, filletPolygon, insetScale } from "../src/geom/poly2.js";
 import { borderPrintabilityWarning, PRINTABLE_BORDER_MM } from "../src/limits.js";
 import { clearPipelineCache } from "../src/pipeline.js";
+import { SPIKE_T_MAX } from "../src/schema.js";
 
 describe("filletRMax", () => {
   it("matches the clamp used by filletPolygon", () => {
@@ -30,6 +31,8 @@ describe("metrics.limits", () => {
     assert.equal(borderFractionMax, 0.9);
     assert.ok(filletMmMax > 1 && filletMmMax < 50);
     assert.ok(roundingMmMax > 1);
+    assert.equal(metrics.limits.spikeMin, 0);
+    assert.equal(metrics.limits.spikeMax, SPIKE_T_MAX);
     assert.ok(1.4 <= wallMmMax);
     // Relative border: applied mm spreads across face sizes.
     assert.ok(metrics.borderMm.min > 0);

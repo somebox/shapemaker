@@ -4,7 +4,8 @@
 # Matrix: 12 bases × 4 entries (3 shell combos + stress) = 48, plus
 # Draft/Fine on the default solid (2) + jittered random (1) + 3 random
 # seeds × Draft/Fine (6) + M5 irregular extremes (8) = 65, plus rounding,
-# truncate, split halves, and subdiv+rounding. Count is EXPECTED below.
+# truncate, split halves, subdiv+rounding, and spike cases. Count is
+# EXPECTED below.
 #
 # Requires: node, and .venv with prototype/requirements.txt installed.
 set -euo pipefail
@@ -21,7 +22,7 @@ OUT="${ROOT}/test/out/acceptance"
 rm -rf "$OUT"
 mkdir -p "$OUT"
 EXPORT=(node scripts/export-stl.mjs)
-EXPECTED=76
+EXPECTED=85
 
 while IFS=$'\t' read -ra parts; do
   [[ ${#parts[@]} -gt 0 ]] || continue
@@ -69,7 +70,9 @@ function emitHollowOpen(name, opts) {
   const border = probedBorder(opts);
   const flags = Object.entries({ depth: "hollow", openings: true, ...opts })
     .map(([k, v]) => `--${kebab(k)}=${v}`);
-  console.log([name, ...flags, `--border=${border}`, "--fillet=2"].join("\t"));
+  const extra = [`--border=${border}`];
+  if (opts.filletMm == null) extra.push("--fillet=2");
+  console.log([name, ...flags, ...extra].join("\t"));
 }
 
 for (const base of BASE_IDS) {
@@ -207,6 +210,35 @@ emitHollowOpen("icosahedron_subdiv1_rounding05__hollow_open.stl", {
 // Truncation — the soccer ball (icosahedron at 33%).
 emitHollowOpen("icosahedron_t33__hollow_open.stl", {
   base: "icosahedron", truncate: 33,
+});
+
+// Spike — origin-star-convex pyramids (named stellations + composition).
+emitHollowOpen("octahedron_spike_stella__hollow_open.stl", {
+  base: "octahedron", spike: Math.sqrt(3), filletMm: 1.5,
+});
+emitHollowOpen("octahedron_spike_stella_rounding15__hollow_open.stl", {
+  base: "octahedron", spike: Math.sqrt(3), roundingMm: 1.5, filletMm: 1.5,
+});
+emitHollowOpen("dodecahedron_spike_ssd__hollow_open.stl", {
+  base: "dodecahedron", spike: 1.776901418668612, filletMm: 1.5,
+});
+emitHollowOpen("icosahedron_spike_sti__hollow_open.stl", {
+  base: "icosahedron", spike: 1.0661408512011672, filletMm: 1.5,
+});
+emitHollowOpen("icosahedron_spike_gsd__hollow_open.stl", {
+  base: "icosahedron", spike: 2.383963416875298, filletMm: 1.5,
+});
+emitHollowOpen("icosahedron_spike_gd__hollow_open.stl", {
+  base: "icosahedron", spike: 0.5627774222552397, filletMm: 1.5,
+});
+emitHollowOpen("icosahedron_t33_spike__hollow_open.stl", {
+  base: "icosahedron", truncate: 33, spike: 1.4, filletMm: 1.5,
+});
+emitHollowOpen("octahedron_spike_subdiv1__hollow_open.stl", {
+  base: "octahedron", spike: Math.sqrt(3), subdiv: 1, filletMm: 1.5,
+});
+emitHollowOpen("sphere_spike__hollow_open.stl", {
+  base: "sphere", spike: 1.4, filletMm: 1.5,
 });
 
 // Model split — each --split run emits two half-STLs (counted by meshcheck).

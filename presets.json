@@ -1,5 +1,61 @@
 {
   "format": "shapemaker-presets",
   "formatVersion": 1,
-  "presets": []
+  "presets": [
+    {
+      "id": "stella-octangula",
+      "name": "Stella octangula",
+      "description": "First stellation of the octahedron — eight triangular pyramids.",
+      "state": {
+        "base": "octahedron",
+        "spike": 1.7320508075688772,
+        "filletMm": 1.5,
+        "faceIndex": -1
+      }
+    },
+    {
+      "id": "small-stellated-dodeca",
+      "name": "Small stellated dodecahedron",
+      "description": "First stellation of the dodecahedron.",
+      "state": {
+        "base": "dodecahedron",
+        "spike": 1.776901418668612,
+        "filletMm": 1.5,
+        "faceIndex": -1
+      }
+    },
+    {
+      "id": "small-triambic-icosa",
+      "name": "Small triambic icosahedron",
+      "description": "First stellation of the icosahedron.",
+      "state": {
+        "base": "icosahedron",
+        "spike": 1.0661408512011672,
+        "filletMm": 1.5,
+        "faceIndex": -1
+      }
+    },
+    {
+      "id": "great-stellated-dodeca",
+      "name": "Great stellated dodecahedron",
+      "description": "Tall icosahedral spikes (t = 3 × inradius).",
+      "state": {
+        "base": "icosahedron",
+        "spike": 2.383963416875298,
+        "filletMm": 1.5,
+        "faceIndex": -1
+      }
+    },
+    {
+      "id": "great-dodecahedron",
+      "name": "Great dodecahedron",
+      "description": "Icosahedron with dimpled faces.",
+      "state": {
+        "base": "icosahedron",
+        "spike": 0.5627774222552397,
+        "filletMm": 1.5,
+        "faceIndex": -1
+      }
+    }
+  ]
 }

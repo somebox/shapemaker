@@ -1,8 +1,9 @@
 /**
  * Core types for the compile contract.
  *
- * Skeleton  { positions: Float64Array, faces: number[][], edges: [i,j][] }  // convex
- *   Face rings are open (first ≠ last); walk with `(k+1) % length`.
+ * Skeleton  { positions: Float64Array, faces: number[][], edges: [i,j][] }
+ *   Convex from the hull; origin-star-convex after Spike. Face rings are
+ *   open (first ≠ last); walk with `(k+1) % length`.
  * Mesh      { positions: Float32Array, indices: Uint32Array, faceId: Uint32Array }
  * orientation { faceIndex, matrix }  // column-major 4×4; applied at draw + export
  *

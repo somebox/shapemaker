@@ -196,8 +196,20 @@ export function createPanel(panelEl, handlers) {
     );
   }
   chooser.appendChild(baseCards);
+  const presetSubhead = el("div", {
+    className: "group-subheader",
+    textContent: "Stars",
+  });
+  presetSubhead.hidden = true;
+  const presetCards = el("div", { className: "start-cards start-cards--grid start-presets" });
+  presetCards.setAttribute("role", "group");
+  presetCards.setAttribute("aria-label", "Named star presets");
+  chooser.append(presetSubhead, presetCards);
   startSection.appendChild(chooser);
   scroll.appendChild(startSection);
+
+  /** @type {Map<string, { id: string, name: string, state: object, resolved: object }>} */
+  const presetsById = new Map();
 
   function closeStartChooser() {
     chooser.hidden = true;
@@ -216,17 +228,22 @@ export function createPanel(panelEl, handlers) {
 
   function refreshCurrentStart(statuses) {
     const list = statuses || [];
-    // Clean-recipe match wins; an edited draft keeps its base's chip
+    // Clean-recipe match wins; an edited draft keeps its start chip
     // rather than resetting to the default start.
     const shown =
       list.find((s) => s.active) ||
-      list.find((s) => s.kind === "base" && s.edited);
+      list.find((s) => s.edited);
     const id = shown?.id || "icosidodeca";
-    const def = BASES[id];
-    const label = def?.label || id;
-    currentLabel.textContent = label;
-    currentThumb.innerHTML = safeThumb(recipeForBase(def ? id : "icosidodeca"));
-    for (const btn of baseCards.querySelectorAll("[data-start-id]")) {
+    const preset = presetsById.get(id);
+    if (preset) {
+      currentLabel.textContent = preset.name;
+      currentThumb.innerHTML = safeThumb(preset.resolved || preset.state);
+    } else {
+      const def = BASES[id];
+      currentLabel.textContent = def?.label || id;
+      currentThumb.innerHTML = safeThumb(recipeForBase(def ? id : "icosidodeca"));
+    }
+    for (const btn of chooser.querySelectorAll("[data-start-id]")) {
       const sid = btn.getAttribute("data-start-id");
       btn.setAttribute("data-active", sid === id ? "1" : "0");
     }
@@ -757,14 +774,32 @@ export function createPanel(panelEl, handlers) {
       }, 1600);
     },
 
-    setPresets(_list) {
-      // Named presets retired from the chooser; bases only.
+    setPresets(list) {
+      presetsById.clear();
+      presetCards.replaceChildren();
+      const items = Array.isArray(list) ? list : [];
+      presetSubhead.hidden = items.length === 0;
+      for (const p of items) {
+        presetsById.set(p.id, p);
+        presetCards.appendChild(
+          startCard({
+            id: p.id,
+            label: p.name,
+            title: `${p.name} — load as starting points`,
+            svg: safeThumb(p.resolved || p.state),
+            onStart: (sid) => {
+              handlers.onStart?.(sid);
+              closeStartChooser();
+            },
+          }),
+        );
+      }
     },
 
     setStartStatus(statuses) {
       refreshCurrentStart(statuses);
       for (const s of statuses || []) {
-        const btn = baseCards.querySelector(`[data-start-id="${s.id}"]`);
+        const btn = chooser.querySelector(`[data-start-id="${s.id}"]`);
         if (!btn) continue;
         btn.setAttribute("data-active", s.active ? "1" : "0");
         btn.setAttribute("data-edited", s.edited ? "1" : "0");

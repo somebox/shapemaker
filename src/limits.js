@@ -6,7 +6,7 @@
 import { faceFrames, projectToFrame } from "./faceframe.js";
 import { inradiusRange } from "./skeleton.js";
 import { filletRMax, insetScale, collapseMicroEdges } from "./geom/poly2.js";
-import { DEFAULT_STATE } from "./schema.js";
+import { DEFAULT_STATE, SPIKE_T_MAX } from "./schema.js";
 
 /** Practical FDM floor (≈ 6 lines at 0.4 mm nozzle); see docs/BORDER_EVIDENCE.md. */
 export const PRINTABLE_BORDER_MM = 2.5;
@@ -65,7 +65,7 @@ export function borderPrintabilityWarning(state, limits, appliedBorderMm = null)
  *   borderFraction?: number|null,
  *   wallMm?: number,  // rounding ceiling input; defaults to DEFAULT_STATE.wallMm
  * }} state
- * @returns {{ wallMmMax: number|null, borderMmMax: number|null, borderFractionMax: number|null, filletMmMax: number|null, roundingMmMax: number|null }}
+ * @returns {{ wallMmMax: number|null, borderMmMax: number|null, borderFractionMax: number|null, filletMmMax: number|null, roundingMmMax: number|null, spikeMin: number, spikeMax: number }}
  */
 export function computeLimits(skeleton, state) {
   const frames = faceFrames(skeleton);
@@ -137,5 +137,13 @@ export function computeLimits(skeleton, state) {
   }
   roundingMmMax = maxStage2 > 0 ? maxStage2 : null;
 
-  return { wallMmMax, borderMmMax, borderFractionMax, filletMmMax, roundingMmMax };
+  return {
+    wallMmMax,
+    borderMmMax,
+    borderFractionMax,
+    filletMmMax,
+    roundingMmMax,
+    spikeMin: 0,
+    spikeMax: SPIKE_T_MAX,
+  };
 }

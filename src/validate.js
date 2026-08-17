@@ -14,6 +14,7 @@
  */
 
 import { isKnownBase } from "./bases.js";
+import { SPIKE_T_MAX } from "./schema.js";
 const DEPTHS = new Set(["solid", "hollow"]);
 
 /**
@@ -82,6 +83,9 @@ export function validateState(state) {
   }
   if (!(Number.isFinite(state.truncate) && state.truncate >= 0 && state.truncate <= 50)) {
     err("points", "truncate", "Truncate must be between 0 and 50 %");
+  }
+  if (!(Number.isFinite(state.spike) && state.spike >= 0 && state.spike <= SPIKE_T_MAX)) {
+    err("points", "spike", `Spike must be between 0 and ${SPIKE_T_MAX}`);
   }
   if (!(Number.isInteger(state.subdiv) && state.subdiv >= 0 && state.subdiv <= 2)) {
     err("points", "subdiv", "Subdivide must be 0, 1, or 2");

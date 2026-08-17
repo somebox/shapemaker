@@ -81,7 +81,7 @@ describe("quality levels compile to valid meshes with expected density", () => {
 });
 
 describe("Unit 4 policy helpers", () => {
-  it("edge input is read-only exactly when the bijection breaks", async () => {
+  it("edge input is read-only when edges are not all equal", async () => {
     const { isEdgeInputReadOnly } = await import("../src/schema.js");
     assert.equal(isEdgeInputReadOnly({ base: "cube", jitter: 0 }), false);
     assert.equal(isEdgeInputReadOnly({ base: "random", jitter: 0 }), true);
@@ -89,6 +89,7 @@ describe("Unit 4 policy helpers", () => {
     assert.equal(isEdgeInputReadOnly({ base: "globe", jitter: 0 }), true);
     assert.equal(isEdgeInputReadOnly({ base: "rhombictriaconta", jitter: 0 }), false);
     assert.equal(isEdgeInputReadOnly({ base: "cube", jitter: 5 }), true);
+    assert.equal(isEdgeInputReadOnly({ base: "cube", jitter: 0, spike: 1.7 }), true);
   });
 
   it("seed control follows the seeded registry flag", async () => {
@@ -101,13 +102,19 @@ describe("Unit 4 policy helpers", () => {
     assert.equal(seed.inertWhen({ base: "cube", jitter: 0 }), true);
   });
 
-  it("rounding control is always live (rims + dihedral edges)", async () => {
+  it("rounding control stays live under Spike (ridge-only in the solidifier)", async () => {
     const { CONTROL_DEFS, normalizeState } = await import("../src/schema.js");
     const rounding = CONTROL_DEFS.find((d) => d.key === "roundingMm");
-    // Stage 2 rounds dihedral edges on every depth/face mode.
     assert.equal(rounding.inertWhen, undefined);
-    // Legacy hashes/projects without roundingMm normalize to 0.
     const n = normalizeState({ base: "cube" });
     assert.equal(n.roundingMm, 0);
+    assert.equal(n.spike, 0);
+  });
+
+  it("Smooth is inert under Spike (halfspace inset is the convex hull)", async () => {
+    const { CONTROL_DEFS } = await import("../src/schema.js");
+    const soften = CONTROL_DEFS.find((d) => d.key === "soften");
+    assert.equal(soften.inertWhen({ subdiv: 1, subdivStyle: "radial", spike: 0 }), false);
+    assert.equal(soften.inertWhen({ subdiv: 1, subdivStyle: "radial", spike: 1.7 }), true);
   });
 });
