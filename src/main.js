@@ -33,11 +33,12 @@ import { computePrintRisk } from "./metrics.js";
 import { VERSION } from "./version.js";
 import {
   placeMesh,
-  rankSplitPlanes,
   rankSplitOrientations,
-  skeletonSeamLevels,
   splitMeshAtPlane,
+  splitAtOrientation,
+  chooseSplit,
   halfExportMatrices,
+  overhangProjection,
 } from "./split.js";
 import {
   createChrome,
@@ -122,27 +123,55 @@ const viewer = createViewer(canvasHost, {
     else disableSplit();
   },
   onSplitReorient() {
-    // Cycle session-only axis alignments ranked by seam quality — the
-    // globe's pole axis exposes its latitude rings, the sphere's lattice
-    // axis is its perceived pole, platonic solids offer face and vertex
-    // axes. Canonical state (faceIndex, hash, history) is untouched; the
-    // placement reverts when split turns off.
-    if (!splitActive || !last?.skeleton) return;
+    // Cycle session-only placements ranked by projected overhang.
+    // Canonical faceIndex / hash / history stay put; the pose reverts
+    // when Split turns off.
+    if (!splitActive || !last?.skeleton || !last?.mesh) return;
     if (!splitOrients) {
       splitOrients = {
-        list: rankSplitOrientations(last.skeleton),
+        list: rankSplitOrientations(last.skeleton, {
+          mesh: last.mesh,
+          canonicalMatrix: last.orientation.matrix,
+        }),
         index: -1,
       };
     }
     const { list } = splitOrients;
-    // Advance until an alignment seals — a failed axis clears the preview
-    // (and would hide this button), so skip it rather than strand the user.
     for (let tries = 0; tries < list.length; tries++) {
       const keep = splitOrients;
       keep.index = (keep.index + 1) % list.length;
-      enableSplit(list[keep.index].matrix);
-      splitOrients = keep; // enableSplit nulls it on failure — keep cycling
-      if (splitActive) return;
+      const data = splitAtOrientation(last.mesh, last.skeleton, list[keep.index].matrix);
+      splitOrients = keep;
+      if (data) {
+        splitData = data;
+        splitActive = true;
+        viewer.setSplitPreview(splitData);
+        return;
+      }
+    }
+  },
+  onSplitPlane(index) {
+    if (!splitActive || !splitData?.planes || !last?.mesh) return;
+    const cand = splitData.planes[index];
+    if (!cand) return;
+    try {
+      const placed = placeMesh(last.mesh, splitData.matrix);
+      const { a, b, planeZ } = splitMeshAtPlane(placed, cand.planeZ);
+      const { matrixA, matrixB } = halfExportMatrices(planeZ);
+      splitData = {
+        ...splitData,
+        a,
+        b,
+        planeZ,
+        planeIndex: index,
+        overhang: {
+          a: overhangProjection(a, matrixA),
+          b: overhangProjection(b, matrixB),
+        },
+      };
+      viewer.setSplitPreview(splitData);
+    } catch {
+      // Keep the last sealed preview — never show an unprintable half.
     }
   },
 });
@@ -305,67 +334,18 @@ function exportSvgFile() {
 }
 
 /**
- * Compute a sealed split for one placement, or null.
- * @param {Float64Array} matrix
- * @returns {{ a: object, b: object, planeZ: number, gapMm: number } | null}
+ * Overhang-ranked search. Canonical rest is a candidate, not the default.
  */
-function splitForMatrix(matrix) {
-  try {
-    const placed = placeMesh(last.mesh, matrix);
-    let zLo = Infinity, zHi = -Infinity;
-    const p = placed.positions64;
-    for (let i = 2; i < p.length; i += 3) {
-      if (p[i] < zLo) zLo = p[i];
-      if (p[i] > zHi) zHi = p[i];
-    }
-    const heightMm = zHi - zLo;
-    const ranked = rankSplitPlanes(placed, {
-      heightMm,
-      seamZs: skeletonSeamLevels(last.skeleton, matrix),
-    });
-    // A plane that probed clean can still fail the full split (sliver
-    // caps near a seam ring) — fall through the ranking until one seals.
-    for (const cand of ranked) {
-      try {
-        const { a, b, planeZ } = splitMeshAtPlane(placed, cand.planeZ);
-        return { a, b, planeZ, gapMm: Math.max(6, 0.08 * heightMm) };
-      } catch {
-        /* next candidate */
-      }
-    }
-  } catch {
-    /* no valid plane for this placement */
-  }
-  return null;
-}
-
-/**
- * @param {Float64Array|null} [matrixOverride] session-only placement for
- *   the reorient cycle; null tries the canonical resting orientation and
- *   falls back through the ranked axis alignments (a tilted dense mesh —
- *   subdivided globe — may have no valid cut until the rings align).
- */
-function enableSplit(matrixOverride = null) {
+function enableSplit() {
   if (!draftValid || !last?.mesh) {
     console.warn("split: fix errors first");
     viewer.setSplitPreview(null);
     return;
   }
-  let data = null;
-  if (matrixOverride) {
-    data = splitForMatrix(matrixOverride);
-  } else {
-    data = splitForMatrix(last.orientation.matrix);
-    if (!data) {
-      const list = rankSplitOrientations(last.skeleton);
-      for (let i = 0; i < list.length && !data; i++) {
-        data = splitForMatrix(list[i].matrix);
-        if (data) splitOrients = { list, index: i };
-      }
-    }
-  }
+  const data = chooseSplit(last.mesh, last.skeleton, last.orientation.matrix);
   if (data) {
     splitData = data;
+    splitOrients = { list: data.orients, index: data.orientIndex };
     splitActive = true;
     ui.setLocked(true);
     viewer.setSplitPreview(splitData);
@@ -375,8 +355,6 @@ function enableSplit(matrixOverride = null) {
     splitOrients = null;
     ui.setLocked(false);
     viewer.setSplitPreview(null);
-    // Surface the failure in the HUD — a checkbox snapping back with no
-    // explanation reads as a dead control.
     viewer.setSplitNote("No clean cut found — adjust the shape and retry");
   }
 }

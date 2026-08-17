@@ -17,6 +17,18 @@ export const CAP_FACE_ID = 0xffffffff;
 /** Minimum z-gap a snapped plane keeps from any vertex (mm). */
 const PLANE_GAP_MIN_MM = 0.02;
 
+/** 45° self-support limit: outward nz below −cos(45°) needs support. */
+const OVERHANG_NZ = -Math.SQRT1_2;
+
+/** Geometry on the plate is supported, not an overhang. */
+const BED_EPS_MM = 0.01;
+
+/** Bound orientation search so a spiked globe cannot freeze the HUD. */
+const MAX_ORIENT_CANDIDATES = 24;
+
+/** Full seals tried on enable; reorient continues one-at-a-time. */
+export const MAX_SPLIT_SEAL_TRIES = 8;
+
 /** Geometric split failure (vs a programming error) — probe-skippable. */
 function splitError(message) {
   const err = new Error(message);
@@ -93,19 +105,24 @@ export function snapPlaneZ(positions, targetZ) {
  * Ranked axis alignments for splitting, best first. Candidates are the
  * skeleton's construction axis (globe poles; the sphere's Fibonacci
  * lattice axis — its perceived pole), every face normal (face-down), and
- * every vertex ray (vertex-down), deduped per axis. Each is scored by the
- * seam it would expose: the largest ring of same-z skeleton vertices
- * inside the split band, closest to mid-height. Ring-less shapes fall
- * back to the kind order — construction axis first, so a sphere's first
- * reorient lands on its pole even though no ring exists.
+ * every vertex ray (vertex-down), deduped per axis. When `mesh` is passed,
+ * each kept candidate is scored by projected overhang of a mid-band split
+ * (the ranking that actually changes printability). Without a mesh, the
+ * score falls back to seam ring size then kind — construction axis first
+ * so a sphere's first reorient still lands on its pole.
+ *
+ * Dense meshes can mint hundreds of unique axes; scoring is capped and
+ * spread across the sphere so the HUD cannot freeze.
  *
  * @param {{ positions: Float64Array, faces: number[][] }} skeleton mm-scaled
- * @param {{ band?: [number, number] }} [opts]
+ * @param {{ band?: [number, number], mesh?: object, canonicalMatrix?: Float64Array|number[], maxCandidates?: number }} [opts]
  * @returns {{ down: number[], kind: 'axis'|'face'|'vertex',
- *             ringSize: number, ringDist: number, matrix: Float64Array }[]}
+ *             ringSize: number, ringDist: number, support?: number,
+ *             matrix: Float64Array }[]}
  */
 export function rankSplitOrientations(skeleton, opts = {}) {
-  const { band = [0.35, 0.65] } = opts;
+  const { band = [0.35, 0.65], mesh = null, canonicalMatrix = null } = opts;
+  const maxCandidates = opts.maxCandidates ?? MAX_ORIENT_CANDIDATES;
   const { positions, faces } = skeleton;
   const nV = positions.length / 3;
 
@@ -131,9 +148,13 @@ export function rankSplitOrientations(skeleton, opts = {}) {
     if (!dup) uniq.push(c);
   }
 
+  const extras = [];
+  if (canonicalMatrix) extras.push(downFromMatrix(canonicalMatrix));
+  const picked = spreadPickAxes(uniq, maxCandidates, extras);
+
   const TOL = 1e-3; // mm — same ring tolerance as skeletonSeamLevels
   const KIND_RANK = { axis: 0, face: 1, vertex: 2 };
-  const scored = uniq.map((c) => {
+  const scored = picked.map((c) => {
     // Project every vertex onto the down axis (z after rotation = −down·p).
     const zs = [];
     for (let i = 0; i < nV; i++) {
@@ -163,20 +184,90 @@ export function rankSplitOrientations(skeleton, opts = {}) {
         start = i;
       }
     }
-    return { ...c, ringSize, ringDist };
+    const matrix = orientationForDirection(skeleton, c.down);
+    let support = null;
+    if (mesh) {
+      const placed = placeMesh(mesh, matrix);
+      let zLo = Infinity, zHi = -Infinity;
+      const p = placed.positions64;
+      for (let i = 2; i < p.length; i += 3) {
+        if (p[i] < zLo) zLo = p[i];
+        if (p[i] > zHi) zHi = p[i];
+      }
+      const planeZ = snapPlaneZInBand(p, (zLo + zHi) * 0.5, zLo + (zHi - zLo) * band[0], zLo + (zHi - zLo) * band[1]);
+      support = planeZ == null
+        ? Infinity
+        : estimateSplitOverhang(placed, planeZ).support;
+    }
+    return { ...c, ringSize, ringDist, matrix, support };
   });
 
   scored.sort((a, b) => {
+    if (mesh) {
+      const da = a.support, db = b.support;
+      if (da !== db && Number.isFinite(da) && Number.isFinite(db)) {
+        const slack = Math.max(1, 0.05 * Math.min(da, db));
+        if (Math.abs(da - db) > slack) return da - db;
+      } else if (da !== db) {
+        return (da ?? Infinity) - (db ?? Infinity);
+      }
+    }
     if (a.ringSize !== b.ringSize) return b.ringSize - a.ringSize;
     if (KIND_RANK[a.kind] !== KIND_RANK[b.kind]) return KIND_RANK[a.kind] - KIND_RANK[b.kind];
     if (a.ringDist !== b.ringDist) return a.ringDist - b.ringDist;
     return 0;
   });
 
-  return scored.map((c) => ({
-    ...c,
-    matrix: orientationForDirection(skeleton, c.down),
-  }));
+  return scored;
+}
+
+/** Model-space unit vector that the placement matrix sends to world −Z. */
+function downFromMatrix(M) {
+  const x = -M[8], y = -M[9], z = -M[10];
+  const l = Math.hypot(x, y, z) || 1;
+  return [x / l, y / l, z / l];
+}
+
+/**
+ * Keep at most `k` axes, always the must-include downs (canonical rest,
+ * construction axis) then greedy farthest-point on the projective sphere.
+ * @param {{ down: number[] }[]} uniq
+ * @param {number} k
+ * @param {number[][]} extraDowns
+ */
+function spreadPickAxes(uniq, k, extraDowns) {
+  if (uniq.length <= k) return uniq;
+  /** @type {typeof uniq} */
+  const selected = [];
+  const take = (c) => {
+    if (!c || selected.includes(c) || selected.length >= k) return;
+    selected.push(c);
+  };
+  const findDown = (d) => uniq.find((u) =>
+    Math.abs(u.down[0] * d[0] + u.down[1] * d[1] + u.down[2] * d[2]) > 1 - 1e-6,
+  );
+  for (const d of extraDowns) take(findDown(d));
+  take(uniq[0]);
+  while (selected.length < k) {
+    let best = null, bestSep = -1;
+    for (const c of uniq) {
+      if (selected.includes(c)) continue;
+      let sep = Infinity;
+      for (const s of selected) {
+        const ad = Math.abs(
+          s.down[0] * c.down[0] + s.down[1] * c.down[1] + s.down[2] * c.down[2],
+        );
+        sep = Math.min(sep, 1 - ad);
+      }
+      if (sep > bestSep) {
+        bestSep = sep;
+        best = c;
+      }
+    }
+    if (!best) break;
+    take(best);
+  }
+  return selected;
 }
 
 /**
@@ -296,14 +387,11 @@ const SEAM_MAX_OFFSET_MM = 1.0;
 /**
  * Rank candidate split planes, best first.
  *
- * Natural seams — z levels where a ring of skeleton vertices/edges lies,
- * passed in `seamZs` — rank ahead of everything else (nearest mid-height
- * first): a cut hugging an existing edge loop reads as part of the design.
- * Its cross-section is often LARGER than a mid-strut cut (the plane slices
- * border plates near-tangentially), so seams are preferred outright, not
- * by area. Generic candidates follow, by minimal cut area (tie-break
- * nearest mid). Callers should try candidates in order — a plane that
- * probes clean can still fail the full split on sliver caps.
+ * Larger cut face first (bed contact). Areas within 5% tie on a natural
+ * seam, then nearer mid-height. Seams are an aesthetic tiebreak, not a
+ * trump over a much larger (or much smaller-overhang) cut. Callers try
+ * candidates in order — a plane that probed clean can still fail the
+ * full split on sliver caps.
  *
  * @param {import('./mesh.js').Mesh} placedMesh
  * @param {{ heightMm: number, samples?: number, band?: [number, number], seamZs?: number[] }} opts
@@ -346,29 +434,16 @@ export function rankSplitPlanes(placedMesh, opts) {
   }
   if (!candidates.length) throw splitError("split: no valid plane in band");
 
-  // Areas within 10% of the best count as equivalent — on round bodies the
-  // cross-section shrinks toward the band edge, and a strict minimum drags
-  // the cut off-centre for a few percent of area. Equivalent cuts fall to
-  // the nearest-mid rule (which also absorbs fp noise between analytically
-  // equal sections).
-  let minArea = Infinity;
-  for (const c of candidates) minArea = Math.min(minArea, c.area);
-  const slack = minArea * 1.1;
-
   candidates.sort((a, b) => {
+    const slack = 0.05 * Math.max(a.area, b.area);
+    if (Math.abs(a.area - b.area) > slack) return b.area - a.area;
     if (a.seam !== b.seam) return a.seam ? -1 : 1;
-    if (a.seam) {
-      // Same ring first (by hugging offset) when equally close to mid.
-      if (Math.abs(a.dist - b.dist) > 1e-9) return a.dist - b.dist;
-      return a.seamOff - b.seamOff;
-    }
-    const aNear = a.area <= slack, bNear = b.area <= slack;
-    if (aNear !== bNear) return aNear ? -1 : 1;
-    if (aNear) return a.dist - b.dist;
-    if (a.area !== b.area) return a.area - b.area;
+    if (a.seam && a.seamOff !== b.seamOff) return a.seamOff - b.seamOff;
     return a.dist - b.dist;
   });
-  return candidates.map(({ z, area, seam }) => ({ planeZ: z, cutArea: area, seam }));
+  return candidates.map(({ z, area, seam }) => ({
+    planeZ: z, cutArea: area, seam,
+  }));
 }
 
 /**
@@ -423,6 +498,174 @@ export function halfExportMatrices(planeZMm) {
     0, 0, planeZMm, 1,
   ]);
   return { matrixA, matrixB };
+}
+
+/**
+ * Projected overhang of a mesh already in print pose (cut-face-down).
+ * Downward-facing area (nz < −cos 45°) above the bed, area-weighted by −nz.
+ * Relative ranking only — not grams of support.
+ *
+ * @param {import('./mesh.js').Mesh} mesh
+ * @param {Float64Array|number[]|null} [matrix]
+ * @returns {{ support: number, bed: number }}
+ */
+export function overhangProjection(mesh, matrix = null) {
+  const placed = matrix ? placeMesh(mesh, matrix) : mesh;
+  return accumulateOverhang(placed.positions64 ?? placed.positions, placed.indices);
+}
+
+/**
+ * Estimate both halves' overhang without capping: classify unsplit
+ * triangles against the plane and apply halfExportMatrices to normals.
+ * Straddling triangles become the bed cap and are skipped.
+ *
+ * @param {import('./mesh.js').Mesh} placedMesh
+ * @param {number} planeZ
+ * @returns {{ support: number, a: number, b: number }}
+ */
+export function estimateSplitOverhang(placedMesh, planeZ) {
+  const pos = placedMesh.positions64 ?? placedMesh.positions;
+  const idx = placedMesh.indices;
+  let a = 0, b = 0;
+  for (let t = 0; t < idx.length; t += 3) {
+    const ia = idx[t] * 3, ib = idx[t + 1] * 3, ic = idx[t + 2] * 3;
+    const az = pos[ia + 2], bz = pos[ib + 2], cz = pos[ic + 2];
+    const zMin = Math.min(az, bz, cz), zMax = Math.max(az, bz, cz);
+    if (zMin < planeZ && zMax > planeZ) continue;
+    const ax = pos[ia], ay = pos[ia + 1];
+    const bx = pos[ib], by = pos[ib + 1];
+    const cx = pos[ic], cy = pos[ic + 1];
+    const ux = bx - ax, uy = by - ay, uz = bz - az;
+    const vx = cx - ax, vy = cy - ay, vz = cz - az;
+    const nx = uy * vz - uz * vy;
+    const ny = uz * vx - ux * vz;
+    const nz = ux * vy - uy * vx;
+    const mag = Math.hypot(nx, ny, nz);
+    if (!(mag > 0)) continue;
+    const area = mag / 2;
+    const above = (az + bz + cz) / 3 >= planeZ;
+    // A: translate only. B: (x, −y, planeZ−z) → n' = (nx, −ny, −nz).
+    const nzP = above ? nz / mag : -nz / mag;
+    const z0 = above ? zMin - planeZ : planeZ - zMax;
+    if (z0 <= BED_EPS_MM) continue;
+    if (nzP < OVERHANG_NZ) {
+      const add = area * (-nzP);
+      if (above) a += add;
+      else b += add;
+    }
+  }
+  return { support: a + b, a, b };
+}
+
+function accumulateOverhang(pos, idx) {
+  let support = 0, bed = 0;
+  for (let t = 0; t < idx.length; t += 3) {
+    const ia = idx[t] * 3, ib = idx[t + 1] * 3, ic = idx[t + 2] * 3;
+    const ax = pos[ia], ay = pos[ia + 1], az = pos[ia + 2];
+    const bx = pos[ib], by = pos[ib + 1], bz = pos[ib + 2];
+    const cx = pos[ic], cy = pos[ic + 1], cz = pos[ic + 2];
+    const zMin = Math.min(az, bz, cz);
+    const ux = bx - ax, uy = by - ay, uz = bz - az;
+    const vx = cx - ax, vy = cy - ay, vz = cz - az;
+    const nx = uy * vz - uz * vy;
+    const ny = uz * vx - ux * vz;
+    const nz = ux * vy - uy * vx;
+    const mag = Math.hypot(nx, ny, nz);
+    if (!(mag > 0)) continue;
+    const area = mag / 2;
+    if (zMin <= BED_EPS_MM) {
+      bed += area;
+      continue;
+    }
+    const unz = nz / mag;
+    if (unz < OVERHANG_NZ) support += area * (-unz);
+  }
+  return { support, bed };
+}
+
+/**
+ * Seal a split for one placement, or null. Tries ranked planes until one
+ * seals. Does not search other orientations.
+ *
+ * @param {import('./mesh.js').Mesh} mesh
+ * @param {{ positions: Float64Array, faces: number[][] }} skeleton
+ * @param {Float64Array|number[]} matrix
+ * @returns {{ a: object, b: object, planeZ: number, gapMm: number, cutArea: number,
+ *             overhang: { a: { support: number, bed: number }, b: { support: number, bed: number } },
+ *             heightMm: number, planes: object[], planeIndex: number, matrix: Float64Array } | null}
+ */
+export function splitAtOrientation(mesh, skeleton, matrix) {
+  try {
+    const placed = placeMesh(mesh, matrix);
+    let zLo = Infinity, zHi = -Infinity;
+    const p = placed.positions64;
+    for (let i = 2; i < p.length; i += 3) {
+      if (p[i] < zLo) zLo = p[i];
+      if (p[i] > zHi) zHi = p[i];
+    }
+    const heightMm = zHi - zLo;
+    const ranked = rankSplitPlanes(placed, {
+      heightMm,
+      seamZs: skeletonSeamLevels(skeleton, matrix),
+    });
+    for (let i = 0; i < ranked.length; i++) {
+      try {
+        const { a, b, planeZ, cutArea, volumeMm3A, volumeMm3B } = splitMeshAtPlane(placed, ranked[i].planeZ);
+        const { matrixA, matrixB } = halfExportMatrices(planeZ);
+        return {
+          a,
+          b,
+          planeZ,
+          cutArea,
+          volumeMm3A,
+          volumeMm3B,
+          gapMm: Math.max(6, 0.08 * heightMm),
+          overhang: {
+            a: overhangProjection(a, matrixA),
+            b: overhangProjection(b, matrixB),
+          },
+          heightMm,
+          planes: ranked,
+          planeIndex: i,
+          matrix,
+        };
+      } catch {
+        /* next candidate */
+      }
+    }
+  } catch {
+    /* no valid plane for this placement */
+  }
+  return null;
+}
+
+/**
+ * Pick a sealed split: score orientations by overhang, always — canonical
+ * rest is a candidate, not the default. Caps seal attempts so a dense
+ * mesh cannot stall the session.
+ *
+ * @param {import('./mesh.js').Mesh} mesh
+ * @param {{ positions: Float64Array, faces: number[][] }} skeleton
+ * @param {Float64Array|number[]} canonicalMatrix
+ * @param {{ startIndex?: number, maxTries?: number }} [opts]
+ * @returns {{ a: object, b: object, planeZ: number, gapMm: number, cutArea: number,
+ *             overhang: object, heightMm: number, planes: object[], planeIndex: number,
+ *             matrix: Float64Array, orients: object[], orientIndex: number } | null}
+ */
+export function chooseSplit(mesh, skeleton, canonicalMatrix, opts = {}) {
+  const maxTries = opts.maxTries ?? MAX_SPLIT_SEAL_TRIES;
+  const startIndex = opts.startIndex ?? 0;
+  const orients = rankSplitOrientations(skeleton, { mesh, canonicalMatrix });
+  const n = orients.length;
+  if (!n) return null;
+  for (let t = 0; t < Math.min(maxTries, n); t++) {
+    const i = (startIndex + t) % n;
+    const split = splitAtOrientation(mesh, skeleton, orients[i].matrix);
+    if (split) {
+      return { ...split, orients, orientIndex: i };
+    }
+  }
+  return null;
 }
 
 // ── internals ────────────────────────────────────────────────────────

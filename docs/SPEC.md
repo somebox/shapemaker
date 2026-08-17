@@ -7,8 +7,9 @@ workflows such as 3D printing, laser cutting, model making, or PCB-based
 structures.
 
 The creative vocabulary stays deliberately small: base shape, scale, density,
-jitter, openings, seed, orientation, and presets. These controls should combine
-into interesting results without turning the app into general CAD.
+jitter, truncate, spike, openings, seed, orientation, and presets. These
+controls should combine into interesting results without turning the app into
+general CAD.
 
 ## Product goals
 
@@ -35,7 +36,9 @@ into interesting results without turning the app into general CAD.
 
 - Icosidodecahedron, Platonic solids, cuboctahedron, Catalan rhombics
   (dodecahedron / triacontahedron), lat/long globe, fibonacci sphere, and
-  seeded random convex polyhedra.
+  seeded random convex polyhedra. Spike (after truncate) grows origin-star-
+  convex pyramids or dimples on every face; named stars are presets, not
+  extra bases.
 - Uniform free scaling with live dimensions and edge-length inspection.
 - On-sphere jitter.
 - Solid closed forms and hollow shells, with optional openings on hollow forms.
@@ -47,11 +50,16 @@ into interesting results without turning the app into general CAD.
 
 ### Not in version 1
 
-- General CAD, booleans, or concave forms.
-- Slicing or automatic/scored orientation.
+- General CAD, booleans, or concave forms that are not origin-star-convex
+  (every ray from the origin must hit the surface once). Origin-star-convex
+  spikes and dimples are in scope; Kepler–Poinsot pentagram faces and
+  true boolean CSG are not.
+- Slicing, or scored orientation of the unsplit model (Split already
+  ranks session-only print poses; click-to-rest stays a face pick).
 - Fabrication-specific nesting, toolpaths, Gerber generation, or slicer output.
 - Additional opening styles or editable operator stacks.
-- Dihedral edge fillets or resin drain-hole design.
+- Valley / concave fillets, or resin drain-hole design. Convex dihedral
+  rounding is in scope (ridge-only on spiked meshes).
 - Mobile-first layout.
 
 Ideas without a committed use case, including true round struts, live in
@@ -94,14 +102,15 @@ Rules:
 ## Geometry pipeline
 
 ```text
-base points -> (jitter) -> convex hull -> (plane-perturb) -> truncate -> subdivide/smooth -> scale -> shell -> orient -> export
+base points -> (jitter) -> convex hull -> (plane-perturb) -> truncate -> spike -> subdivide/smooth -> scale -> shell -> orient -> export
 ```
 
 From Milestone 3 the interactive path is points → hull+merge+face-identity
-(`assertSkeleton`) → scale to mm in the pipeline → shell. Jitter, subdivide,
-and smooth are shipped (Milestone 5); order is jitter → subdivide → smooth.
-Origin-centered hull input is required by `assertSkeleton`'s outward-winding
-check.
+(`assertSkeleton`) → scale to mm in the pipeline → shell. Jitter, truncate,
+spike, subdivide, and smooth are shipped; order is jitter → truncate →
+spike → subdivide → smooth. Origin-centered hull input is required by
+`assertSkeleton`'s outward-winding check. After Spike the mesh is origin-
+star-convex (`assertStarShaped`), not necessarily convex.
 
 ### Base points and jitter
 
@@ -147,6 +156,23 @@ cuboctahedron, an icosahedron at 33 is the truncated icosahedron (the
 soccer ball), a dodecahedron at 50 the icosidodecahedron. On irregular or
 jittered solids the cut points are generally not coplanar and the hull
 approximates the cut with triangles — still convex, degrading gradually.
+**Spike** (0–4, parent circumradius units) is the next skeleton operator:
+one apex per face on the centroid ray at radius `t`. Schema 0 skips (it is
+not “apex at the origin”). `t` above that face’s inradius is a pyramid;
+`t` below (but > 0) is a dimple. Each n-gon becomes n triangles with no
+coplanar merge — unmerged flanks are the wireframe openings. Mixed-face
+solids share one spherical `t`, so pyramid height differs by family. After
+the operator the mesh is renormalized to unit circumradius so Size still
+means circumdiameter. Named stars (stella octangula, small stellated
+dodecahedron, small triambic icosahedron, great stellated dodecahedron,
+great dodecahedron dimple) are presets of a parent plus an exact `t`, not
+new `BASE_IDS`. Smooth is inert when spiked: the halfspace inset of a
+star is its convex hull. Rounding stays live but **ridge-only** — reflex
+valleys skip the rolling-ball strip (the blend centre would sit on the
+wrong side of the fold), so the points round and the gutters stay sharp.
+Jitter stays on the convex
+parent (before spike); surface jitter on a spiked mesh would flatten
+parent verts and apexes onto the unit sphere.
 **Subdivide** (0/1/2) is the next
 skeleton operator: each level splits every face flat, in its own plane, so
 mixed-face solids stay closed and level alone only adds resolution.
@@ -155,7 +181,8 @@ per k-gon from the centroid (8 openings per cube side at level 1);
 *Grid* cuts k corner quads (4 per cube side at level 1, 16 at level 2).
 Triangles split 4:1 in both. Smooth requires Radial — its sphere clip
 would bend Grid's flat quads out of plane, so under Grid the Smooth
-control is inert and its value ignored. **Smooth** (0–100%) is a true edge
+control is inert and its value ignored. Smooth is also inert (value
+ignored) when Spike is on. **Smooth** (0–100%) is a true edge
 fillet: soften sets a rounding radius (that fraction of the parent
 inradius) and every subdivided vertex projects onto the rounded parent
 solid — the parent inset by the radius, Minkowski-expanded back by it.
@@ -166,13 +193,15 @@ on cube and tetra). Above 50 a melt phase additionally clips the deeper
 flats of mixed-plane-distance solids spherically toward the inscribed
 ball, so 100 reaches the ball on every base.
 
-Operation order is fixed and load-bearing: **jitter → truncate → subdivide →
-smooth**.
+Operation order is fixed and load-bearing: **jitter → truncate → spike →
+subdivide → smooth**.
 Jitter distorts the simple base form (plane perturbation on regulars, point
-jitter before the hull on parametric bases), subdivision adds resolution to
-the distorted solid, and smooth fillets its edges. Running jitter after
-subdivision would perturb families of near-coplanar sub-face planes, most
-of which stop binding — silently discarding the subdivision and smoothing.
+jitter before the hull on parametric bases), truncation cuts corners,
+spike erects pyramids or dimples, subdivision adds resolution, and smooth
+fillets convex edges. Running jitter after subdivision would perturb
+families of near-coplanar sub-face planes, most of which stop binding —
+silently discarding the subdivision and smoothing. Jitter after spike is
+not offered: surface mode would snap every vertex to unit radius.
 
 **Jitter is available on every base.** On regular bases it perturbs face
 *planes* (small tilt and offset) and rebuilds vertices by re-intersecting the
@@ -221,14 +250,17 @@ are deferred.
 
 A hollow shell uses a uniformly scaled inner surface. This keeps shared vertices
 exact and makes the shell watertight by construction. Wall thickness specifies
-the minimum thickness; the actual range is reported.
+the minimum thickness; the actual range is reported. That uniform inner scale
+requires origin-star-convexity, which is why Spike is legal and general
+concave offset is not.
 
 Openings use a centroid-scaled inset and tangent fillet. Fillet is authored as
 a radius in millimetres; a face whose opening cannot fit the requested radius
 clamps it locally, and the applied range is reported. Each face boundary is
 subdivided globally so adjacent faces share identical points. The opening is
 sampled on matching centroid rays, preserving the prototype's non-intersecting
-annulus construction.
+annulus construction. Spike does not change this: openings still require
+hollow, and each unmerged pyramid flank is one opening.
 
 **Rounding** (`roundingMm`) is a separate Form parameter that softens every
 hard edge of the model: quarter-circle roundovers on the opening lips (outer
@@ -236,7 +268,9 @@ face → opening wall, and the inner mirror) AND circular-arc strips along every
 dihedral edge with sphere-patch fans at corners — a rounded cube is a die.
 It never changes the opening outline in-plane or the flat face planes.
 Default `0` keeps the hard construction byte-identical. Rounding applies to
-every depth/face mode (dihedral edges always; rims when hollow+open).
+every depth/face mode (dihedral edges always; rims when hollow+open). On a
+spiked mesh only convex ridges and apexes take a radius; reflex valleys
+stay sharp.
 
 Subdivide seams that stay coplanar with their parent face are **not** rounding
 features: Stage-2 follows the parent (macro) graph so a subdivided icosahedron
@@ -277,7 +311,8 @@ faces with the same side count are congruent.
 Clicking a face selects it as the resting face. The face's actual plane normal
 is aligned with `-Z`, then the shape is translated until its minimum `Z` is
 zero. Selection is stored as a skeleton face index; stale indices fall back to a
-stable default with a warning.
+stable default with a warning. After Spike every skeleton face is a pyramid
+flank, so click-to-rest sits on a pointy side; orientation stays valid.
 
 ### Model split (session-only)
 
@@ -291,21 +326,28 @@ to the URL hash, project JSON, or `STATE_KEYS`. While Split is on:
 - Share / URL omit the split;
 - regenerating the mesh, Undo/Back, or turning Split off clears the preview;
 - a **reorient** button (⟳) beside the toggle cycles session-only axis
-  alignments ranked by seam quality — the construction axis (the globe's
-  poles; the Sphere's lattice axis), face axes, and vertex axes, best ring
-  first. Canonical state (faceIndex, URL, history) is untouched and the
-  placement reverts when Split turns off; alignments that cannot seal are
-  skipped automatically.
+  alignments ranked by projected overhang of the bed-ready halves (45°
+  self-support, area-weighted). Canonical rest is a candidate, not the
+  default — a spiked solid sitting on a pyramid flank is often a poor
+  split even when it seals. The construction axis, face axes, and vertex
+  axes (including spike apexes) are considered, spread-capped so dense
+  meshes cannot stall the HUD. Canonical state (faceIndex, URL, history)
+  is untouched and the placement reverts when Split turns off; alignments
+  that cannot seal are skipped. A relative support readout (mm², not
+  grams) sits in the HUD so a reorient click is comparable. A cut-height
+  control snaps to valid gaps only and is a seam/shape knob, not a print-
+  quality ranking.
 
-The cut plane prefers **natural seams**: z levels where a ring of skeleton
-vertices lies (the cuboctahedron's hexagonal girdle, the rhombic solids'
-equators), hugging the ring within the vertex-clearance policy. Seam
-candidates rank ahead of the generic rule even when their cross-section is
-larger — a cut along an existing edge loop reads as part of the design.
-Without a seam in the band, the plane is chosen near mid-height to avoid
-vertices and minimize the material cut area (hole loops subtract). Ranked
-candidates are tried in order until one seals; both halves are capped and
-must pass mesh invariants.
+Orientation ranking is the printability pass (projected overhang of a
+mid-band cut). Once a pose is chosen, the cut plane ranks by **bed
+contact then seam**: larger cut area first, a natural seam (an edge
+ring the plane can hug) as the tiebreak, then nearer mid-height. Seams
+are an aesthetic preference when area is similar — they are not a trump
+over a much larger cut. The HUD cut-height slider walks that plane list;
+it is a seam/shape knob, not a second overhang ranking. Ranked planes
+are tried until one seals; both halves are capped and must pass mesh
+invariants. A failed plane or orientation leaves the last sealed preview
+in place.
 
 ### Export
 
@@ -415,6 +457,7 @@ src/points/cuboctahedron.js  cuboctahedron
 src/points/rhombic.js   rhombic dodecahedron / triacontahedron
 src/plane-perturb.js    plane-perturbation jitter (regular bases)
 src/subdivide.js        spherified surface subdivision (skeleton operator)
+src/solid/spike.js      face pyramids / dimples (origin-star-convex)
 src/export/svg.js       hidden-line SVG export (M6 path)
 ```
 
@@ -460,7 +503,8 @@ outputs must be a single connected body.
 
 The canvas is primary; controls are grouped by user intent:
 
-- **Shape:** base (start chooser), random density/seed, jitter, uniform scale.
+- **Shape:** base (start chooser, including named star presets), random
+  density/seed, jitter, truncate, spike, subdivide, uniform scale.
 - **Form:** solid/hollow, wall, openings, border, fillet, rounding.
 - **Make:** orientation, mesh quality preset, preview overlay, material/mass,
   project export/load.

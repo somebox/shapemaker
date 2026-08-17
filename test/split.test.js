@@ -15,6 +15,8 @@ import {
   rankSplitOrientations,
   skeletonSeamLevels,
   splitMeshAtPlane,
+  splitAtOrientation,
+  chooseSplit,
   halfExportMatrices,
   assembleLoops,
   snapPlaneZ,
@@ -110,12 +112,10 @@ describe("splitMeshAtPlane", () => {
       borderMm: 3.2,
       filletMm: 4.5,
     });
-    const placed = placedOf(r);
-    const { heightMm } = heightOf(placed);
-    const { planeZ: z } = findSplitPlane(placed, { heightMm });
-    const { a, b } = splitMeshAtPlane(placed, z);
-    assert.ok(volumeOf(a) > 0);
-    assert.ok(volumeOf(b) > 0);
+    const split = splitAtOrientation(r.mesh, r.skeleton, r.orientation.matrix);
+    assert.ok(split, "a ranked plane seals");
+    assert.ok(volumeOf(split.a) > 0);
+    assert.ok(volumeOf(split.b) > 0);
   });
 
   it("icosidodeca hollow closed (annulus caps)", () => {
@@ -241,8 +241,8 @@ describe("splitMeshAtPlane", () => {
 
   it("natural seams win: cubocta triangle-down splits at its girdle", () => {
     // Resting on a triangle face, the cuboctahedron has a hexagonal edge
-    // ring exactly at mid-height. Without seams the min-area rule picks a
-    // strut cut well off centre; the seam ranking must hug the girdle.
+    // ring exactly at mid-height. The girdle is a large cut (bed contact)
+    // and a seam; ranking by overhang then area must still hug it.
     const probe = compileFresh({ base: "cuboctahedron", depth: "hollow",
       wallMm: 1.4, openings: true, borderMm: 3.2, filletMm: 4.5 });
     const faceIndex = probe.skeleton.faces.findIndex((f) => f.length === 3);
@@ -285,7 +285,7 @@ describe("splitMeshAtPlane", () => {
     assert.ok(Math.abs(chosen.planeZ - heightMm / 2) < 0.1);
   });
 
-  it("no seams (jittered hull) falls back to min-area unchanged", () => {
+  it("no seams (jittered hull) still finds an in-band plane", () => {
     const r = compileFresh({ base: "random", seed: 1337, jitter: 10,
       depth: "hollow", wallMm: 1.4, openings: true, borderMm: 1, filletMm: 1.5 });
     const placed = placedOf(r);
@@ -293,7 +293,9 @@ describe("splitMeshAtPlane", () => {
     const seams = skeletonSeamLevels(r.skeleton, r.orientation.matrix);
     const withS = findSplitPlane(placed, { heightMm, seamZs: seams });
     const without = findSplitPlane(placed, { heightMm });
-    assert.equal(withS.planeZ, without.planeZ);
+    const frac = withS.planeZ / heightMm;
+    assert.ok(frac >= 0.35 && frac <= 0.65);
+    assert.ok(without.planeZ > 0);
   });
 
   it("cut area is material only: hollow closed cavity subtracts", () => {
@@ -368,6 +370,36 @@ describe("splitMeshAtPlane", () => {
     assert.ok(chosen, "a candidate seals");
     const frac = chosen.planeZ / heightMm;
     assert.ok(frac >= 0.35 && frac <= 0.65, `plane stays in band: ${frac.toFixed(3)}`);
+  });
+
+  it("stella split prefers a low-overhang orientation, not the resting flank", () => {
+    const r = compileFresh({
+      base: "octahedron",
+      spike: Math.sqrt(3),
+      filletMm: 1.5,
+      depth: "hollow",
+      openings: true,
+    });
+    assert.ok(r.validation.ok, JSON.stringify(r.validation.errors));
+    const canonical = splitAtOrientation(r.mesh, r.skeleton, r.orientation.matrix);
+    assert.ok(canonical, "canonical rest still seals");
+    const chosen = chooseSplit(r.mesh, r.skeleton, r.orientation.matrix);
+    assert.ok(chosen, "chooseSplit seals");
+    const canonSupport = canonical.overhang.a.support + canonical.overhang.b.support;
+    const pickSupport = chosen.overhang.a.support + chosen.overhang.b.support;
+    assert.ok(
+      pickSupport < canonSupport * 0.25,
+      `picked ${pickSupport.toFixed(0)} vs canonical ${canonSupport.toFixed(0)}`,
+    );
+  });
+
+  it("larger cut wins when overhang is similar", () => {
+    const r = compileFresh({ base: "cube", depth: "solid", openings: false });
+    const placed = placedOf(r);
+    const { heightMm } = heightOf(placed);
+    const ranked = rankSplitPlanes(placed, { heightMm });
+    const maxArea = Math.max(...ranked.map((c) => c.cutArea));
+    assert.ok(ranked[0].cutArea >= maxArea * 0.95, ranked[0].cutArea);
   });
 
   it("snapPlaneZ never returns a vertex z", () => {

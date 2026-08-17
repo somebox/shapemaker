@@ -15,6 +15,7 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
  *   onEdgeSelect?: (info: { edgeIndex: number, lengthMm: number }|null) => void,
  *   onSplitToggle?: (on: boolean) => void,
  *   onSplitReorient?: () => void,
+ *   onSplitPlane?: (index: number) => void,
  * }} [opts]
  */
 export function createViewer(container, opts = {}) {
@@ -75,10 +76,15 @@ export function createViewer(container, opts = {}) {
     <label class="section-hud-toggle" title="Split for printing — preview two halves, export two STLs">
       <input type="checkbox" data-split-on />
       <span>Split</span>
+      <span class="split-score" data-split-score hidden></span>
       <span class="split-note" data-split-note hidden></span>
     </label>
     <button type="button" class="split-reorient" data-split-reorient hidden
-      title="Reorient — cycle the resting face to find a cleaner split">&#x27F3;</button>
+      title="Next print-friendlier orientation (session only)">&#x27F3;</button>
+    <input type="range" class="split-plane" data-split-plane hidden
+      min="0" max="0" step="1" value="0"
+      title="Cut height — valid gaps only; seam / shape, not print quality"
+      aria-label="Split cut height" />
   `;
   container.appendChild(sectionHud);
   const sectionOnEl = sectionHud.querySelector("[data-section-on]");
@@ -87,7 +93,9 @@ export function createViewer(container, opts = {}) {
   const riskToggle = sectionHud.querySelector("[data-risk-toggle]");
   const splitOnEl = sectionHud.querySelector("[data-split-on]");
   const splitNoteEl = sectionHud.querySelector("[data-split-note]");
+  const splitScoreEl = sectionHud.querySelector("[data-split-score]");
   const splitReorientEl = sectionHud.querySelector("[data-split-reorient]");
+  const splitPlaneEl = sectionHud.querySelector("[data-split-plane]");
 
   // In-view dimension callout (HTML overlay in container).
   const dimCallout = document.createElement("div");
@@ -502,7 +510,9 @@ export function createViewer(container, opts = {}) {
   /**
    * Show/hide split preview. Halves are already in placed coordinates;
    * B rests on the plate, A lifts by gapMm. Pass null to clear.
-   * @param {{ a: object, b: object, planeZ: number, gapMm: number } | null} payload
+   * @param {{ a: object, b: object, planeZ: number, gapMm: number,
+   *            overhang?: { a: { support: number }, b: { support: number } },
+   *            planes?: object[], planeIndex?: number } | null} payload
    */
   function setSplitPreview(payload) {
     setSplitNote(null);
@@ -515,6 +525,8 @@ export function createViewer(container, opts = {}) {
       splitActive = false;
       splitOnEl.checked = false;
       splitReorientEl.hidden = true;
+      if (splitScoreEl) splitScoreEl.hidden = true;
+      if (splitPlaneEl) splitPlaneEl.hidden = true;
       modelGroup.visible = true;
       sectionOnEl.disabled = false;
       riskToggle.style.pointerEvents = "";
@@ -533,7 +545,27 @@ export function createViewer(container, opts = {}) {
     dimCallout.hidden = true;
     modelGroup.visible = false;
 
-    const { a, b, planeZ, gapMm } = payload;
+    const { a, b, planeZ, gapMm, overhang, planes, planeIndex } = payload;
+    if (splitScoreEl) {
+      if (overhang) {
+        splitScoreEl.hidden = false;
+        splitScoreEl.textContent =
+          `A ${fmtSupport(overhang.a.support)} · B ${fmtSupport(overhang.b.support)}`;
+        splitScoreEl.title =
+          "Projected overhang (mm²) with the cut on the bed — relative, not a slicer estimate";
+      } else {
+        splitScoreEl.hidden = true;
+      }
+    }
+    if (splitPlaneEl) {
+      if (planes?.length > 1) {
+        splitPlaneEl.hidden = false;
+        splitPlaneEl.max = String(planes.length - 1);
+        splitPlaneEl.value = String(planeIndex ?? 0);
+      } else {
+        splitPlaneEl.hidden = true;
+      }
+    }
     splitGroup = new THREE.Group();
     const mkHalf = (mesh, zOff) => {
       const geo = new THREE.BufferGeometry();
@@ -600,6 +632,9 @@ export function createViewer(container, opts = {}) {
   splitReorientEl.addEventListener("click", () => {
     opts.onSplitReorient?.();
   });
+  splitPlaneEl.addEventListener("change", () => {
+    opts.onSplitPlane?.(Number(splitPlaneEl.value));
+  });
 
   /**
    * Show/hide an in-view dimension callout near the model.
@@ -622,6 +657,12 @@ export function createViewer(container, opts = {}) {
     return Number.isFinite(n)
       ? (Math.round(n * 10) / 10).toFixed(1).replace(/\.0$/, "")
       : "—";
+  }
+
+  function fmtSupport(n) {
+    if (!Number.isFinite(n)) return "—";
+    if (n >= 1000) return `${(n / 1000).toFixed(1).replace(/\.0$/, "")}k`;
+    return String(Math.round(n));
   }
 
   function setFocusFaces(ids) {

@@ -8,7 +8,7 @@
  *          [--openings=true|false] [--depth=hollow|solid] [--base=icosidodeca]
  *          [--seed=N] [--jitter=N] [--jitter-mode=surface|radial|both]
  *          [--subdiv=0|1|2] [--soften=0..100] [--points=N] [--separation=N]
- *          [--rounding-mm=0] [--split]
+ *          [--rounding-mm=0] [--spike=0..4] [--split]
  *
  * `--split` is a script flag (not a state key): writes two half-STLs next to
  * the outfile stem (`stem_half-a.stl`, `stem_half-b.stl`).
@@ -19,10 +19,7 @@ import { writeBinaryStl } from "../src/export/stl.js";
 import { clearPipelineCache } from "../src/pipeline.js";
 import { DEFAULT_STATE } from "../src/schema.js";
 import {
-  placeMesh,
-  findSplitPlane,
-  skeletonSeamLevels,
-  splitMeshAtPlane,
+  chooseSplit,
   halfExportMatrices,
 } from "../src/split.js";
 
@@ -104,13 +101,16 @@ if (!doSplit) {
   process.exit(0);
 }
 
-const placed = placeMesh(result.mesh, result.orientation.matrix);
-const heightMm = result.metrics.heightMm;
-const { planeZ } = findSplitPlane(placed, {
-  heightMm,
-  seamZs: skeletonSeamLevels(result.skeleton, result.orientation.matrix),
-});
-const { a, b, volumeMm3A, volumeMm3B } = splitMeshAtPlane(placed, planeZ);
+const chosen = chooseSplit(
+  result.mesh,
+  result.skeleton,
+  result.orientation.matrix,
+);
+if (!chosen) {
+  console.error("error [split] no clean cut found");
+  process.exit(1);
+}
+const { a, b, planeZ, volumeMm3A, volumeMm3B } = chosen;
 const { matrixA, matrixB } = halfExportMatrices(planeZ);
 
 const stem = outfile.replace(/\.stl$/i, "");

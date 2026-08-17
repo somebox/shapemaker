@@ -20,8 +20,18 @@ onward every release gets a full entry here, and breaking changes to the
   sharp). Additive default 0 — old hashes and projects
   normalize unchanged. Named stars are presets (stella octangula, small
   stellated dodecahedron, small triambic icosahedron, great stellated
-  dodecahedron,   great dodecahedron dimple), not new bases. Acceptance
-  matrix: 85 STLs.
+  dodecahedron, great dodecahedron dimple), not new bases. Acceptance
+  matrix: 87 STLs.
+
+### Changed
+
+- **Split ranking is printability, not seam size.** Enabling Split scores
+  orientations by projected overhang of a mid-band cut and picks the
+  best that seals — the canonical resting face is a candidate, not the
+  default. Once a pose is chosen, planes rank by larger cut area, then
+  seam, then nearer mid. The HUD shows a relative support readout per
+  half; reorient cycles the ranked list; a cut-height slider snaps to
+  valid gaps only (shape, not a second overhang ranking).
 
 ## [0.10.0] — 2026-08-04
 

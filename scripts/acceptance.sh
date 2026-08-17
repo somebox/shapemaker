@@ -22,7 +22,7 @@ OUT="${ROOT}/test/out/acceptance"
 rm -rf "$OUT"
 mkdir -p "$OUT"
 EXPORT=(node scripts/export-stl.mjs)
-EXPECTED=85
+EXPECTED=87
 
 while IFS=$'\t' read -ra parts; do
   [[ ${#parts[@]} -gt 0 ]] || continue
@@ -256,6 +256,10 @@ emitSplit("cube__split_open.stl", {
 // Hollow closed shell — name must NOT contain "hollow_closed" (body-count rule).
 emitSplit("icosidodeca__split_shell.stl", {
   base: "icosidodeca", depth: "hollow", openings: false, wallMm: 1.4,
+});
+emitSplit("octahedron_spike_stella__split_open.stl", {
+  base: "octahedron", spike: Math.sqrt(3), depth: "hollow", openings: true,
+  filletMm: 1.5,
 });
 JS
 )
