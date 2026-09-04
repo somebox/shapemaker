@@ -27,6 +27,14 @@ python3 -m http.server 8000
 # open http://localhost:8000/shapemaker/
 ```
 
+Or serve the project root without caching (plain `http.server` sends no
+cache headers, so an edited module can stay stale across reloads):
+
+```bash
+python3 scripts/dev-server.py 8000
+# open http://localhost:8000/
+```
+
 ## Tests
 
 | Tier | Command | Needs Python? |

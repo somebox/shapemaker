@@ -43,6 +43,150 @@ export function clampUi(value, lo, hi) {
 }
 
 /**
+ * Parse a typed value against the field's live bounds. Typing never
+ * patches the model; this only decides whether the text is committable
+ * and, if not, why — the field highlights the reason until it is fixed.
+ * @param {string} text
+ * @param {{ min?: number|null, max?: number|null, integer?: boolean }} [opts]
+ * @returns {{ ok: true, value: number } | { ok: false, reason: "empty"|"nan"|"integer"|"range" }}
+ */
+export function parseTyped(text, { min = null, max = null, integer = false } = {}) {
+  const t = String(text ?? "").trim();
+  if (t === "") return { ok: false, reason: "empty" };
+  const n = Number(t);
+  if (!Number.isFinite(n)) return { ok: false, reason: "nan" };
+  if (integer && !Number.isInteger(n)) return { ok: false, reason: "integer" };
+  if (min != null && Number.isFinite(min) && n < min) return { ok: false, reason: "range" };
+  if (max != null && Number.isFinite(max) && n > max) return { ok: false, reason: "range" };
+  return { ok: true, value: n };
+}
+
+/** Human hint for an invalid typed value (shown as the field's tooltip). */
+export function typedHint(reason, { min = null, max = null, unit = "", integer = false } = {}) {
+  const u = unit ? ` ${unit}` : "";
+  const lo = min != null && Number.isFinite(min) ? fmt2(min) : null;
+  const hi = max != null && Number.isFinite(max) ? fmt2(max) : null;
+  const span =
+    lo != null && hi != null ? `${lo}–${hi}${u}`
+    : lo != null ? `at least ${lo}${u}`
+    : hi != null ? `at most ${hi}${u}`
+    : "";
+  if (reason === "integer") return `Enter a whole number${span ? ` (${span})` : ""}`;
+  if (reason === "range") return `Enter a value between ${span}`.replace("between at", "at");
+  return span ? `Enter a number (${span})` : "Enter a number";
+}
+
+/**
+ * Live-drag scheduler: the model recompiles on a slider drag at most once
+ * per interval (scaled from the last compile time), and always once more
+ * when the pointer pauses, so the preview catches up the moment the user
+ * hesitates instead of stuttering behind every tick. In heavy mode only
+ * the pause compiles; release always commits. Timers are injectable so the
+ * policy is testable without a browser.
+ *
+ * @param {{
+ *   live: (patch: object) => void,
+ *   commit: (patch: object) => void,
+ *   now?: () => number,
+ *   setTimer?: (fn: () => void, ms: number) => unknown,
+ *   clearTimer?: (id: unknown) => void,
+ *   minIntervalMs?: number,
+ *   maxIntervalMs?: number,
+ *   settleMs?: number,
+ * }} opts
+ */
+export function createDragScheduler({
+  live,
+  commit,
+  now = () => performance.now(),
+  setTimer = (fn, ms) => setTimeout(fn, ms),
+  clearTimer = (id) => clearTimeout(id),
+  minIntervalMs = 50,
+  maxIntervalMs = 350,
+  settleMs = 120,
+}) {
+  let intervalMs = minIntervalMs;
+  let heavy = false;
+  /** @type {object|null} */
+  let pending = null;
+  let lastLiveAt = -Infinity;
+  let throttleTimer = null;
+  let settleTimer = null;
+
+  const clearThrottle = () => {
+    if (throttleTimer != null) {
+      clearTimer(throttleTimer);
+      throttleTimer = null;
+    }
+  };
+  const clearSettle = () => {
+    if (settleTimer != null) {
+      clearTimer(settleTimer);
+      settleTimer = null;
+    }
+  };
+  const fireLive = () => {
+    if (!pending) return;
+    const p = pending;
+    pending = null;
+    lastLiveAt = now();
+    live(p);
+  };
+
+  return {
+    /** Adapt the throttle to the measured compile cost. */
+    setCompileMs(ms) {
+      const target = Number.isFinite(ms) ? ms * 1.5 : minIntervalMs;
+      intervalMs = clampUi(target, minIntervalMs, maxIntervalMs);
+    },
+    setHeavy(on) {
+      heavy = !!on;
+    },
+    get intervalMs() {
+      return intervalMs;
+    },
+    get heavy() {
+      return heavy;
+    },
+    /** A drag tick: merge, throttle, and re-arm the pause detector. */
+    move(patch) {
+      pending = { ...(pending || {}), ...patch };
+      clearSettle();
+      settleTimer = setTimer(() => {
+        settleTimer = null;
+        clearThrottle();
+        fireLive();
+      }, settleMs);
+      if (heavy) return;
+      const wait = lastLiveAt + intervalMs - now();
+      if (wait <= 0) {
+        clearThrottle();
+        fireLive();
+      } else if (throttleTimer == null) {
+        throttleTimer = setTimer(() => {
+          throttleTimer = null;
+          fireLive();
+        }, wait);
+      }
+    },
+    /** Drag end: drop pending live work and commit the final value. */
+    release(patch) {
+      clearThrottle();
+      clearSettle();
+      const p = { ...(pending || {}), ...(patch || {}) };
+      pending = null;
+      lastLiveAt = now();
+      commit(p);
+    },
+    cancel() {
+      clearThrottle();
+      clearSettle();
+      pending = null;
+    },
+  };
+}
+
+/**
  * Dynamic wall/border/fillet ceiling → slider floor/ceil pair.
  * Tiny-face ceilings can drop below the control default minimum.
  * @param {number} max
@@ -207,21 +351,10 @@ export function buildControl(def, inputs, ranges, errNodes, limitLabels) {
       e.preventDefault();
       showEditor();
     });
-    num.addEventListener("blur", () => showReadout());
-    num.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") {
-        e.preventDefault();
-        num.blur();
-      } else if (e.key === "Escape") {
-        e.preventDefault();
-        num.blur();
-      }
-    });
-    // Keep readout in sync when the slider moves the hidden input.
-    num.addEventListener("input", () => {
-      if (readout.hidden) return;
-      readout.textContent = num.value;
-    });
+    // Commit/revert (Enter, Escape, blur validation) is wired by ui.js; the
+    // readout repaints from the field AFTER that wiring has settled the
+    // value, so an invalid draft never leaks into the readout.
+    num.addEventListener("blur", () => setTimeout(showReadout, 0));
 
     const minL = el("span", { hidden: true, textContent: String(def.min ?? "") });
     const maxL = el("span", { hidden: true, textContent: String(def.max ?? "") });
@@ -354,6 +487,8 @@ export function applyStateToControls(state, inputs, ranges, controlRoots, defs) 
         : uiVal;
     if (input && document.activeElement !== input) {
       input.value = fmtInput(display);
+      // What Escape / an invalid blur revert to.
+      input.dataset.committed = fmtInput(display);
       const readout = input.parentElement?.querySelector(".value-readout");
       if (readout && !readout.hidden) readout.textContent = fmtInput(display);
     }

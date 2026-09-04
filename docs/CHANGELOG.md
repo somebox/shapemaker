@@ -7,6 +7,45 @@ surface is still moving, and git history is the detailed record. From **1.0**
 onward every release gets a full entry here, and breaking changes to the
 [project format](PROJECT_FORMAT.md) get a migration note.
 
+## [0.12.0] — 2026-09-04
+
+### Changed
+
+- **Typed values validate as you type and commit on Enter/blur.** A value
+  box that is empty, non-numeric, or outside the control's live limits is
+  highlighted with a bounds hint instead of being pushed into the model;
+  Escape (or leaving the field invalid) reverts, Enter or leaving it valid
+  commits. Arrow keys still step live.
+- **Slider drags recompile on a budget.** Live recompiles are throttled to
+  1.5× the last measured compile time (50–350 ms) and always catch up when
+  the pointer pauses; heavy configurations compile only on the pause.
+  Release commits as before.
+- **Jitter is a collapsible cluster** (folded by default, state remembered)
+  whose header shows the current amount and direction.
+- **Stable panel layout while editing:** the value column has a fixed
+  width so swapping readout↔editor or growing from 1 to 100 never resizes
+  the slider track under the pointer.
+- `scripts/dev-server.py` serves the project root with `Cache-Control:
+  no-store`, so edited modules load on reload instead of the browser's
+  heuristic cache.
+
+### Fixed
+
+- **Rounding on subdivided meshes flattened the openings.** Stage-2 face
+  rings carried only the two endpoints of each internal seam, so a
+  subdivided face's fillet was radially sampled on 3–7 rays — bare
+  triangles and chords instead of arcs, and volume *rose* with rounding.
+  Seams now keep their edge sampling; the opening outline no longer
+  changes with Rounding.
+- **Smooth + Rounding threw at low Smooth values** ("Failed to generate").
+  Smooth 2 % leaves 0.1–0.3° creases whose rolling-ball strips are
+  micrometres wide; those strips and corner caps collapsed to zero area in
+  float32. Creases whose band would be narrower than 0.1 % of the
+  circumradius now stay sharp; corners mixing sharp and rounded edges cap
+  as separate flat wedges, and a parent edge that Smooth bent at its
+  midpoint gets a mitre ribbon between the two strips instead of a
+  sliver cap.
+
 ## [0.11.0] — 2026-08-17
 
 ### Added

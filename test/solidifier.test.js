@@ -315,6 +315,77 @@ describe("edge rounding with subdivision", () => {
     assert.ok(r.metrics.roundingMm.min <= 0.1 + 1e-12);
   });
 
+  it("keeps the opening outline on subdivided faces (rings sample the seams)", () => {
+    // Before the seam fix a subdiv-2 face with three internal seams had a
+    // 3-point boundary ring, so its fillet was radially sampled on 3 rays
+    // — a bare triangle — and volume ROSE with rounding.
+    // Normal quality: at Draft the opening is sampled on so few rays that
+    // the ray placement alone moves the polygon area by ~1%.
+    for (const [base, subdiv] of [
+      ["icosahedron", 1], ["icosahedron", 2], ["cube", 2], ["dodecahedron", 1],
+    ]) {
+      clearPipelineCache();
+      const sharp = compile({ base, subdiv });
+      clearPipelineCache();
+      const round = compile({ base, subdiv, roundingMm: 1 });
+      assert.equal(round.validation.ok, true, round.validation.errors[0]?.message);
+      assertMeshInvariants(round.mesh);
+      const d0 = sharp.metrics.openingMinDiameterMm;
+      const d1 = round.metrics.openingMinDiameterMm;
+      assert.ok(
+        Math.abs(d1 - d0) < 0.05 * d0,
+        `${base} subdiv=${subdiv}: opening ${d0.toFixed(3)} → ${d1.toFixed(3)} mm`,
+      );
+      const v0 = sharp.metrics.volumeMm3, v1 = round.metrics.volumeMm3;
+      assert.ok(v1 < v0 && v1 > 0.9 * v0, `${base} subdiv=${subdiv}: volume ${v0} → ${v1}`);
+    }
+  });
+
+  it("congruent microfaces get identical openings under rounding", () => {
+    clearPipelineCache();
+    const r = compile({ base: "dodecahedron", subdiv: 1, roundingMm: 1, edgeDiv: 4 });
+    assert.equal(r.validation.ok, true, r.validation.errors[0]?.message);
+    const d = r.metrics.faceMetrics.map((f) => f.openingMinDiameterMm);
+    assert.equal(d.length, 120);
+    assert.ok(Math.max(...d) - Math.min(...d) < 1e-6, `spread ${Math.max(...d) - Math.min(...d)}`);
+  });
+
+  it("shallow smooth creases round without float32-degenerate triangles", () => {
+    // Smooth 2 % leaves 0.1–0.3° creases between sub-facets; their
+    // micrometre-wide strips and caps used to collapse to zero area once
+    // positions downcast to float32 (assertMeshInvariants checks that
+    // buffer). Those creases now stay sharp below the width floor.
+    // Both quality levels: the knee/cap topology depends on the arc
+    // segment count, and the edgeDiv-10 case regressed while 4 passed.
+    for (const base of ["dodecahedron", "icosahedron"]) {
+      for (const subdiv of [1, 2]) {
+        for (const [soften, edgeDiv] of [[2, 4], [10, 4], [2, 10]]) {
+          clearPipelineCache();
+          const r = compile({ base, subdiv, soften, roundingMm: 0.5, edgeDiv });
+          assert.equal(
+            r.validation.ok, true,
+            `${base} subdiv=${subdiv} soften=${soften}: ${r.validation.errors[0]?.message}`,
+          );
+          assertMeshInvariants(r.mesh);
+          assert.ok(Math.abs(r.metrics.roundingMm.max - 0.5) < 1e-6);
+        }
+      }
+    }
+  });
+
+  it("bent macro edges (smooth 50) round on mixed-face solids", () => {
+    // A subdivision midpoint on a parent edge becomes a knee where two
+    // collinear strips meet; on mixed-face solids the split is on one
+    // side only, so the other macro's inset corner sat on the shared
+    // tangency line and minted zero-area cap triangles.
+    for (const base of ["icosidodeca", "cuboctahedron"]) {
+      clearPipelineCache();
+      const r = compile({ base, subdiv: 2, soften: 50, roundingMm: 1 });
+      assert.equal(r.validation.ok, true, `${base}: ${r.validation.errors[0]?.message}`);
+      assertMeshInvariants(r.mesh);
+    }
+  });
+
   it("smooth-bent icosahedron still rounds watertight", () => {
     clearPipelineCache();
     const r = compile({

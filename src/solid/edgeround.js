@@ -9,8 +9,14 @@
  * refinement, not dihedrals, so they never get a zero-radius strip. Each
  * macro edge carries r_e = min(roundingMm, local allowances of both adjacent
  * faces, constituent micro-edge budgets). A small feature never caps the
- * model. Smooth-bent facets stay independent so Form Rounding operates on
- * the faceted surface.
+ * model. Smooth-bent facets stay independent, but a crease whose band
+ * would be narrower than the width floor (1e-3 × circumradius) stays
+ * sharp — Smooth already rounded it, and a micrometre strip is exactly
+ * degenerate in float32.
+ *
+ * Internal seams carry no strip but keep their edgeDiv samples in the
+ * face ring, so the opening outline (radially sampled on the ring's rays)
+ * is unchanged by rounding.
  *
  * Construction per edge (faces a, b; in-plane inward edge normals t_a,
  * t_b — not orthogonal in general): a TRUE circular arc of radius r in
@@ -110,6 +116,26 @@ export function buildEdgeRounding(skeleton, frames, opts) {
 
   const P = (vi) => [positions[vi * 3], positions[vi * 3 + 1], positions[vi * 3 + 2]];
 
+  // Strip-width floor. Smooth leaves creases of a fraction of a degree
+  // between sub-facets; the rolling-ball band there is w = r·tan(turn/2),
+  // micrometres wide at r ≈ 1 mm. Those strips and their corner caps are
+  // exactly degenerate once positions downcast to float32, and they add
+  // nothing visible. Below the floor the crease stays sharp (r = 0) — the
+  // same path reflex valleys take. Scale-relative so Size does not change
+  // which creases qualify.
+  let circumradius = 0;
+  for (let i = 0; i < positions.length; i += 3) {
+    circumradius = Math.max(
+      circumradius,
+      Math.hypot(positions[i], positions[i + 1], positions[i + 2]),
+    );
+  }
+  const wFloor = 1e-3 * circumradius;
+  // Strip end rows closer than this at a shared vertex are one vertex.
+  // Well under the width floor (so rows of one column never merge) and
+  // well over float32 resolution (so a merged pair is really coincident).
+  const mergeTol = 1e-5 * circumradius;
+
   const macroAngleAt = (m, v) => {
     const ring = outerRing[m];
     if (!ring || ring.length < 3) return Math.PI / 2;
@@ -152,6 +178,7 @@ export function buildEdgeRounding(skeleton, frames, opts) {
     }
     if (r * cotHalf > budget) r = budget / cotHalf;
     if (!(r > 0) || !Number.isFinite(r)) r = 0;
+    if (r * cotHalf < wFloor) r = 0;
     const w = r * cotHalf;
     const len = Math.hypot(...sub(V, U));
     if (!(len > 1e-12) || !Number.isFinite(len)) continue;
@@ -316,7 +343,7 @@ export function buildEdgeRounding(skeleton, frames, opts) {
         const row = e.grid[j];
         const p = getVert(row[col]);
         const hit = cands.find(
-          (c) => Math.hypot(c.p[0] - p[0], c.p[1] - p[1], c.p[2] - p[2]) < 1e-6,
+          (c) => Math.hypot(c.p[0] - p[0], c.p[1] - p[1], c.p[2] - p[2]) < mergeTol,
         );
         if (hit) row[col] = hit.idx;
         else cands.push({ idx: row[col], p });
@@ -332,7 +359,17 @@ export function buildEdgeRounding(skeleton, frames, opts) {
   };
   const near = (i, p) => {
     const q = getVert(i);
-    return Math.hypot(q[0] - p[0], q[1] - p[1], q[2] - p[2]) < 1e-6;
+    return Math.hypot(q[0] - p[0], q[1] - p[1], q[2] - p[2]) < mergeTol;
+  };
+  /** p strictly between a and b, within mergeTol of the line through them. */
+  const onSegment = (a, b, p) => {
+    const ab = sub(b, a), ap = sub(p, a);
+    const l2 = dot(ab, ab);
+    if (!(l2 > 0)) return false;
+    const t = dot(ap, ab) / l2;
+    if (t <= 0 || t >= 1) return false;
+    const off = sub(ap, mul(ab, t));
+    return Math.hypot(off[0], off[1], off[2]) < mergeTol;
   };
   for (const v of cornerVerts) {
     const eids = topo.vertEdges.get(v) || [];
@@ -370,8 +407,25 @@ export function buildEdgeRounding(skeleton, frames, opts) {
         if (endB && endB.idx !== idx && near(endB.idx, pos)) endB.row[endB.col] = idx;
       } else if (endB && near(endB.idx, pos)) {
         idx = endB.idx;
+      } else if (endB && onSegment(getVert(endA.idx), getVert(endB.idx), pos)) {
+        // The macro boundary runs straight through v (two collinear
+        // strips; the split is on the other side): the inset corner lies
+        // on the tangency line between the two strip ends, where a point
+        // of its own only mints zero-area caps. Reuse one end — the knee
+        // ribbon fills the straight gap between the strips.
+        idx = endA.idx;
       } else {
-        idx = pushVert(pos[0], pos[1], pos[2]);
+        // Two macros whose spokes at v are all sharp (r = 0) both keep the
+        // raw vertex; share one index so the cap loop sees a pinch, not
+        // two coincident points it could not stitch.
+        for (const m2 of macros) {
+          const i2 = cornerIdx.get(m2 * 0x100000 + v);
+          if (i2 !== undefined && near(i2, pos)) {
+            idx = i2;
+            break;
+          }
+        }
+        if (idx === undefined) idx = pushVert(pos[0], pos[1], pos[2]);
       }
       cornerIdx.set(m * 0x100000 + v, idx);
     }
@@ -415,6 +469,34 @@ export function buildEdgeRounding(skeleton, frames, opts) {
     if (cNext !== undefined && out[out.length - 1] === cNext) out.pop();
   };
 
+  // Internal seams (coplanar subdivision refinement) carry no strip, but
+  // the face ring still needs the edgeDiv samples along them: the opening
+  // outline is radially sampled on the ring's rays, so a two-point seam
+  // would flatten a fillet arc into a chord (and a subdiv-2 face with
+  // three seams into a bare triangle). Both faces share one seam, so the
+  // interior points are minted once per key and walked in either
+  // direction — no cracks, no T-junctions.
+  const seamExtra = new Map();
+  const seamInterior = (key, a, b, f) => {
+    let idx = seamExtra.get(key);
+    if (idx) return a < b ? idx : [...idx].reverse();
+    // Interpolate between the two representatives, not the raw skeleton
+    // verts: both lie in the face plane, so the seam stays straight and
+    // meets the strip/corner points exactly.
+    const lo = a < b ? a : b, hi = a < b ? b : a;
+    const A = getVert(represent(lo, f)), B = getVert(represent(hi, f));
+    idx = [];
+    for (const t of lengthwise) {
+      idx.push(pushVert(
+        A[0] + (B[0] - A[0]) * t,
+        A[1] + (B[1] - A[1]) * t,
+        A[2] + (B[2] - A[2]) * t,
+      ));
+    }
+    seamExtra.set(key, idx);
+    return a < b ? idx : [...idx].reverse();
+  };
+
   const faceRings = new Map();
   for (let f = 0; f < faces.length; f++) {
     const ring = faces[f];
@@ -423,14 +505,10 @@ export function buildEdgeRounding(skeleton, frames, opts) {
     for (let k = 0; k < ring.length; k++) {
       const a = ring[k], b = ring[(k + 1) % ring.length];
       const key = edgeKey(a, b);
-      if (internalKeys.has(key)) {
-        out.push(represent(a, f));
-        out.push(represent(b, f));
-        continue;
-      }
-      const rec = edges[edgeByTopo.get(key)];
+      const rec = internalKeys.has(key) ? null : edges[edgeByTopo.get(key)];
       if (!rec) {
         out.push(represent(a, f));
+        out.push(...seamInterior(key, a, b, f));
         out.push(represent(b, f));
         continue;
       }
@@ -479,6 +557,104 @@ export function buildEdgeRounding(skeleton, frames, opts) {
     }
   }
 
+  /**
+   * Flat-fill one simple loop (no repeated index) with outward winding:
+   * ear-clip in its best-fit plane, or fan from its first vertex if the
+   * projection is pathological. Used for the lobes of a pinched corner.
+   */
+  const capLobe = (lobe, fid) => {
+    let nx = 0, ny = 0, nz = 0, sx = 0, sy = 0, sz = 0;
+    for (let i = 0; i < lobe.length; i++) {
+      const a = getVert(lobe[i]);
+      const b = getVert(lobe[(i + 1) % lobe.length]);
+      nx += (a[1] - b[1]) * (a[2] + b[2]);
+      ny += (a[2] - b[2]) * (a[0] + b[0]);
+      nz += (a[0] - b[0]) * (a[1] + b[1]);
+      sx += a[0]; sy += a[1]; sz += a[2];
+    }
+    if (!(Math.hypot(nx, ny, nz) > 0)) return;
+    const ordered = nx * sx + ny * sy + nz * sz > 0 ? lobe : [...lobe].reverse();
+    const nrm = norm(nx * sx + ny * sy + nz * sz > 0 ? [nx, ny, nz] : [-nx, -ny, -nz]);
+    const axis = Math.abs(nrm[0]) < 0.9 ? [1, 0, 0] : [0, 1, 0];
+    const e1 = norm(cross(nrm, axis));
+    const e2 = cross(nrm, e1);
+    const c0 = mul([sx, sy, sz], 1 / lobe.length);
+    const pts2d = new Float64Array(ordered.length * 2);
+    for (let i = 0; i < ordered.length; i++) {
+      const d = sub(getVert(ordered[i]), c0);
+      pts2d[i * 2] = dot(d, e1);
+      pts2d[i * 2 + 1] = dot(d, e2);
+    }
+    try {
+      const local = earClip(pts2d, [...ordered.keys()]);
+      for (let i = 0; i < local.length; i += 3) {
+        capEmitTri(ordered[local[i]], ordered[local[i + 1]], ordered[local[i + 2]], fid, tris);
+      }
+    } catch {
+      for (let i = 1; i < ordered.length - 1; i++) {
+        capEmitTri(ordered[0], ordered[i], ordered[i + 1], fid, tris);
+      }
+    }
+  };
+
+  /** Remove every (a, b, a) run from a cyclic index loop, in place. */
+  const cancelRetraced = (loop) => {
+    for (let changed = true; changed && loop.length > 2;) {
+      changed = false;
+      for (let i = 0; i < loop.length; i++) {
+        const n = loop.length;
+        if (loop[(i - 1 + n) % n] !== loop[(i + 1) % n]) continue;
+        const j = (i + 1) % n;
+        loop.splice(Math.max(i, j), 1);
+        loop.splice(Math.min(i, j), 1);
+        changed = true;
+        break;
+      }
+    }
+    while (loop.length > 1 && loop[0] === loop[loop.length - 1]) loop.pop();
+  };
+
+  /**
+   * Cap a loop that visits some vertex more than once: split at the
+   * first repeated vertex into lobes, and cap each lobe (recursively —
+   * a lobe may pinch again) once it is a simple loop of ≥ 3 vertices.
+   */
+  const capPinched = (loop, fid) => {
+    cancelRetraced(loop);
+    if (loop.length < 3) return;
+    const seen = new Set();
+    let pinch = -1;
+    for (const i of loop) {
+      if (seen.has(i)) { pinch = i; break; }
+      seen.add(i);
+    }
+    if (pinch < 0) {
+      capLobe(loop, fid);
+      return;
+    }
+    const start = loop.indexOf(pinch);
+    const rot = [...loop.slice(start), ...loop.slice(0, start)];
+    let lobe = [];
+    for (let i = 1; i <= rot.length; i++) {
+      const idx = rot[i % rot.length];
+      if (idx === pinch) {
+        if (lobe.length >= 2) capPinched([pinch, ...lobe], fid);
+        lobe = [];
+      } else {
+        lobe.push(idx);
+      }
+    }
+  };
+
+  /** Directed boundary edges of the strip quads (a→b→c→d→a). */
+  const stripDirected = new Set();
+  for (const [a, b, c, d] of quads) {
+    stripDirected.add(a * 0x100000 + b);
+    stripDirected.add(b * 0x100000 + c);
+    stripDirected.add(c * 0x100000 + d);
+    stripDirected.add(d * 0x100000 + a);
+  }
+
   for (const v of cornerVerts) {
     const fan = fans.get(v);
     if (!fan) continue;
@@ -514,6 +690,79 @@ export function buildEdgeRounding(skeleton, frames, opts) {
     }
     while (clean.length > 1 && clean[0] === clean[clean.length - 1]) clean.pop();
     if (clean.length < 3) continue;
+
+    // Retraced runs (a, b, a) are interior, not boundary: two strips
+    // whose end columns merged into the same vertices leave a loop that
+    // walks out and back. Cancel them before looking for anything to cap.
+    cancelRetraced(clean);
+    if (clean.length < 3) continue;
+
+    // Pinched loop: when some spokes are sharp (r = 0 — a floored smooth
+    // crease or a spike valley) the faces between them keep the raw
+    // vertex, and the loop passes through it once per such face. The cap
+    // is then several separate wedges meeting at that vertex: split there
+    // and fill each lobe flat, instead of triangulating a figure-8.
+    if (new Set(clean).size < clean.length) {
+      capPinched(clean, spokes[0].f);
+      continue;
+    }
+
+    // Knee: exactly two rounded spokes whose end columns face each other
+    // — a macro edge Smooth bent at a subdivision midpoint, with any
+    // sharp seams' points already merged into the column ends. The gap is
+    // the mitre between the two strips: a ribbon of quads pairing the
+    // columns row by row, not a cap (a cap here is a sliver hexagon).
+    {
+      const rounded = spokes.filter((sp) => edges[sp.ei].r > 0);
+      const colOf = (sp) => {
+        const e = edges[sp.ei];
+        const col = e.u === v ? 0 : e.cols - 1;
+        return e.grid.map((row) => row[col]);
+      };
+      if (rounded.length === 2) {
+        const a = colOf(rounded[0]);
+        let b = colOf(rounded[1]);
+        const members = new Set([...a, ...b]);
+        if (clean.every((i) => members.has(i))) {
+          const dist = (i, k) => {
+            const p = getVert(i), q = getVert(k);
+            return Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]);
+          };
+          if (dist(a[0], b[0]) + dist(a[J], b[J]) > dist(a[0], b[J]) + dist(a[J], b[0])) {
+            b = [...b].reverse();
+          }
+          const fid = edges[rounded[0].ei].fa;
+          // Winding from topology, not geometry: a sliver's normal is
+          // ill-conditioned, but the strip's own quads already traverse
+          // this column one way and the ribbon must run the other way.
+          let flip = null;
+          for (let j = 0; j < J && flip === null; j++) {
+            if (a[j] === a[j + 1]) continue;
+            if (stripDirected.has(a[j] * 0x100000 + a[j + 1])) flip = true;
+            else if (stripDirected.has(a[j + 1] * 0x100000 + a[j])) flip = false;
+          }
+          if (flip === null) flip = false;
+          for (let j = 0; j < J; j++) {
+            const q = [a[j], a[j + 1], b[j + 1], b[j]];
+            if (new Set(q).size < 3) continue;
+            const o = flip ? [q[3], q[2], q[1], q[0]] : q;
+            capEmitTri(o[0], o[1], o[2], fid, tris);
+            capEmitTri(o[0], o[2], o[3], fid, tris);
+          }
+          continue;
+        }
+      }
+    }
+
+    // Any sharp spoke (floored smooth crease, spike valley): the corner's
+    // tangent sphere has radius 0, so the spherical cap below has no
+    // apex to place — its centre is the raw vertex and its samples land
+    // on the loop's own chords. The loop is then the small wedge between
+    // rounded columns and sharp edge points: fill it flat.
+    if (spokes.some((sp) => !(edges[sp.ei].r > 0))) {
+      capPinched(clean, spokes[0].f);
+      continue;
+    }
 
     let rMin = Infinity;
     let nAvg = [0, 0, 0];

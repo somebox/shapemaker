@@ -679,6 +679,7 @@ function regenerate({
   // must not clear heavy mode.
   lastCompileMs = performance.now() - t0;
   ui.setHeavy(lastCompileMs > HEAVY_COMPILE_MS);
+  ui.setCompileMs?.(lastCompileMs);
 
   // Do not reframe on jitter/seed-only edits. Reframe on force, first mesh,
   // base change, or size change.

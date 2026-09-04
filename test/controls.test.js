@@ -10,6 +10,9 @@ import {
   limitTitle,
   uiToState,
   stateToUi,
+  parseTyped,
+  typedHint,
+  createDragScheduler,
 } from "../src/controls.js";
 import {
   normalizePatch,
@@ -162,5 +165,146 @@ describe("heavy-compile + session/history policies (B coverage)", () => {
     });
     assert.equal(end.action, "replace");
     assert.equal(end.liveEdit, false);
+  });
+});
+
+/** Deterministic timer harness for the drag scheduler. */
+function fakeClock() {
+  let t = 0;
+  let id = 0;
+  const timers = [];
+  return {
+    now: () => t,
+    setTimer(fn, ms) {
+      const h = { id: ++id, at: t + ms, fn };
+      timers.push(h);
+      return h.id;
+    },
+    clearTimer(hid) {
+      const i = timers.findIndex((x) => x.id === hid);
+      if (i >= 0) timers.splice(i, 1);
+    },
+    advance(ms) {
+      const end = t + ms;
+      for (;;) {
+        timers.sort((a, b) => a.at - b.at);
+        const next = timers[0];
+        if (!next || next.at > end) break;
+        t = next.at;
+        timers.shift();
+        next.fn();
+      }
+      t = end;
+    },
+    pending: () => timers.length,
+  };
+}
+
+describe("typed values and drag scheduling", () => {
+  it("parseTyped says why text is not committable", () => {
+    assert.deepEqual(parseTyped("12", { min: 0, max: 50 }), { ok: true, value: 12 });
+    assert.deepEqual(parseTyped(" 1.5 ", { min: 0, max: 50 }), { ok: true, value: 1.5 });
+    assert.equal(parseTyped("", { min: 0, max: 50 }).reason, "empty");
+    assert.equal(parseTyped("1.", { min: 0, max: 50 }).ok, true);
+    assert.equal(parseTyped("abc", {}).reason, "nan");
+    assert.equal(parseTyped("60", { min: 0, max: 50 }).reason, "range");
+    assert.equal(parseTyped("-1", { min: 0, max: 50 }).reason, "range");
+    assert.equal(parseTyped("2.5", { integer: true }).reason, "integer");
+    assert.equal(parseTyped("500", { min: 10, max: null }).ok, true);
+  });
+
+  it("typedHint names the live bounds", () => {
+    assert.equal(typedHint("range", { min: 0, max: 50, unit: "%" }), "Enter a value between 0–50 %");
+    assert.equal(typedHint("range", { min: 10 }), "Enter a value at least 10");
+    assert.equal(typedHint("integer", { min: 0, max: 9 }), "Enter a whole number (0–9)");
+    assert.equal(typedHint("nan", {}), "Enter a number");
+  });
+
+  it("drag scheduler throttles live patches and merges ticks", () => {
+    const clock = fakeClock();
+    const live = [];
+    const commits = [];
+    const s = createDragScheduler({
+      live: (p) => live.push(p),
+      commit: (p) => commits.push(p),
+      now: clock.now,
+      setTimer: clock.setTimer,
+      clearTimer: clock.clearTimer,
+      minIntervalMs: 50,
+      settleMs: 120,
+    });
+    s.move({ a: 1 });
+    assert.deepEqual(live, [{ a: 1 }], "first tick compiles immediately");
+    clock.advance(10);
+    s.move({ a: 2 });
+    clock.advance(10);
+    s.move({ a: 3 });
+    assert.equal(live.length, 1, "inside the interval nothing compiles");
+    clock.advance(40);
+    assert.deepEqual(live[1], { a: 3 }, "trailing tick carries the latest value");
+    s.release({ a: 4 });
+    assert.deepEqual(commits, [{ a: 4 }]);
+    assert.equal(clock.pending(), 0, "release cancels every timer");
+  });
+
+  it("drag scheduler catches up when the pointer pauses", () => {
+    const clock = fakeClock();
+    const live = [];
+    const s = createDragScheduler({
+      live: (p) => live.push(p),
+      commit: () => {},
+      now: clock.now,
+      setTimer: clock.setTimer,
+      clearTimer: clock.clearTimer,
+      minIntervalMs: 50,
+      maxIntervalMs: 350,
+      settleMs: 120,
+    });
+    s.setCompileMs(200);
+    assert.equal(s.intervalMs, 300, "interval is 1.5× compile time");
+    s.setCompileMs(5000);
+    assert.equal(s.intervalMs, 350, "capped");
+    s.setCompileMs(1);
+    assert.equal(s.intervalMs, 50, "floored");
+    s.setCompileMs(200);
+    s.move({ a: 1 });
+    clock.advance(10);
+    s.move({ a: 2 });
+    assert.equal(live.length, 1);
+    clock.advance(150);
+    assert.deepEqual(live[1], { a: 2 }, "pause flushes before the 300 ms throttle");
+    assert.equal(clock.pending(), 0, "the pause flush cancels the throttle timer");
+  });
+
+  it("heavy mode compiles only on pause and commits on release", () => {
+    const clock = fakeClock();
+    const live = [];
+    const commits = [];
+    const s = createDragScheduler({
+      live: (p) => live.push(p),
+      commit: (p) => commits.push(p),
+      now: clock.now,
+      setTimer: clock.setTimer,
+      clearTimer: clock.clearTimer,
+      settleMs: 120,
+    });
+    s.setHeavy(true);
+    s.move({ a: 1 });
+    clock.advance(60);
+    s.move({ a: 2 });
+    clock.advance(60);
+    assert.equal(live.length, 0, "no live compiles while the pointer keeps moving");
+    clock.advance(100);
+    assert.deepEqual(live, [{ a: 2 }], "one compile once it pauses");
+    s.move({ a: 3 });
+    s.release();
+    assert.deepEqual(commits, [{ a: 3 }], "release commits the pending value");
+    assert.equal(live.length, 1);
+  });
+
+  it("jitter cluster starts folded", () => {
+    const store = { getItem: () => null, setItem() {} };
+    assert.equal(loadGroupsOpen(store).jitter, false);
+    assert.equal(loadGroupsOpen(store).shape, true);
   });
 });

@@ -23,6 +23,9 @@ import {
   applyStateToControls,
   uiToState,
   clampUi,
+  parseTyped,
+  typedHint,
+  createDragScheduler,
 } from "./controls.js";
 
 const GROUPS = [
@@ -34,7 +37,8 @@ const GROUPS = [
 export const GROUPS_OPEN_KEY = "shapemaker.groups.open";
 export const START_EXPANDED_KEY = "shapemaker.start.expanded";
 
-const DEFAULT_OPEN = { shape: true, form: true, make: true };
+/** Jitter is a sub-cluster of Shape; it starts folded. */
+const DEFAULT_OPEN = { shape: true, form: true, make: true, jitter: false };
 
 /**
  * Apply coupled-control rules so routine interactions never emit invalid combos.
@@ -265,6 +269,8 @@ export function createPanel(panelEl, handlers) {
   const limitLabels = new Map();
 
   const groupsOpen = loadGroupsOpen();
+  /** @type {HTMLElement|null} collapsed-state readout in the Jitter header */
+  let jitterSummary = null;
 
   for (const g of GROUPS) {
     const section = el("section", {
@@ -316,27 +322,55 @@ export function createPanel(panelEl, handlers) {
             className: "control-cluster",
             dataset: { cluster: "jitter" },
           });
-          jitterCluster.appendChild(
-            el("div", { className: "cluster-label", textContent: "Jitter" }),
+          // Collapsible: the header carries a summary so a folded cluster
+          // still shows whether jitter is on.
+          const jOpen = groupsOpen.jitter === true;
+          const jToggle = el("button", {
+            type: "button",
+            className: "cluster-toggle",
+          });
+          jToggle.setAttribute("aria-expanded", jOpen ? "true" : "false");
+          const jChevron = el("span", {
+            className: "group-chevron",
+            textContent: jOpen ? "▾" : "▸",
+          });
+          jChevron.setAttribute("aria-hidden", "true");
+          jitterSummary = el("span", { className: "cluster-summary", textContent: "" });
+          jToggle.append(
+            jChevron,
+            el("span", { className: "cluster-label", textContent: "Jitter" }),
+            jitterSummary,
           );
+          const jBody = el("div", { className: "cluster-body" });
+          jBody.hidden = !jOpen;
+          jToggle.addEventListener("click", () => {
+            const next = jBody.hidden;
+            jBody.hidden = !next;
+            jToggle.setAttribute("aria-expanded", next ? "true" : "false");
+            jChevron.textContent = next ? "▾" : "▸";
+            groupsOpen.jitter = next;
+            saveGroupsOpen(groupsOpen);
+          });
+          jitterCluster.append(jToggle, jBody);
           root.classList.add("control--clustered");
           const lab = root.querySelector("label");
           if (lab) lab.textContent = "Amount";
-          jitterCluster.appendChild(root);
+          jBody.appendChild(root);
           if (pendingSeed) {
-            jitterCluster.appendChild(pendingSeed);
+            jBody.appendChild(pendingSeed);
             pendingSeed = null;
           }
           body.appendChild(jitterCluster);
         } else if (def.key === "jitterMode" && jitterCluster) {
           root.classList.add("control--clustered");
-          jitterCluster.appendChild(root);
+          jitterCluster.querySelector(".cluster-body")?.appendChild(root);
         } else {
           body.appendChild(root);
         }
       }
-      if (pendingSeed && jitterCluster) jitterCluster.appendChild(pendingSeed);
-      else if (pendingSeed) body.appendChild(pendingSeed);
+      if (pendingSeed && jitterCluster) {
+        jitterCluster.querySelector(".cluster-body")?.appendChild(pendingSeed);
+      } else if (pendingSeed) body.appendChild(pendingSeed);
     } else if (g.id === "make") {
       body.appendChild(buildMake(handlers));
     }
@@ -427,67 +461,135 @@ export function createPanel(panelEl, handlers) {
     }
   }
 
+  // Drag policy: live recompiles are throttled to the measured compile cost
+  // and always catch up once the pointer pauses; release commits.
+  const sched = createDragScheduler({
+    live: (patch) => queuePatch(patch, false),
+    commit: (patch) => queuePatch(patch, true),
+  });
+
+  /** State patch for a UI value on a control (null = not applicable yet). */
+  const patchFor = (key, def, n) => {
+    if (key === "edgeLengthMm") {
+      if (edgeMean == null || circumdiameter == null || edgeMean <= 0) return null;
+      return { circumdiameterMm: round1((n / edgeMean) * circumdiameter) };
+    }
+    if (key === "seed") return { seed: n };
+    return { [key]: uiToState(def, n) };
+  };
+
+  /**
+   * Typed editing. Every keystroke is validated and only highlighted when
+   * wrong — the preview keeps its last committed value. Enter or leaving
+   * the field with a valid value commits; Escape, or leaving it invalid,
+   * reverts. Arrow keys step live through the drag scheduler.
+   */
+  function wireTyped(key, input, def, { integer = false } = {}) {
+    const bound = (v) => (v === "" || v == null ? null : Number(v));
+    const bounds = () => ({ min: bound(input.min), max: bound(input.max), integer });
+    const parse = () => parseTyped(input.value, bounds());
+    const readoutEl = () => input.parentElement?.querySelector(".value-readout");
+    const setInvalid = (reason) => {
+      input.classList.toggle("is-invalid", !!reason);
+      input.setAttribute("aria-invalid", reason ? "true" : "false");
+      input.title = reason
+        ? typedHint(reason, { ...bounds(), unit: def?.unit || "" })
+        : "";
+    };
+    const paintReadout = () => {
+      const r = readoutEl();
+      if (r) r.textContent = input.value;
+    };
+    const commit = () => {
+      if (input.readOnly) return true;
+      const r = parse();
+      if (!r.ok) return false;
+      setInvalid(null);
+      const changed = input.value !== input.dataset.committed;
+      input.dataset.committed = input.value;
+      paintReadout();
+      if (!changed) return true;
+      const patch = patchFor(key, def, r.value);
+      if (patch) queuePatch(patch, true);
+      return true;
+    };
+    const revert = () => {
+      input.value = input.dataset.committed ?? "";
+      setInvalid(null);
+      paintReadout();
+    };
+    input.addEventListener("focus", () => {
+      if (input.dataset.committed == null) input.dataset.committed = input.value;
+    });
+    input.addEventListener("input", () => {
+      const r = parse();
+      setInvalid(r.ok ? null : r.reason);
+    });
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        if (commit()) input.blur();
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        revert();
+        input.blur();
+      } else if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+        if (input.readOnly) return;
+        // Native stepping lands after keydown; read it back next tick.
+        setTimeout(() => {
+          const r = parse();
+          setInvalid(r.ok ? null : r.reason);
+          if (!r.ok) return;
+          paintReadout();
+          const patch = patchFor(key, def, r.value);
+          if (patch) sched.move(patch);
+        }, 0);
+      }
+    });
+    input.addEventListener("keyup", (e) => {
+      if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+      if (input.readOnly) return;
+      const r = parse();
+      if (!r.ok) return;
+      input.dataset.committed = input.value;
+      const patch = patchFor(key, def, r.value);
+      if (patch) sched.release(patch);
+    });
+    input.addEventListener("blur", () => {
+      if (!commit()) revert();
+    });
+  }
+
   for (const [key, input] of inputs) {
     const def = CONTROL_DEFS.find((c) => c.key === key);
     if (!def) continue;
-    if (def.type === "range" || def.type === "number") {
-      input.addEventListener("input", () => {
-        const n = Number(input.value);
-        if (!Number.isFinite(n)) return;
-        if (key === "edgeLengthMm") {
-          if (edgeMean == null || circumdiameter == null || edgeMean <= 0) return;
-          const nextCirc = (n / edgeMean) * circumdiameter;
-          queuePatch({ circumdiameterMm: round1(nextCirc) }, false);
-          return;
-        }
-        queuePatch({ [key]: uiToState(def, n) }, false);
-      });
-      input.addEventListener("change", () => {
-        const raw = Number(input.value);
-        if (!Number.isFinite(raw)) return;
-        // Honour live min/max (limits / boundsForState) on commit so a typed
-        // Density of 50 on the globe becomes 36, matching the slider.
-        const lo = input.min !== "" ? Number(input.min) : null;
-        const hi = input.max !== "" ? Number(input.max) : null;
-        const n =
-          lo != null &&
-          hi != null &&
-          Number.isFinite(lo) &&
-          Number.isFinite(hi)
-            ? clampUi(raw, lo, hi)
-            : raw;
-        if (key === "edgeLengthMm") {
-          if (edgeMean == null || circumdiameter == null || edgeMean <= 0) return;
-          const nextCirc = (n / edgeMean) * circumdiameter;
-          queuePatch({ circumdiameterMm: round1(nextCirc) }, true);
-          return;
-        }
-        queuePatch({ [key]: uiToState(def, n) }, true);
-      });
-    }
+    if (def.type === "range" || def.type === "number") wireTyped(key, input, def);
+    else if (def.type === "seed") wireTyped(key, input, def, { integer: true });
   }
 
-  let heavyMode = false;
+  /** Mirror a slider/scrub value into the field and readout (no patch). */
+  const paintValue = (key, n) => {
+    const num = inputs.get(key);
+    if (!num) return;
+    num.value = fmtInput(n);
+    num.dataset.committed = num.value;
+    const readout = num.parentElement?.querySelector(".value-readout");
+    if (readout) readout.textContent = fmtInput(n);
+  };
 
   for (const [key, range] of ranges) {
     const def = CONTROL_DEFS.find((c) => c.key === key);
     range.addEventListener("input", () => {
       const n = Number(range.value);
-      const num = inputs.get(key);
-      if (num) {
-        num.value = fmtInput(n);
-        const readout = num.parentElement?.querySelector(".value-readout");
-        if (readout) readout.textContent = fmtInput(n);
-      }
-      if (!shouldLivePatchDuringDrag({ heavyMode })) return;
-      queuePatch({ [key]: uiToState(def, n) }, false);
+      paintValue(key, n);
+      sched.move({ [key]: uiToState(def, n) });
     });
     range.addEventListener("change", () => {
-      queuePatch({ [key]: uiToState(def, Number(range.value)) }, true);
+      sched.release({ [key]: uiToState(def, Number(range.value)) });
     });
   }
 
-  // Label scrubbing — same heavy-compile policy as range drags.
+  // Label scrubbing — same drag policy as the slider.
   panelEl.querySelectorAll("[data-scrub-key]").forEach((lab) => {
     const key = lab.getAttribute("data-scrub-key");
     const range = ranges.get(key);
@@ -511,15 +613,8 @@ export function createPanel(panelEl, handlers) {
       const hi = Number(range.max);
       const next = clampUi(Number(range.value) + dx * step, lo, hi);
       range.value = String(next);
-      const num = inputs.get(key);
-      if (num) {
-        num.value = fmtInput(next);
-        const readout = num.parentElement?.querySelector(".value-readout");
-        if (readout) readout.textContent = fmtInput(next);
-      }
-      if (shouldLivePatchDuringDrag({ heavyMode })) {
-        queuePatch({ [key]: uiToState(def, next) }, false);
-      }
+      paintValue(key, next);
+      sched.move({ [key]: uiToState(def, next) });
     });
     const end = (e) => {
       if (!dragging) return;
@@ -529,7 +624,7 @@ export function createPanel(panelEl, handlers) {
       } catch {
         /* already released */
       }
-      queuePatch({ [key]: uiToState(def, Number(range.value)) }, true);
+      sched.release({ [key]: uiToState(def, Number(range.value)) });
     };
     lab.addEventListener("pointerup", end);
     lab.addEventListener("pointercancel", end);
@@ -547,11 +642,6 @@ export function createPanel(panelEl, handlers) {
   });
 
   {
-    const seedInput = inputs.get("seed");
-    seedInput?.addEventListener("change", () => {
-      const n = Math.floor(Number(seedInput.value));
-      if (Number.isFinite(n) && n >= 0 && n <= 0xffffffff) queuePatch({ seed: n }, true);
-    });
     panelEl.querySelector("[data-reroll]")?.addEventListener("click", () => {
       const s =
         typeof crypto !== "undefined" && crypto.getRandomValues
@@ -656,6 +746,10 @@ export function createPanel(panelEl, handlers) {
         setSegment("subdiv", state.subdiv);
         setSegment("subdivStyle", state.subdivStyle);
         setSegment("jitterMode", state.jitterMode);
+        if (jitterSummary) {
+          jitterSummary.textContent =
+            state.jitter > 0 ? `${fmt(state.jitter)} % · ${state.jitterMode}` : "off";
+        }
         const customTag = panelEl.querySelector('[data-custom-key="edgeDiv"]');
         if (customTag) {
           const custom = qualityLevelFor(state.edgeDiv) == null;
@@ -712,7 +806,12 @@ export function createPanel(panelEl, handlers) {
     },
 
     setHeavy(on) {
-      heavyMode = !!on;
+      sched.setHeavy(!!on);
+    },
+
+    /** Measured compile duration — scales the live-drag throttle. */
+    setCompileMs(ms) {
+      sched.setCompileMs(ms);
     },
 
     setProjectStatus({ name, dirty, canSave, canUndo }) {

@@ -317,8 +317,40 @@
       letter-spacing: 0.08em;
       text-transform: uppercase;
       color: var(--text-dim);
-      margin-bottom: 2px;
     }
+    button.cluster-toggle {
+      appearance: none;
+      border: none;
+      background: transparent;
+      color: inherit;
+      padding: 0;
+      cursor: pointer;
+      text-align: left;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+      min-height: 18px;
+    }
+    button.cluster-toggle:focus-visible {
+      outline: 2px solid var(--focus);
+      outline-offset: 2px;
+      border-radius: 2px;
+    }
+    .cluster-summary {
+      margin-left: auto;
+      font: 400 0.7rem var(--font-mono);
+      font-variant-numeric: tabular-nums;
+      color: var(--text-dim);
+      white-space: nowrap;
+    }
+    .cluster-body {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      margin-top: 4px;
+    }
+    .cluster-body[hidden] { display: none; }
     .control--clustered { gap: 2px; }
 
     .group-subheader {
@@ -722,7 +754,9 @@
       min-height: 24px;
     }
     .control-row--range {
-      grid-template-columns: 5.5rem minmax(0, 1fr) auto;
+      /* Fixed value column: the readout/editor swap and 1→100 digit growth
+         must never resize the slider track mid-drag. */
+      grid-template-columns: 5.5rem minmax(0, 1fr) 9ch;
       gap: 8px;
       min-height: 28px;
     }
@@ -742,7 +776,8 @@
       align-items: center;
       gap: 2px;
       justify-content: flex-end;
-      min-width: 5.5ch;
+      width: 9ch;
+      min-width: 9ch;
       flex-shrink: 0;
     }
     .value-readout {
@@ -755,8 +790,12 @@
       text-align: right;
       padding: 3px 4px;
       border-radius: 2px;
-      min-width: 4.5ch;
+      box-sizing: border-box;
+      width: 6.5ch;
+      min-width: 6.5ch;
       cursor: text;
+      white-space: nowrap;
+      overflow: hidden;
     }
     .value-readout:hover {
       background: var(--panel-inset);
@@ -771,7 +810,23 @@
       display: none !important;
     }
     .value-box .value-input {
-      width: 5.5ch;
+      box-sizing: border-box;
+      width: 6.5ch;
+      min-width: 6.5ch;
+    }
+    .value-box .unit {
+      width: 2.5ch;
+      flex: none;
+      text-align: left;
+      white-space: nowrap;
+    }
+    /* Typed-value errors: highlight in place — no layout change, the
+       preview keeps the last committed value until the text is fixed. */
+    .control-row input.is-invalid,
+    .control-row input.is-invalid:focus {
+      border-color: var(--err);
+      background: color-mix(in srgb, var(--err) 14%, var(--panel-inset));
+      color: var(--text);
     }
     .scrub-label {
       cursor: ew-resize;
