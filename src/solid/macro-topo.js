@@ -6,9 +6,12 @@
  * parent (macro) graph. Smooth can bend a parent group out of plane — those
  * facets stay independent so Form Rounding operates on the faceted surface.
  *
- * Parent-face ids from subdivision are authoritative when the tagged faces
- * are still coplanar. Absent ids (no subdiv), adjacent coplanar faces merge
- * the same way.
+ * Parent-face ids from subdivision are authoritative: tagged siblings merge
+ * whether or not Smooth bent them out of plane. Absent ids (no subdiv),
+ * adjacent coplanar faces merge. A parent edge Smooth bent at a
+ * subdivision vertex chains into one macro edge per straight run; the
+ * runs meet at vertices touching only two macros (knees), which the
+ * rounding stage mitres.
  */
 
 import { edgeKey } from "../geom/edgesub.js";
@@ -66,8 +69,14 @@ export function buildMacroTopology(skeleton, frames) {
 
   for (const [, [fa, fb]] of adj) {
     if (fa < 0 || fb < 0) continue;
-    if (dot(frames[fa].normal, frames[fb].normal) <= COPLANAR_DOT) continue;
-    if (parentTag && parentTag[fa] !== parentTag[fb]) continue;
+    if (parentTag) {
+      // Children of one parent are refinement even after Smooth bent them
+      // out of plane: Smooth already rounded that crease, and rounding it
+      // again would fillet the facets instead of the form.
+      if (parentTag[fa] !== parentTag[fb]) continue;
+    } else if (dot(frames[fa].normal, frames[fb].normal) <= COPLANAR_DOT) {
+      continue;
+    }
     unite(fa, fb);
   }
 

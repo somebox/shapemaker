@@ -9,9 +9,11 @@
  * refinement, not dihedrals, so they never get a zero-radius strip. Each
  * macro edge carries r_e = min(roundingMm, local allowances of both adjacent
  * faces, constituent micro-edge budgets). A small feature never caps the
- * model. Smooth-bent facets stay independent, but a crease whose band
- * would be narrower than the width floor (1e-3 × circumradius) stays
- * sharp — Smooth already rounded it, and a micrometre strip is exactly
+ * model. Smooth bends a parent's facets out of plane, but they stay one
+ * macro face: Smooth already rounded those creases, so Form Rounding
+ * follows the parent edges (now bent chains, mitred at each knee). As a
+ * safety net a crease whose band would be narrower than the width floor
+ * (1e-3 × circumradius) stays sharp — a micrometre strip is exactly
  * degenerate in float32.
  *
  * Internal seams carry no strip but keep their edgeDiv samples in the
@@ -351,6 +353,47 @@ export function buildEdgeRounding(skeleton, frames, opts) {
     }
   }
 
+  /** End column (row 0..J) of an edge record at vertex v. */
+  const columnAt = (e, v) => {
+    const col = e.u === v ? 0 : e.cols - 1;
+    return e.grid.map((row) => row[col]);
+  };
+  const distIdx = (i, k) => {
+    const p = getVert(i), q = getVert(k);
+    return Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]);
+  };
+
+  // Knees: a parent edge Smooth bent at a subdivision vertex is two macro
+  // edges meeting at a vertex that touches only two macros — no corner,
+  // no trim, no cap — and their end columns differ by the bend. Mitre by
+  // averaging the two columns into one shared column: symmetric, no
+  // sliver quads, and the strips kink by half the bend offset (tens of
+  // microns) instead of leaving a gap.
+  for (const [v, eids] of topo.vertEdges) {
+    if (cornerVerts.has(v) || eids.length !== 2) continue;
+    const recs = eids
+      .map((ti) => edges[edgeByTopo.get(topo.edges[ti].keys[0])])
+      .filter(Boolean);
+    if (recs.length !== 2) continue;
+    if (!(recs[0].r > 0) || !(recs[1].r > 0)) continue;
+    const [eA, eB] = recs;
+    const a = columnAt(eA, v);
+    const b = columnAt(eB, v);
+    const colB = eB.u === v ? 0 : eB.cols - 1;
+    const reversed =
+      distIdx(a[0], b[0]) + distIdx(a[J], b[J]) >
+      distIdx(a[0], b[J]) + distIdx(a[J], b[0]);
+    for (let j = 0; j <= J; j++) {
+      const jb = reversed ? J - j : j;
+      if (a[j] === b[jb]) continue;
+      const pa = getVert(a[j]), pb = getVert(b[jb]);
+      pa[0] = (pa[0] + pb[0]) / 2;
+      pa[1] = (pa[1] + pb[1]) / 2;
+      pa[2] = (pa[2] + pb[2]) / 2;
+      eB.grid[jb][colB] = a[j];
+    }
+  }
+
   const cornerIdx = new Map();
   const stripEnd = (e, v, m) => {
     const col = e.u === v ? 0 : e.cols - 1;
@@ -655,6 +698,55 @@ export function buildEdgeRounding(skeleton, frames, opts) {
     stripDirected.add(d * 0x100000 + a);
   }
 
+  /**
+   * Mitre between two strips meeting end-on at a vertex: pair their end
+   * columns row by row (nearest ends together) and fill the gap with
+   * quads. Winding comes from topology, not geometry — a sliver's normal
+   * is ill-conditioned, but the strip's own quads already traverse the
+   * column one way and the ribbon must run the other. Rows the merge
+   * step unified fall out as degenerate quads.
+   */
+  const emitRibbon = (a, bIn, fid) => {
+    let b = bIn;
+    const dist = distIdx;
+    if (dist(a[0], b[0]) + dist(a[J], b[J]) > dist(a[0], b[J]) + dist(a[J], b[0])) {
+      b = [...b].reverse();
+    }
+    let flip = null;
+    for (let j = 0; j < J && flip === null; j++) {
+      if (a[j] === a[j + 1]) continue;
+      if (stripDirected.has(a[j] * 0x100000 + a[j + 1])) flip = true;
+      else if (stripDirected.has(a[j + 1] * 0x100000 + a[j])) flip = false;
+    }
+    // Column a may be a single point (sharp strip): orient from b, whose
+    // rows the ribbon traverses the opposite way.
+    for (let j = 0; j < J && flip === null; j++) {
+      if (b[j] === b[j + 1]) continue;
+      if (stripDirected.has(b[j] * 0x100000 + b[j + 1])) flip = false;
+      else if (stripDirected.has(b[j + 1] * 0x100000 + b[j])) flip = true;
+    }
+    if (flip === null) flip = false;
+    for (let j = 0; j < J; j++) {
+      const q = [a[j], a[j + 1], b[j + 1], b[j]];
+      if (new Set(q).size < 3) continue;
+      const o = flip ? [q[3], q[2], q[1], q[0]] : q;
+      capEmitTri(o[0], o[1], o[2], fid, tris);
+      capEmitTri(o[0], o[2], o[3], fid, tris);
+    }
+  };
+
+  // Mixed knees (one strip rounded, the other floored to sharp): the
+  // sharp column is a single point, so fan the rounded column onto it.
+  for (const [v, eids] of topo.vertEdges) {
+    if (cornerVerts.has(v) || eids.length !== 2) continue;
+    const recs = eids
+      .map((ti) => edges[edgeByTopo.get(topo.edges[ti].keys[0])])
+      .filter(Boolean);
+    if (recs.length !== 2) continue;
+    if ((recs[0].r > 0) === (recs[1].r > 0)) continue;
+    emitRibbon(columnAt(recs[0], v), columnAt(recs[1], v), recs[0].fa);
+  }
+
   for (const v of cornerVerts) {
     const fan = fans.get(v);
     if (!fan) continue;
@@ -714,41 +806,12 @@ export function buildEdgeRounding(skeleton, frames, opts) {
     // columns row by row, not a cap (a cap here is a sliver hexagon).
     {
       const rounded = spokes.filter((sp) => edges[sp.ei].r > 0);
-      const colOf = (sp) => {
-        const e = edges[sp.ei];
-        const col = e.u === v ? 0 : e.cols - 1;
-        return e.grid.map((row) => row[col]);
-      };
       if (rounded.length === 2) {
-        const a = colOf(rounded[0]);
-        let b = colOf(rounded[1]);
+        const a = columnAt(edges[rounded[0].ei], v);
+        const b = columnAt(edges[rounded[1].ei], v);
         const members = new Set([...a, ...b]);
         if (clean.every((i) => members.has(i))) {
-          const dist = (i, k) => {
-            const p = getVert(i), q = getVert(k);
-            return Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]);
-          };
-          if (dist(a[0], b[0]) + dist(a[J], b[J]) > dist(a[0], b[J]) + dist(a[J], b[0])) {
-            b = [...b].reverse();
-          }
-          const fid = edges[rounded[0].ei].fa;
-          // Winding from topology, not geometry: a sliver's normal is
-          // ill-conditioned, but the strip's own quads already traverse
-          // this column one way and the ribbon must run the other way.
-          let flip = null;
-          for (let j = 0; j < J && flip === null; j++) {
-            if (a[j] === a[j + 1]) continue;
-            if (stripDirected.has(a[j] * 0x100000 + a[j + 1])) flip = true;
-            else if (stripDirected.has(a[j + 1] * 0x100000 + a[j])) flip = false;
-          }
-          if (flip === null) flip = false;
-          for (let j = 0; j < J; j++) {
-            const q = [a[j], a[j + 1], b[j + 1], b[j]];
-            if (new Set(q).size < 3) continue;
-            const o = flip ? [q[3], q[2], q[1], q[0]] : q;
-            capEmitTri(o[0], o[1], o[2], fid, tris);
-            capEmitTri(o[0], o[2], o[3], fid, tris);
-          }
+          emitRibbon(a, b, edges[rounded[0].ei].fa);
           continue;
         }
       }

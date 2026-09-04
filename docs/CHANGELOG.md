@@ -7,6 +7,24 @@ surface is still moving, and git history is the detailed record. From **1.0**
 onward every release gets a full entry here, and breaking changes to the
 [project format](PROJECT_FORMAT.md) get a migration note.
 
+## [0.12.1] — 2026-09-04
+
+### Changed
+
+- **Rounding follows the parent form under Smooth.** Subdivision children
+  of one parent face stay one macro face even after Smooth bends them, so
+  Form Rounding fillets the parent edges (now bent chains, mitred at each
+  subdivision knee by averaging the two strip columns) instead of every
+  sub-facet crease. Under Smooth this removes the per-vertex caps and
+  hair-width strips of 0.12.0 (dodecahedron subdiv 1: 75 k triangles
+  instead of 94 k, caps only at the 20 true corners) and restores exact
+  symmetry. The width floor remains as a safety net.
+- **Rim lips are true fillets.** The opening wall follows the origin ray,
+  so on an off-axis sub-face it is not perpendicular to the face; the lip
+  arc is now the rolling-ball fillet between the face plane and the actual
+  wall (radius r, tangent to both, `lipArc`), and the per-face rounding
+  clamp uses the real tangent lengths. On-axis lips are unchanged.
+
 ## [0.12.0] — 2026-09-04
 
 ### Changed

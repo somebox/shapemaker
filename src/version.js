@@ -5,4 +5,4 @@
  * — there is nothing to substitute a placeholder at publish time. A test
  * asserts the two stay equal, so the duplication cannot drift silently.
  */
-export const VERSION = "0.12.0";
+export const VERSION = "0.12.1";

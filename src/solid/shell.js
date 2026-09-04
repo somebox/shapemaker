@@ -49,6 +49,56 @@ export function roundingSegmentsFor(edgeDiv) {
   return Math.max(2, Math.round(edgeDiv * 0.3));
 }
 
+/**
+ * Circular fillet of radius r between two rays from p (unit directions a
+ * and b at angle ω): centre p + (r/sin ω)(a + b), tangent points at
+ * w = r·cot(ω/2) along each ray, sampled by slerp from the a-side tangent
+ * (index 0) to the b-side tangent (index `segments`). For ω = 90° this is
+ * the quarter circle p + r(1−sinθ)a + r(1−cosθ)b.
+ *
+ * @param {number[]} p
+ * @param {number[]} a
+ * @param {number[]} b
+ * @param {number} r
+ * @param {number} segments
+ * @returns {number[][]} segments + 1 points
+ */
+export function lipArc(p, a, b, r, segments) {
+  const cosw = Math.max(-1, Math.min(1, a[0] * b[0] + a[1] * b[1] + a[2] * b[2]));
+  const sinw = Math.sqrt(Math.max(1 - cosw * cosw, 1e-12));
+  const w = (r * (1 + cosw)) / sinw;
+  const c = [
+    p[0] + (r / sinw) * (a[0] + b[0]),
+    p[1] + (r / sinw) * (a[1] + b[1]),
+    p[2] + (r / sinw) * (a[2] + b[2]),
+  ];
+  const u0 = [
+    (p[0] + w * a[0] - c[0]) / r,
+    (p[1] + w * a[1] - c[1]) / r,
+    (p[2] + w * a[2] - c[2]) / r,
+  ];
+  const u1 = [
+    (p[0] + w * b[0] - c[0]) / r,
+    (p[1] + w * b[1] - c[1]) / r,
+    (p[2] + w * b[2] - c[2]) / r,
+  ];
+  const A = Math.acos(
+    Math.max(-1, Math.min(1, u0[0] * u1[0] + u0[1] * u1[1] + u0[2] * u1[2])),
+  );
+  const sinA = Math.max(Math.sin(A), 1e-9);
+  const out = [];
+  for (let j = 0; j <= segments; j++) {
+    const phi = (A * j) / segments;
+    const ka = Math.sin(A - phi) / sinA, kb = Math.sin(phi) / sinA;
+    out.push([
+      c[0] + r * (ka * u0[0] + kb * u1[0]),
+      c[1] + r * (ka * u0[1] + kb * u1[1]),
+      c[2] + r * (ka * u0[2] + kb * u1[2]),
+    ]);
+  }
+  return out;
+}
+
 /** @type {OpeningGenerator} */
 export const insetFillet = {
   generate(faceCorners2d, borderFraction, filletMm, filletSegments = 64) {
@@ -353,20 +403,40 @@ export function buildShell(skeleton, opts) {
     }
 
     // Per-face rounding clamp from exact per-ray flat widths + wall lengths.
+    // Rim lips are rolling-ball fillets between the face plane and the
+    // opening wall. The wall follows the origin ray (the inner shell is a
+    // uniform scale), so on an off-axis face it is NOT perpendicular to
+    // the face: the lip angle ω varies per ray and the tangent length is
+    // w = r·cot(ω/2) (outer) / r·tan(ω/2) (inner), exactly as Stage 2's
+    // dihedral strips. On-axis rays reduce to the quarter circle.
+    /** @type {{ t: number[], d: number[], sin: number, cotO: number, cotI: number }[]} */
+    const lips = [];
     let rFace = 0;
     if (roundingMm > rEps && depth === "hollow" && s != null) {
-      let minFlat = Infinity;
-      let minWall = Infinity;
+      let rMax = roundingMm;
       for (let k = 0; k < m; k++) {
-        const Rb = Math.hypot(B2x[k], B2y[k]);
-        const flat = Rb - rad[k];
-        if (flat < minFlat) minFlat = flat;
-        const op = ooPts[k];
-        const wallLen = Math.hypot(op[0], op[1], op[2]) * (1 - s);
-        if (wallLen < minWall) minWall = wallLen;
+        const oo = ooPts[k];
+        const ooLen = Math.hypot(oo[0], oo[1], oo[2]);
+        const d = [-oo[0] / ooLen, -oo[1] / ooLen, -oo[2] / ooLen];
+        const ca = Math.cos(ang[k]), sa = Math.sin(ang[k]);
+        const t = [ca * ux + sa * wx, ca * uy + sa * wy, ca * uz + sa * wz];
+        const cosw = Math.max(-1, Math.min(1, t[0] * d[0] + t[1] * d[1] + t[2] * d[2]));
+        const sinw = Math.sqrt(Math.max(1 - cosw * cosw, 1e-12));
+        const cotO = (1 + cosw) / sinw; // outer lip: face (+t) meets wall (+d)
+        const cotI = (1 - cosw) / sinw; // inner lip: face (+t) meets wall (−d)
+        lips.push({ t, d, sin: sinw, cotO, cotI });
+        const flat = Math.hypot(B2x[k], B2y[k]) - rad[k];
+        const wallLen = ooLen * (1 - s);
+        // Both tangent bands must fit their flats (inner flat ≈ s·outer),
+        // and the two wall bands together must fit the wall.
+        rMax = Math.min(
+          rMax,
+          (0.95 * flat) / cotO,
+          (0.95 * s * flat) / cotI,
+          0.499 * wallLen * sinw,
+        );
       }
-      // 2r < wall; r < inner flat (≈ s·outer flat). Outer flat is looser.
-      rFace = Math.min(roundingMm, 0.499 * minWall, 0.95 * s * minFlat);
+      rFace = rMax;
       if (!(rFace > rEps)) rFace = 0;
     }
 
@@ -381,53 +451,27 @@ export function buildShell(skeleton, opts) {
     if (rFace > rEps) {
       // Stage-1 rim roundovers: OO/OI are virtual; emit arc rings instead.
       const J = roundingSegmentsFor(edgeDiv);
-      const uvec = [ux, uy, uz];
-      const wvec = [wx, wy, wz];
 
       // Outer arc rings F_out … W_top (j = 0..J); inner W_bot … F_in.
       /** @type {number[][]} */
-      const outerRings = [];
+      const outerRings = Array.from({ length: J + 1 }, () => []);
       /** @type {number[][]} */
-      const innerRings = [];
-      for (let j = 0; j <= J; j++) {
-        const theta = (j / J) * (Math.PI / 2);
-        const sinT = Math.sin(theta);
-        const cosT = Math.cos(theta);
-        /** @type {number[]} */
-        const oRing = [];
-        /** @type {number[]} */
-        const iRing = [];
-        for (let k = 0; k < m; k++) {
-          const oo = ooPts[k];
-          const ooLen = Math.hypot(oo[0], oo[1], oo[2]);
-          const dk = [-oo[0] / ooLen, -oo[1] / ooLen, -oo[2] / ooLen];
-          const tk = [
-            Math.cos(ang[k]) * uvec[0] + Math.sin(ang[k]) * wvec[0],
-            Math.cos(ang[k]) * uvec[1] + Math.sin(ang[k]) * wvec[1],
-            Math.cos(ang[k]) * uvec[2] + Math.sin(ang[k]) * wvec[2],
-          ];
-          // Outer: P = OO + r(1−sinθ)·t + r(1−cosθ)·d
-          const ox =
-            oo[0] + rFace * (1 - sinT) * tk[0] + rFace * (1 - cosT) * dk[0];
-          const oy =
-            oo[1] + rFace * (1 - sinT) * tk[1] + rFace * (1 - cosT) * dk[1];
-          const oz =
-            oo[2] + rFace * (1 - sinT) * tk[2] + rFace * (1 - cosT) * dk[2];
-          oRing.push(verts.length);
-          verts.push([ox, oy, oz]);
-          // Inner: Q = OI + r(1−cosθ)·t − r(1−sinθ)·d ; OI = s·OO
-          const oi = [oo[0] * s, oo[1] * s, oo[2] * s];
-          const ix =
-            oi[0] + rFace * (1 - cosT) * tk[0] - rFace * (1 - sinT) * dk[0];
-          const iy =
-            oi[1] + rFace * (1 - cosT) * tk[1] - rFace * (1 - sinT) * dk[1];
-          const iz =
-            oi[2] + rFace * (1 - cosT) * tk[2] - rFace * (1 - sinT) * dk[2];
-          iRing.push(verts.length);
-          verts.push([ix, iy, iz]);
+      const innerRings = Array.from({ length: J + 1 }, () => []);
+      for (let k = 0; k < m; k++) {
+        const oo = ooPts[k];
+        const { t, d } = lips[k];
+        // Outer lip: from the face (along +t) round to the wall (along +d).
+        const outer = lipArc(oo, t, d, rFace, J);
+        // Inner lip at OI = s·OO: from the wall (along −d) round to the
+        // inner face (along +t), so j = 0 is W_bot and j = J is F_in.
+        const oi = [oo[0] * s, oo[1] * s, oo[2] * s];
+        const inner = lipArc(oi, [-d[0], -d[1], -d[2]], t, rFace, J);
+        for (let j = 0; j <= J; j++) {
+          outerRings[j].push(verts.length);
+          verts.push(outer[j]);
+          innerRings[j].push(verts.length);
+          verts.push(inner[j]);
         }
-        outerRings.push(oRing);
-        innerRings.push(iRing);
       }
 
       // Chain: BO → F_out → arcs → W_top → W_bot → arcs → F_in → BI.

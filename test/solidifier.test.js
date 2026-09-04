@@ -2,13 +2,15 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { icosidodecahedronDirect, inradii } from "../src/points/icosidodeca.js";
-import { buildShell, roundingSegmentsFor } from "../src/solid/shell.js";
+import { buildShell, roundingSegmentsFor, lipArc } from "../src/solid/shell.js";
 import { assertMeshInvariants } from "../src/mesh.js";
 import { clearPipelineCache } from "../src/pipeline.js";
 import { compile } from "../src/compile.js";
 import { writeBinaryStl } from "../src/export/stl.js";
 import { edgeList } from "../src/skeleton.js";
 import { faceFrames, fromFaceFrame, projectToFrame } from "../src/faceframe.js";
+import { buildMacroTopology } from "../src/solid/macro-topo.js";
+import { hullSkeletonForBase, scaleSkeleton } from "../src/pipeline.js";
 
 const REF_TRIS = 7200;
 const REF_VOLUME_CM3 = 16.14979675;
@@ -169,6 +171,45 @@ describe("rim rounding (Stage 1)", () => {
     const r = buildShell(skel, { ...baseOpts, roundingMm: 50 });
     assertMeshInvariants(r.mesh);
     assert.ok(r.info.roundingMm.max < 50);
+  });
+});
+
+describe("rim lip fillet (lipArc)", () => {
+  const dist = (p, q) => Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]);
+  const dot = (p, q) => p[0] * q[0] + p[1] * q[1] + p[2] * q[2];
+
+  it("is the quarter circle when the wall is perpendicular to the face", () => {
+    const p = [3, -2, 5], a = [1, 0, 0], b = [0, 0, -1], r = 0.7, J = 6;
+    const pts = lipArc(p, a, b, r, J);
+    for (let j = 0; j <= J; j++) {
+      const th = (j / J) * (Math.PI / 2);
+      const q = [
+        p[0] + r * (1 - Math.sin(th)) * a[0] + r * (1 - Math.cos(th)) * b[0],
+        p[1] + r * (1 - Math.sin(th)) * a[1] + r * (1 - Math.cos(th)) * b[1],
+        p[2] + r * (1 - Math.sin(th)) * a[2] + r * (1 - Math.cos(th)) * b[2],
+      ];
+      assert.ok(dist(pts[j], q) < 1e-12, `j=${j}`);
+    }
+  });
+
+  it("stays a true radius-r arc tangent to both rays on a tilted wall", () => {
+    // Off-axis micro-face: the wall (toward the origin) leans 12° off the
+    // face normal. The old skewed quarter-circle was neither radius r nor
+    // tangent to the wall.
+    const tilt = (12 * Math.PI) / 180;
+    const p = [0, 0, 0], a = [1, 0, 0];
+    const b = [Math.sin(tilt), 0, -Math.cos(tilt)]; // wall direction
+    const r = 0.5, J = 4;
+    const pts = lipArc(p, a, b, r, J);
+    const cosw = dot(a, b), sinw = Math.sqrt(1 - cosw * cosw);
+    const w = (r * (1 + cosw)) / sinw; // r·cot(ω/2)
+    const c = [p[0] + (r / sinw) * (a[0] + b[0]), 0, p[2] + (r / sinw) * (a[2] + b[2])];
+    assert.ok(dist(pts[0], [w, 0, 0]) < 1e-12, "starts on the face at r·cot(ω/2)");
+    assert.ok(dist(pts[J], [w * b[0], 0, w * b[2]]) < 1e-12, "ends on the wall at r·cot(ω/2)");
+    for (const q of pts) assert.ok(Math.abs(dist(q, c) - r) < 1e-12, "every sample at radius r");
+    // Tangency: the radius at each end is perpendicular to that ray.
+    assert.ok(Math.abs(dot([pts[0][0] - c[0], 0, pts[0][2] - c[2]], a)) < 1e-12);
+    assert.ok(Math.abs(dot([pts[J][0] - c[0], 0, pts[J][2] - c[2]], b)) < 1e-12);
   });
 });
 
@@ -371,6 +412,35 @@ describe("edge rounding with subdivision", () => {
         }
       }
     }
+  });
+
+  it("Smooth keeps subdivision siblings in one macro face (parent graph)", () => {
+    // Under Smooth the sub-facets of a pentagon are no longer coplanar,
+    // but they must still be ONE macro: 12 faces, 30 parent edges split
+    // into 60 bent halves, 20 true corners — never 120 facets / 62 corners.
+    for (const soften of [0, 20, 100]) {
+      clearPipelineCache();
+      const state = { base: "dodecahedron", subdiv: 1, soften, circumdiameterMm: 100 };
+      const sk = scaleSkeleton(hullSkeletonForBase("dodecahedron", state), 50);
+      const topo = buildMacroTopology(sk, faceFrames(sk));
+      assert.equal(new Set(topo.macroFaceId).size, 12, `soften ${soften}: macros`);
+      assert.equal(topo.cornerVerts.size, 20, `soften ${soften}: corners`);
+      assert.equal(topo.edges.length, soften === 0 ? 30 : 60, `soften ${soften}: edges`);
+      assert.equal(topo.internalKeys.size, 120, `soften ${soften}: seams`);
+    }
+    // And the rounded mesh under Smooth carries caps only at true corners:
+    // its triangle count stays within 1.3× of the unsmoothed rounded mesh.
+    clearPipelineCache();
+    const flat = compile({ base: "dodecahedron", subdiv: 1, roundingMm: 1 });
+    clearPipelineCache();
+    const bent = compile({ base: "dodecahedron", subdiv: 1, soften: 50, roundingMm: 1 });
+    assert.equal(bent.validation.ok, true, bent.validation.errors[0]?.message);
+    assertMeshInvariants(bent.mesh);
+    assert.ok(
+      bent.metrics.triangleCount < 1.3 * flat.metrics.triangleCount,
+      `${bent.metrics.triangleCount} vs ${flat.metrics.triangleCount}`,
+    );
+    assert.ok(Math.abs(bent.metrics.roundingMm.max - 1) < 1e-6);
   });
 
   it("bent macro edges (smooth 50) round on mixed-face solids", () => {

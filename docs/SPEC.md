@@ -277,12 +277,16 @@ features: Stage-2 follows the parent (macro) graph so a subdivided icosahedron
 rounds the original 30 edges rather than leaving sharp midpoints on the 4:1
 split, and the seams keep their edge sampling in each face's boundary ring so
 the opening outline is byte-for-byte the same construction as without rounding.
-Smooth can bend those parent groups out of plane; the resulting facets are then
-independent dihedrals, except that a crease whose rolling-ball band would be
-narrower than 0.1 % of the circumradius stays sharp (Smooth already rounded
-it; a micrometre strip is degenerate in float32). An internal invariant
-failure during rounding does not emit a corrupt mesh — the last valid preview
-stays on screen.
+Smooth bends those parent groups out of plane, but they remain one macro
+face: Smooth already rounded the creases between siblings, so Rounding fillets
+only the parent edges — bent chains, one strip per straight run, mitred at
+each subdivision knee by averaging the two strip columns. As a safety net any
+crease whose rolling-ball band would be narrower than 0.1 % of the
+circumradius stays sharp (a micrometre strip is degenerate in float32). Rim
+lips are rolling-ball fillets between the face plane and the actual opening
+wall (which follows the origin ray, so it leans on off-axis sub-faces); on-axis
+lips are the quarter circle. An internal invariant failure during rounding
+does not emit a corrupt mesh — the last valid preview stays on screen.
 
 Clamping is **proportional per feature**: each edge clamps to its own two
 faces' local flat allowances (60% of the border band along that edge on open
