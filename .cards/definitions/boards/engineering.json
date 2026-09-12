@@ -1,0 +1,24 @@
+{
+  "id": "engineering",
+  "name": "Engineering",
+  "columns": ["backlog", "todo", "in_progress", "review", "done"],
+  "card_type_ids": ["epic", "story", "task"],
+  "settings": { "enforce_transitions": true },
+  "wip_limits": { "in_progress": 2 },
+  "monitors": { "max_time_in_status": { "review": "168h" }, "idle_after": "336h" },
+  "transitions": {
+    "backlog": ["todo"],
+    "todo": ["backlog", "in_progress"],
+    "in_progress": ["todo", "review"],
+    "review": ["in_progress", "done"],
+    "done": ["review"]
+  },
+  "presentation": {
+    "lane_group_by": "status",
+    "card_preview": {
+      "epic": ["goal"],
+      "story": ["outcome"],
+      "task": ["actions", "verify"]
+    }
+  }
+}

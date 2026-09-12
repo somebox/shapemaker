@@ -1,0 +1,17 @@
+{
+  "id": "task",
+  "name": "Task",
+  "description": "An actionable unit of work with a clear verification path.",
+  "schema_version": 1,
+  "fields": [
+    { "id": "actions", "type": "text", "required": true, "description": "Concrete actions and scope" },
+    { "id": "verify", "type": "string", "required": false, "display": "monospace", "description": "Command or procedure a reviewer can use" },
+    { "id": "work_log", "type": "repeating", "required": false, "display": "feed", "item_fields": [
+      { "id": "summary", "type": "text", "required": true },
+      { "id": "references", "type": "string", "required": false },
+      { "id": "author", "type": "user", "required": true },
+      { "id": "timestamp", "type": "date", "required": true }
+    ] }
+  ],
+  "allowed_columns": ["backlog", "todo", "in_progress", "review", "done"]
+}

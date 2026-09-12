@@ -1,0 +1,61 @@
+{
+  "id": "shapemaker",
+  "name": "shapemaker work board",
+  "columns": [
+    {
+      "id": "backlog",
+      "name": "Backlog"
+    },
+    {
+      "id": "todo",
+      "name": "To Do"
+    },
+    {
+      "id": "in_progress",
+      "name": "In Progress"
+    },
+    {
+      "id": "review",
+      "name": "Review"
+    },
+    {
+      "id": "done",
+      "name": "Done"
+    }
+  ],
+  "tag_set": [
+    "feature",
+    "refactor",
+    "research",
+    "bug",
+    "release"
+  ],
+  "link_types": [
+    {
+      "id": "depends-on",
+      "name": "Depends on",
+      "type": "directional"
+    },
+    {
+      "id": "blocked-by",
+      "name": "Blocked by",
+      "type": "directional"
+    },
+    {
+      "id": "related",
+      "name": "Related",
+      "type": "bidirectional"
+    },
+    {
+      "id": "part-of",
+      "name": "Part of",
+      "type": "directional"
+    }
+  ],
+  "settings": {
+    "enforce_transitions": true,
+    "strict_fields": true,
+    "tag_policy": "locked",
+    "default_board": "engineering"
+  }
+}

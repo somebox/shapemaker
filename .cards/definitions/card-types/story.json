@@ -1,0 +1,11 @@
+{
+  "id": "story",
+  "name": "Story",
+  "description": "An outcome with observable acceptance criteria.",
+  "schema_version": 1,
+  "fields": [
+    { "id": "outcome", "type": "text", "required": true, "description": "The user or system outcome" },
+    { "id": "acceptance", "type": "text", "required": true, "description": "Observable conditions a reviewer can verify" }
+  ],
+  "allowed_columns": ["backlog", "todo", "in_progress", "review", "done"]
+}

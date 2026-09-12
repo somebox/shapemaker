@@ -1,0 +1,10 @@
+{
+  "id": "epic",
+  "name": "Epic",
+  "description": "A high-level goal and success picture, not an implementation checklist.",
+  "schema_version": 1,
+  "fields": [
+    { "id": "goal", "type": "text", "required": true, "description": "High-level goal and success picture" }
+  ],
+  "allowed_columns": ["backlog", "todo", "in_progress", "review", "done"]
+}
