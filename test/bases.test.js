@@ -71,7 +71,7 @@ function edgeLengthMultiset(positions, faces, digits = 6) {
 }
 
 describe("BASES registry", () => {
-  it("lists nine regular bases plus the parametric globe, sphere, and random hull", () => {
+  it("lists ten regular bases plus the parametric globe, sphere, and random hull", () => {
     assert.deepEqual([...BASE_IDS].sort(), [
       "cube",
       "cuboctahedron",
@@ -82,6 +82,7 @@ describe("BASES registry", () => {
       "octahedron",
       "random",
       "rhombicdodeca",
+      "rhombicosidodeca",
       "rhombictriaconta",
       "sphere",
       "tetrahedron",
@@ -113,6 +114,11 @@ describe("analytic per-base hull signatures", () => {
     icosahedron: { verts: 12, sig: [[3, 20]], radii: [[1, 12]] },
     icosidodeca: { verts: 30, sig: [[3, 20], [5, 12]], radii: [[1, 30]] },
     cuboctahedron: { verts: 12, sig: [[3, 8], [4, 6]], radii: [[1, 12]] },
+    rhombicosidodeca: {
+      verts: 60,
+      sig: [[3, 20], [4, 30], [5, 12]],
+      radii: [[1, 60]],
+    },
     rhombicdodeca: {
       verts: 14,
       sig: [[4, 12]],

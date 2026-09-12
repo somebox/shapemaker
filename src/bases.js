@@ -13,6 +13,7 @@ import {
 } from "./points/platonic.js";
 import { icosidodecaPoints } from "./points/icosidodeca.js";
 import { cuboctahedronPoints } from "./points/cuboctahedron.js";
+import { rhombicosidodecaPoints } from "./points/rhombicosidodeca.js";
 import {
   rhombicDodecaPoints,
   rhombicTriacontaPoints,
@@ -80,6 +81,12 @@ export const BASES = Object.freeze({
     label: "Cuboctahedron",
     shortLabel: "Cubocta",
     points: cuboctahedronPoints,
+    regular: true,
+  },
+  rhombicosidodeca: {
+    label: "Rhombicosidodecahedron",
+    shortLabel: "Rhombicosi",
+    points: rhombicosidodecaPoints,
     regular: true,
   },
   rhombicdodeca: {

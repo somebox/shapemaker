@@ -120,7 +120,7 @@ src/
   pipeline.js       points → jitter → truncate → spike → subdivide → scale → shell
   skeleton.js       edgeList, inradiusRange, assertSkeleton, assertStarShaped
   faceframe.js      toFaceFrame / fromFaceFrame
-  points/           platonic, icosidodeca, cuboctahedron, rhombic, globe, sphere, random, jitter
+  points/           platonic, icosidodeca, cuboctahedron, rhombicosidodeca, rhombic, globe, sphere, random, jitter
   geom/             poly2, edgesub, annulus
   solid/shell.js    depth × OpeningGenerator
   solid/spike.js    face pyramids / dimples (origin-star-convex)

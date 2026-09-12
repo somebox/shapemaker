@@ -49,7 +49,8 @@ and require a defined assembly workflow before implementation.
 ## Later — shape vocabulary
 
 Shipped in 0.7.0: cuboctahedron, rhombic dodecahedron, rhombic triacontahedron,
-and a lat/long globe (Density → meridians). Further vocabulary ideas:
+and a lat/long globe (Density → meridians). Since then: the
+rhombicosidodecahedron. Further vocabulary ideas:
 
 - Additional opening generators such as circle or mirrored-face openings.
 - Skeleton operators still open: dual (truncate, spike, subdivide + smooth

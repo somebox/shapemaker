@@ -140,6 +140,7 @@ describe("defaultRestingFace max-area", () => {
     icosahedron: 3,
     icosidodeca: 5,
     cuboctahedron: 4,
+    rhombicosidodeca: 5,
     rhombicdodeca: 4,
     rhombictriaconta: 4,
     globe: 4,

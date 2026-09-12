@@ -7,6 +7,16 @@ surface is still moving, and git history is the detailed record. From **1.0**
 onward every release gets a full entry here, and breaking changes to the
 [project format](PROJECT_FORMAT.md) get a migration note.
 
+## [Unreleased]
+
+### Added
+
+- **Rhombicosidodecahedron** (Archimedean): 12 pentagons + 30 squares +
+  20 triangles on 60 circumsphere vertices, 120 equal edges (vertex figure
+  3.4.4.5). A `regular` base like the cuboctahedron, so Edge↔Size and
+  plane-perturb jitter apply; it rests pentagon-down by default and shares
+  the icosidodecahedron's axes. Acceptance matrix covers 13 bases (91 STLs).
+
 ## [0.12.1] — 2026-09-04
 
 ### Changed

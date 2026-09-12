@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Acceptance: headless STL export → prototype/meshcheck.py.
 #
-# Matrix: 12 bases × 4 entries (3 shell combos + stress) = 48, plus
+# Matrix: 13 bases × 4 entries (3 shell combos + stress) = 52, plus
 # Draft/Fine on the default solid (2) + jittered random (1) + 3 random
-# seeds × Draft/Fine (6) + M5 irregular extremes (8) = 65, plus rounding,
+# seeds × Draft/Fine (6) + M5 irregular extremes (8) = 69, plus rounding,
 # truncate, split halves, subdiv+rounding, and spike cases. Count is
 # EXPECTED below.
 #
@@ -22,7 +22,7 @@ OUT="${ROOT}/test/out/acceptance"
 rm -rf "$OUT"
 mkdir -p "$OUT"
 EXPORT=(node scripts/export-stl.mjs)
-EXPECTED=87
+EXPECTED=91
 
 while IFS=$'\t' read -ra parts; do
   [[ ${#parts[@]} -gt 0 ]] || continue

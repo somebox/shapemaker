@@ -42,7 +42,7 @@ flat-bridge overlays, and a height clip to inspect cavities.
 
 | Area | Controls |
 |---|---|
-| Start | Platonic solids, icosidodecahedron, cuboctahedron, rhombic 12/30, globe, sphere, random hull; named star presets |
+| Start | Platonic solids, icosidodecahedron, cuboctahedron, rhombicosidodecahedron, rhombic 12/30, globe, sphere, random hull; named star presets |
 | Size | Overall diameter; Edge length on regular shapes |
 | Form | Hollow or solid, open or closed faces, wall, border, fillet |
 | Distort | Jitter (amount, direction, seed), truncate, spike, subdivide, smooth |

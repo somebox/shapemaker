@@ -34,9 +34,9 @@ general CAD.
 
 ### Version 1
 
-- Icosidodecahedron, Platonic solids, cuboctahedron, Catalan rhombics
-  (dodecahedron / triacontahedron), lat/long globe, fibonacci sphere, and
-  seeded random convex polyhedra. Spike (after truncate) grows origin-star-
+- Icosidodecahedron, Platonic solids, cuboctahedron, rhombicosidodecahedron,
+  Catalan rhombics (dodecahedron / triacontahedron), lat/long globe, fibonacci
+  sphere, and seeded random convex polyhedra. Spike (after truncate) grows origin-star-
   convex pyramids or dimples on every face; named stars are presets, not
   extra bases.
 - Uniform free scaling with live dimensions and edge-length inspection.
@@ -116,8 +116,9 @@ star-convex (`assertStarShaped`), not necessarily convex.
 
 Base generators produce origin-centered point clouds normalized to unit
 circumradius (max vertex radius = 1): Platonic solids, the default
-icosidodecahedron, the cuboctahedron, Catalan rhombic solids (vertices at two
-radii — the inner ring stays inside the circumsphere), a lat/long globe, a
+icosidodecahedron, the cuboctahedron, the rhombicosidodecahedron, Catalan
+rhombic solids (vertices at two radii — the inner ring stays inside the
+circumsphere), a lat/long globe, a
 deterministic fibonacci-lattice sphere, or seeded random points with a minimum
 angular separation. Parametric point count (sphere and random) tops out near
 60 until interactive performance is measured; on the globe the same Density
@@ -463,6 +464,7 @@ src/points/jitter.js    on-sphere jitter (parametric bases)
 src/points/sphere.js    fibonacci-lattice sphere points
 src/points/globe.js     lat/long globe (meridian Density)
 src/points/cuboctahedron.js  cuboctahedron
+src/points/rhombicosidodeca.js  rhombicosidodecahedron
 src/points/rhombic.js   rhombic dodecahedron / triacontahedron
 src/plane-perturb.js    plane-perturbation jitter (regular bases)
 src/subdivide.js        spherified surface subdivision (skeleton operator)
