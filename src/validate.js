@@ -16,6 +16,7 @@
 import { isKnownBase } from "./bases.js";
 import { SPIKE_T_MAX } from "./schema.js";
 const DEPTHS = new Set(["solid", "hollow"]);
+const OPENING_STYLES = new Set(["polygon", "ellipse"]);
 
 /**
  * Attach structured validation info to an Error so compile() can unwrap it.
@@ -81,6 +82,9 @@ export function validateState(state) {
   if (!["surface", "radial", "both"].includes(state.jitterMode)) {
     err("points", "jitterMode", "Jitter direction must be surface, radial, or both");
   }
+  if (typeof state.dual !== "boolean") {
+    err("points", "dual", "Dual must be on or off", { clampTo: false });
+  }
   if (!(Number.isFinite(state.truncate) && state.truncate >= 0 && state.truncate <= 50)) {
     err("points", "truncate", "Truncate must be between 0 and 50 %");
   }
@@ -127,6 +131,13 @@ export function validateState(state) {
     if (!(Number.isFinite(state.filletMm) && state.filletMm >= 0)) {
       err("solid", "filletMm", "Fillet must be 0 mm or more");
     }
+  }
+  // Validated for every state (canonical with a default), like the
+  // random-base parameters: a corrupt hash must not hide behind Closed faces.
+  if (!OPENING_STYLES.has(state.openingStyle)) {
+    err("solid", "openingStyle", "Opening must be polygon or ellipse", {
+      clampTo: "polygon",
+    });
   }
 
   // Rounding softens rims AND dihedral edges — valid on every depth/face mode.

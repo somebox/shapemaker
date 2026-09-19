@@ -56,6 +56,39 @@
         "filletMm": 1.5,
         "faceIndex": -1
       }
+    },
+    {
+      "id": "ring-ball",
+      "name": "Ring ball",
+      "description": "Forty rings: the sphere's dual cells, each opened with its inscribed oval.",
+      "state": {
+        "base": "sphere",
+        "points": 40,
+        "separation": 0.43,
+        "dual": true,
+        "openingStyle": "ellipse",
+        "borderFraction": 0.22,
+        "wallMm": 2,
+        "filletMm": 1.5,
+        "faceIndex": -1
+      }
+    },
+    {
+      "id": "ring-lantern",
+      "name": "Ring lantern",
+      "description": "Dual of the twisted globe: a ten-sided ring at each pole, bands of ovals between.",
+      "state": {
+        "base": "twistedglobe",
+        "points": 10,
+        "separation": 0.63,
+        "circumdiameterMm": 120,
+        "dual": true,
+        "openingStyle": "ellipse",
+        "borderFraction": 0.24,
+        "wallMm": 2,
+        "filletMm": 1,
+        "faceIndex": -1
+      }
     }
   ]
 }

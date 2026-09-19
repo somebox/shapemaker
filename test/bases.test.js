@@ -71,7 +71,7 @@ function edgeLengthMultiset(positions, faces, digits = 6) {
 }
 
 describe("BASES registry", () => {
-  it("lists ten regular bases plus the parametric globe, sphere, and random hull", () => {
+  it("lists eleven regular bases plus the parametric globe, twisted globe, sphere, and random hull", () => {
     assert.deepEqual([...BASE_IDS].sort(), [
       "cube",
       "cuboctahedron",
@@ -82,15 +82,17 @@ describe("BASES registry", () => {
       "octahedron",
       "random",
       "rhombicdodeca",
+      "rhombicenneaconta",
       "rhombicosidodeca",
       "rhombictriaconta",
       "sphere",
       "tetrahedron",
+      "twistedglobe",
     ]);
     for (const id of BASE_IDS) {
       assert.equal(isKnownBase(id), true);
       assert.ok(BASES[id].label);
-      if (id === "random" || id === "sphere" || id === "globe") {
+      if (id === "random" || id === "sphere" || id === "globe" || id === "twistedglobe") {
         assert.equal(BASES[id].regular, false);
         assert.equal(BASES[id].parametric, true);
         if (id === "globe") {
@@ -128,6 +130,21 @@ describe("analytic per-base hull signatures", () => {
       verts: 32,
       sig: [[4, 30]],
       radii: [[Math.sqrt(3 / (2 + PHI)), 20], [1, 12]],
+    },
+    // Three radii: five-fold tips (closed form in rhombicenneaconta.test.js),
+    // the sixty general vertices, and the twenty three-fold tips outermost.
+    rhombicenneaconta: {
+      verts: 92,
+      sig: [[4, 90]],
+      radii: [
+        [
+          (5 * (Math.sqrt((5 + 2 * Math.sqrt(5)) / 15) +
+            Math.sqrt((5 - 2 * Math.sqrt(5)) / 15))) / (2 * PHI * PHI),
+          12,
+        ],
+        [0.944062511834, 60],
+        [1, 20],
+      ],
     },
   };
 

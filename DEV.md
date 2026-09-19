@@ -78,8 +78,10 @@ files, the URL hash, and dirty tracking.
 | `circumdiameterMm` | 100 | outer diameter across opposite vertices |
 | `borderFraction` | 0.36 | frame width ÷ face apothem (Form %); legacy `borderMm` via `--border=` |
 | `wallMm` | 1.4 | minimum wall thickness |
-| `filletMm` | 4.5 | requested opening corner radius; clamped per face |
+| `openingStyle` | `polygon` | `polygon` (inset + fillet) or `ellipse` (inscribed oval) |
+| `filletMm` | 4.5 | requested opening corner radius; clamped per face; inert under `ellipse` |
 | `jitter` | 0 | distort amount |
+| `dual` | false | polar dual (faces ↔ vertices, re-hull with merge) |
 | `truncate` | 0 | vertex cut % (re-hull) |
 | `spike` | 0 | apex radius in parent circumradius units (0 skips) |
 | `subdiv` / `soften` | 0 | subdivision level and smooth |
@@ -117,12 +119,13 @@ src/
   bases.js          flat BASES registry
   hull.js           QuickHull wrapper + coplanar merge + face identity
   compile.js        THE regeneration API — never throws for bad input
-  pipeline.js       points → jitter → truncate → spike → subdivide → scale → shell
+  pipeline.js       points → jitter → dual → truncate → spike → subdivide → scale → shell
+  dual.js           polar dual operator (re-hull, always merged)
   skeleton.js       edgeList, inradiusRange, assertSkeleton, assertStarShaped
   faceframe.js      toFaceFrame / fromFaceFrame
-  points/           platonic, icosidodeca, cuboctahedron, rhombicosidodeca, rhombic, globe, sphere, random, jitter
-  geom/             poly2, edgesub, annulus
-  solid/shell.js    depth × OpeningGenerator
+  points/           platonic, icosidodeca, cuboctahedron, rhombicosidodeca, rhombic, rhombicenneaconta, globe, twistedglobe, sphere, random, jitter
+  geom/             poly2, ellipse, edgesub, annulus
+  solid/shell.js    depth × OpeningGenerator (polygon inset+fillet, ellipse)
   solid/spike.js    face pyramids / dimples (origin-star-convex)
   export/stl.js     binary STL writer
   export/svg.js     camera-projected SVG

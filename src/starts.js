@@ -11,8 +11,8 @@ import { BASES, BASE_IDS, isKnownBase } from "./bases.js";
  * Per-base Form overrides so every built-in start compiles without clamp
  * at its own defaults; later Density/jitter edits re-fit wall and border
  * through applyEdit's reshape adaptation. Regulars share DEFAULT_STATE;
- * parametric hulls (globe, sphere, random) need a tighter border and
- * fillet on their small faces.
+ * parametric hulls (globe, twisted globe, sphere, random) and the
+ * ninety-face rhombic solid need a softer fillet on their small faces.
  */
 const BASE_PACKS = Object.freeze({
   // Relative border is the default for every base. Parametric hulls only
@@ -25,6 +25,19 @@ const BASE_PACKS = Object.freeze({
   }),
   random: Object.freeze({
     filletMm: 1.5,
+  }),
+  // All-triangle bands: twice the globe's faces per meridian, so the start
+  // opens at 16 meridians (224 faces) rather than the shared Density default
+  // of 24 (528). Separation rides along so the pack equals what the Density
+  // slider writes at 16 and the chip reads as clean, not edited.
+  twistedglobe: Object.freeze({
+    filletMm: 1,
+    points: 16,
+    separation: 0.56,
+  }),
+  // Ninety small rhombi; the slim ones cap the fillet near 2.3 mm at Ø100.
+  rhombicenneaconta: Object.freeze({
+    filletMm: 2,
   }),
 });
 

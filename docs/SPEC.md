@@ -35,14 +35,16 @@ general CAD.
 ### Version 1
 
 - Icosidodecahedron, Platonic solids, cuboctahedron, rhombicosidodecahedron,
-  Catalan rhombics (dodecahedron / triacontahedron), lat/long globe, fibonacci
-  sphere, and seeded random convex polyhedra. Spike (after truncate) grows origin-star-
-  convex pyramids or dimples on every face; named stars are presets, not
-  extra bases.
+  Catalan rhombics (dodecahedron / triacontahedron), the rhombic
+  enneacontahedron, lat/long globe, twisted globe, fibonacci
+  sphere, and seeded random convex polyhedra. Dual swaps faces and vertices
+  of any of them. Spike (after truncate) grows origin-star-
+  convex pyramids or dimples on every face; named stars and ring balls are
+  presets, not extra bases.
 - Uniform free scaling with live dimensions and edge-length inspection.
 - On-sphere jitter.
 - Solid closed forms and hollow shells, with optional openings on hollow forms.
-- Inset-and-fillet openings.
+- Inset-and-fillet openings, or ellipse openings (the ring-ball form).
 - Face-based resting orientation.
 - STL and camera-projected SVG export.
 - Project save/load, URL state, undo/redo, presets, measurements, and honest
@@ -57,7 +59,8 @@ general CAD.
 - Slicing, or scored orientation of the unsplit model (Split already
   ranks session-only print poses; click-to-rest stays a face pick).
 - Fabrication-specific nesting, toolpaths, Gerber generation, or slicer output.
-- Additional opening styles or editable operator stacks.
+- Opening styles beyond polygon and ellipse, several openings per face, or
+  editable operator stacks.
 - Valley / concave fillets, or resin drain-hole design. Convex dihedral
   rounding is in scope (ridge-only on spiked meshes).
 - Mobile-first layout.
@@ -102,13 +105,13 @@ Rules:
 ## Geometry pipeline
 
 ```text
-base points -> (jitter) -> convex hull -> (plane-perturb) -> truncate -> spike -> subdivide/smooth -> scale -> shell -> orient -> export
+base points -> (jitter) -> convex hull -> (plane-perturb) -> dual -> truncate -> spike -> subdivide/smooth -> scale -> shell -> orient -> export
 ```
 
 From Milestone 3 the interactive path is points → hull+merge+face-identity
-(`assertSkeleton`) → scale to mm in the pipeline → shell. Jitter, truncate,
-spike, subdivide, and smooth are shipped; order is jitter → truncate →
-spike → subdivide → smooth. Origin-centered hull input is required by
+(`assertSkeleton`) → scale to mm in the pipeline → shell. Jitter, dual,
+truncate, spike, subdivide, and smooth are shipped; order is jitter → dual →
+truncate → spike → subdivide → smooth. Origin-centered hull input is required by
 `assertSkeleton`'s outward-winding check. After Spike the mesh is origin-
 star-convex (`assertStarShaped`), not necessarily convex.
 
@@ -118,7 +121,12 @@ Base generators produce origin-centered point clouds normalized to unit
 circumradius (max vertex radius = 1): Platonic solids, the default
 icosidodecahedron, the cuboctahedron, the rhombicosidodecahedron, Catalan
 rhombic solids (vertices at two radii — the inner ring stays inside the
-circumsphere), a lat/long globe, a
+circumsphere), the rhombic enneacontahedron (the zonohedron of the ten
+icosahedral three-fold axes: 90 equal-edged rhombi, vertices at three
+radii, built directly as a zonotope rather than hulled from a larger cloud),
+a lat/long globe, a twisted globe (alternate latitude rings rotated half a
+meridian step, so every band is an antiprism of triangles; coplanar merge
+off), a
 deterministic fibonacci-lattice sphere, or seeded random points with a minimum
 angular separation. Parametric point count (sphere and random) tops out near
 60 until interactive performance is measured; on the globe the same Density
@@ -147,7 +155,20 @@ point clouds renormalize so Size still means circumdiameter.
 separation derives from the count (matching the retired Sparse / Medium /
 Dense anchors at 12/24/48). On the globe the same control sets meridian count:
 the base advertises its effective range (6–36) through the registry
-(`pointsRange`), and the slider clamps to it so no positions are dead.
+(`pointsRange`), and the slider clamps to it so no positions are dead. The
+twisted globe has twice the faces per meridian, so its range is 6–24 and its
+start opens at 16.
+**Dual** (off / on) is a fixed-order skeleton operator: polar reciprocation
+about the origin. A face in the plane n·x = d becomes the vertex n/d, the
+cloud is re-hulled with coplanar merge, and the result is renormalized to
+unit circumradius. All planes through one parent vertex map to points of one
+plane, so dual faces are exactly planar on any parent — one k-gon per
+k-valent vertex. Cube and octahedron swap, as do dodecahedron and
+icosahedron; the cuboctahedron and icosidodecahedron give their rhombic
+Catalan duals; a triangulated parent (sphere, twisted globe, random hull)
+gives pentagon and hexagon cells. Every corner of a triangulation's dual
+joins exactly three faces, so a following Truncate cuts it exactly. Coplanar
+merge always runs for the dual, including on bases that skip it themselves.
 **Truncate** (0–50%) is a fixed-order skeleton
 operator that cuts every corner: each edge contributes the points at t and
 1−t of its length, and the re-hull (with coplanar merge) is the truncated
@@ -194,10 +215,11 @@ on cube and tetra). Above 50 a melt phase additionally clips the deeper
 flats of mixed-plane-distance solids spherically toward the inscribed
 ball, so 100 reaches the ball on every base.
 
-Operation order is fixed and load-bearing: **jitter → truncate → spike →
-subdivide → smooth**.
+Operation order is fixed and load-bearing: **jitter → dual → truncate →
+spike → subdivide → smooth**.
 Jitter distorts the simple base form (plane perturbation on regulars, point
-jitter before the hull on parametric bases), truncation cuts corners,
+jitter before the hull on parametric bases), dual swaps faces for vertices
+while the solid is still simple and convex, truncation cuts corners,
 spike erects pyramids or dimples, subdivision adds resolution, and smooth
 fillets convex edges. Running jitter after subdivision would perturb
 families of near-coplanar sub-face planes, most of which stop binding —
@@ -255,7 +277,24 @@ the minimum thickness; the actual range is reported. That uniform inner scale
 requires origin-star-convexity, which is why Spike is legal and general
 concave offset is not.
 
-Openings use a centroid-scaled inset and tangent fillet. Fillet is authored as
+There are two opening styles, chosen by `openingStyle`. Both are
+`OpeningGenerator`s working purely in the face's 2D frame; the solidifier
+does not know which one ran.
+
+**Ellipse** openings are the ring-ball form. The opening is the largest
+inscribed ellipse that shares the face's second-moment shape, centred on the
+area centroid, under the same centroid scale (1 − border) as the polygon
+inset. The construction is affine-invariant: it is the incircle on a regular
+polygon, the Steiner inellipse on a triangle, and the midpoint-tangent
+ellipse on a parallelogram, so neighbouring ovals meet a shared edge at the
+same point. The ellipse always lies inside the polygon inset, so Border keeps
+its meaning as the narrowest strut and every limit sized for the polygon
+(border ceiling, rounding band allowance, rim clamp) holds unchanged. Fillet
+does not apply and is inert. Ovals fill about 60% of a triangle, 79% of a
+rhombus and 91% of a hexagon, so the form reads as rings on the pentagon and
+hexagon cells a Dual produces, and as a perforated ball on triangles.
+
+**Polygon** openings use a centroid-scaled inset and tangent fillet. Fillet is authored as
 a radius in millimetres; a face whose opening cannot fit the requested radius
 clamps it locally, and the applied range is reported. Each face boundary is
 subdivided globally so adjacent faces share identical points. The opening is
@@ -463,6 +502,10 @@ src/start-thumbs.js     chooser wireframe thumbnails (SVG)
 src/points/jitter.js    on-sphere jitter (parametric bases)
 src/points/sphere.js    fibonacci-lattice sphere points
 src/points/globe.js     lat/long globe (meridian Density)
+src/points/twistedglobe.js  twisted globe (antiprism bands, merge off)
+src/points/rhombicenneaconta.js  rhombic enneacontahedron (direct zonotope)
+src/dual.js             polar dual (skeleton operator)
+src/geom/ellipse.js     inscribed moment ellipse (ellipse openings)
 src/points/cuboctahedron.js  cuboctahedron
 src/points/rhombicosidodeca.js  rhombicosidodecahedron
 src/points/rhombic.js   rhombic dodecahedron / triacontahedron

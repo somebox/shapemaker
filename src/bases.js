@@ -23,6 +23,12 @@ import {
   GLOBE_MERIDIAN_MIN,
   GLOBE_MERIDIAN_MAX,
 } from "./points/globe.js";
+import {
+  twistedGlobePoints,
+  TWISTED_GLOBE_MERIDIAN_MIN,
+  TWISTED_GLOBE_MERIDIAN_MAX,
+} from "./points/twistedglobe.js";
+import { rhombicEnneacontaPoints } from "./points/rhombicenneaconta.js";
 import { randomSpherePoints } from "./points/random.js";
 import { fibonacciSpherePoints } from "./points/sphere.js";
 
@@ -101,6 +107,12 @@ export const BASES = Object.freeze({
     points: rhombicTriacontaPoints,
     regular: true,
   },
+  rhombicenneaconta: {
+    label: "Rhombic enneacontahedron",
+    shortLabel: "Rhomb 90",
+    points: rhombicEnneacontaPoints,
+    regular: true,
+  },
   globe: {
     label: "Globe",
     shortLabel: "Globe",
@@ -108,6 +120,18 @@ export const BASES = Object.freeze({
     regular: false,
     parametric: true,
     pointsRange: { min: GLOBE_MERIDIAN_MIN, max: GLOBE_MERIDIAN_MAX },
+  },
+  twistedglobe: {
+    label: "Twisted globe",
+    shortLabel: "Twist",
+    points: twistedGlobePoints,
+    regular: false,
+    parametric: true,
+    merge: false,
+    pointsRange: {
+      min: TWISTED_GLOBE_MERIDIAN_MIN,
+      max: TWISTED_GLOBE_MERIDIAN_MAX,
+    },
   },
   sphere: {
     label: "Sphere",

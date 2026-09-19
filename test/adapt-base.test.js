@@ -143,7 +143,9 @@ describe("defaultRestingFace max-area", () => {
     rhombicosidodeca: 5,
     rhombicdodeca: 4,
     rhombictriaconta: 4,
+    rhombicenneaconta: 4,
     globe: 4,
+    twistedglobe: 3, // merge-skip skeleton: antiprism bands + pole fans
     sphere: 3, // merge-skip skeleton: every face is a triangle
     random: 3, // merge-skip skeleton: every face is a triangle
   };

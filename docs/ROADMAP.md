@@ -50,11 +50,24 @@ and require a defined assembly workflow before implementation.
 
 Shipped in 0.7.0: cuboctahedron, rhombic dodecahedron, rhombic triacontahedron,
 and a lat/long globe (Density → meridians). Since then: the
-rhombicosidodecahedron. Further vocabulary ideas:
+rhombicosidodecahedron, the rhombic enneacontahedron, the twisted globe, the
+dual operator, and ellipse openings (together, the ring-ball form). Further
+vocabulary ideas:
 
-- Additional opening generators such as circle or mirrored-face openings.
-- Skeleton operators still open: dual (truncate, spike, subdivide + smooth
-  ship — truncate's re-hull is the template a dual operator would follow).
+- More opening generators, such as mirrored-face openings. Ellipse shipped as
+  the second generator; the solidifier did not change.
+- True rings: trim each face's outer boundary to an oval as well, so rings
+  touch along necks and the junction webs open up. Needs a face outline that
+  is not the full polygon — a solidifier change, unlike the ellipse opening.
+  Dual then Truncate approximates it today by perforating each junction.
+- A millimetre floor (or a skip-small-faces rule) for relative borders: Dual
+  then Truncate leaves tiny corner triangles whose borders fall well under
+  the printable floor. The printability warning reports it; nothing prevents it.
+- More zonohedra (a parametric polar zonohedron rides the Density slider),
+  the great-circle Catalan solids (disdyakis 12 / 30), Sierpinski-style
+  adaptive subdivision (the solidifier already tolerates the hanging
+  vertices it needs), and multi-octave radial noise.
+- Skeleton operators: dual, truncate, spike, subdivide + smooth all ship.
   Possible follow-ups: higher subdivision levels behind a performance check;
   a geodesic (outward spherify) mode if wanted — the Sphere base covers most
   of that ground. Spike after subdivide on an icosahedron already covers

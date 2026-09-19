@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Acceptance: headless STL export → prototype/meshcheck.py.
 #
-# Matrix: 13 bases × 4 entries (3 shell combos + stress) = 52, plus
+# Matrix: 15 bases × 4 entries (3 shell combos + stress) = 60, plus
 # Draft/Fine on the default solid (2) + jittered random (1) + 3 random
-# seeds × Draft/Fine (6) + M5 irregular extremes (8) = 69, plus rounding,
-# truncate, split halves, subdiv+rounding, and spike cases. Count is
-# EXPECTED below.
+# seeds × Draft/Fine (6) + M5 irregular extremes (8) = 77, plus rounding,
+# truncate, split halves, subdiv+rounding, spike, and the dual / ellipse
+# ring-ball cases. Count is EXPECTED below.
 #
 # Requires: node, and .venv with prototype/requirements.txt installed.
 set -euo pipefail
@@ -22,7 +22,7 @@ OUT="${ROOT}/test/out/acceptance"
 rm -rf "$OUT"
 mkdir -p "$OUT"
 EXPORT=(node scripts/export-stl.mjs)
-EXPECTED=91
+EXPECTED=105
 
 while IFS=$'\t' read -ra parts; do
   [[ ${#parts[@]} -gt 0 ]] || continue
@@ -240,6 +240,40 @@ emitHollowOpen("octahedron_spike_subdiv1__hollow_open.stl", {
 emitHollowOpen("sphere_spike__hollow_open.stl", {
   base: "sphere", spike: 1.4, filletMm: 1.5,
 });
+
+// Dual + ellipse openings — the ring-ball family.
+emitHollowOpen("icosidodeca_dual__hollow_open.stl", {
+  base: "icosidodeca", dual: true,
+});
+emitHollowOpen("sphere_dual_ellipse__hollow_open.stl", {
+  base: "sphere", points: 40, dual: true, openingStyle: "ellipse",
+});
+emitHollowOpen("icosahedron_t33_ellipse_rounding15__hollow_open.stl", {
+  base: "icosahedron", truncate: 33, openingStyle: "ellipse", roundingMm: 1.5,
+});
+emitHollowOpen("random_s1337_j10_dual_ellipse__hollow_open.stl", {
+  base: "random", seed: 1337, jitter: 10, dual: true, openingStyle: "ellipse",
+});
+emitHollowOpen("rhombicenneaconta_dual_ellipse_rounding05__hollow_open.stl", {
+  base: "rhombicenneaconta", dual: true, openingStyle: "ellipse", roundingMm: 0.5,
+});
+// Dual then truncate: every corner is three-valent, so the cut is exact and
+// leaves one tiny triangle per corner. Relative border only — a constant-mm
+// border cannot fit faces that small.
+console.log(
+  [
+    "twistedglobe_dual_t24_ellipse__hollow_open.stl",
+    "--base=twistedglobe",
+    "--points=12",
+    "--dual=true",
+    "--truncate=24",
+    "--opening-style=ellipse",
+    "--depth=hollow",
+    "--openings=true",
+    "--border-fraction=0.14",
+    "--wall=2.4",
+  ].join("\t"),
+);
 
 // Model split — each --split run emits two half-STLs (counted by meshcheck).
 function emitSplit(name, opts) {

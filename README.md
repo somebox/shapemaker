@@ -16,7 +16,7 @@ required. On first visit, a short tip walks through the loop:
 
 1. **Pick a start** — choose a built-in shape from the Start from row.
 2. **Adjust** — tune Size, Form (hollow/solid, wall, border, fillet), and
-   optional distort (jitter, truncate, spike, subdivide, smooth).
+   optional distort (jitter, dual, truncate, spike, subdivide, smooth).
 3. **Click a face** — set which side rests on the print bed.
 4. **Export** — download STL for the slicer, or SVG for a clean outline.
 
@@ -42,11 +42,17 @@ flat-bridge overlays, and a height clip to inspect cavities.
 
 | Area | Controls |
 |---|---|
-| Start | Platonic solids, icosidodecahedron, cuboctahedron, rhombicosidodecahedron, rhombic 12/30, globe, sphere, random hull; named star presets |
+| Start | Platonic solids, icosidodecahedron, cuboctahedron, rhombicosidodecahedron, rhombic 12/30/90, globe, twisted globe, sphere, random hull; named star and ring-ball presets |
 | Size | Overall diameter; Edge length on regular shapes |
-| Form | Hollow or solid, open or closed faces, wall, border, fillet |
-| Distort | Jitter (amount, direction, seed), truncate, spike, subdivide, smooth |
+| Form | Hollow or solid, open or closed faces, polygon or ellipse openings, wall, border, fillet |
+| Distort | Jitter (amount, direction, seed), dual, truncate, spike, subdivide, smooth |
 | Make | Resting face, mesh quality (Draft / Normal / Fine), material / mass estimate |
+
+**Ring balls.** Turn **Dual** on and set **Opening** to Ellipse: Dual swaps
+faces for vertices, so a triangulated sphere becomes pentagon and hexagon
+cells, and each cell opens with its largest inscribed oval. Neighbouring rings
+meet along a short neck. The *Ring ball* and *Ring lantern* presets start
+there; add Truncate to perforate the junctions between rings.
 
 Quality densifies real triangles in both the preview and the STL — the view
 stays flat-shaded so what you see is what you print.

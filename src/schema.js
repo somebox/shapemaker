@@ -16,6 +16,7 @@ export const STATE_KEYS = Object.freeze([
   "depth",
   "wallMm",
   "openings",
+  "openingStyle",
   "filletMm",
   "roundingMm",
   "edgeDiv",
@@ -24,6 +25,7 @@ export const STATE_KEYS = Object.freeze([
   "separation",
   "jitter",
   "jitterMode",
+  "dual",
   "truncate",
   "spike",
   "subdiv",
@@ -49,6 +51,7 @@ export const DEFAULT_STATE = Object.freeze({
   depth: "hollow",
   wallMm: 1.4,
   openings: true,
+  openingStyle: "polygon",
   filletMm: 4.5,
   roundingMm: 0,
   edgeDiv: 10,
@@ -57,6 +60,7 @@ export const DEFAULT_STATE = Object.freeze({
   separation: 0.5,
   jitter: 0,
   jitterMode: "surface",
+  dual: false,
   truncate: 0,
   spike: 0,
   subdiv: 0,
@@ -187,6 +191,21 @@ export const CONTROL_DEFS = [
     inertWhen: (s) => !(s.jitter > 0),
   },
   {
+    // Polar dual (skeleton operator, after jitter, before truncate): faces
+    // become vertices and vertices become faces — cube ↔ octahedron, a
+    // triangulated sphere → pentagon + hexagon cells. Every corner of a
+    // triangulation's dual joins three faces, so Truncate then cuts exactly.
+    key: "dual",
+    group: "shape",
+    label: "Dual",
+    type: "segments",
+    boolean: true,
+    options: [
+      { value: "false", label: "Off" },
+      { value: "true", label: "On" },
+    ],
+  },
+  {
     // Vertex truncation (skeleton operator, before spike / subdivide): cuts
     // each corner by re-hulling edge points at t% along every edge. 50 is
     // full rectification (cube → cuboctahedron); an icosahedron at ~33 is
@@ -217,7 +236,7 @@ export const CONTROL_DEFS = [
   {
     // Surface subdivision (skeleton operator): triangles split 4:1,
     // polygons fan over midpoint-split edges. Order is load-bearing:
-    // jitter → truncate → spike → subdivide → smooth.
+    // jitter → dual → truncate → spike → subdivide → smooth.
     key: "subdiv",
     group: "shape",
     label: "Subdivide",
@@ -283,6 +302,22 @@ export const CONTROL_DEFS = [
     ],
   },
   {
+    // Opening generator. Polygon is the inset-and-fillet outline of the
+    // face; Ellipse is the face's largest inscribed oval under the same
+    // Border scale (circles on regular faces) — the ring-ball form, at its
+    // best on the pentagon + hexagon cells a Dual produces. Fillet is inert
+    // under Ellipse.
+    key: "openingStyle",
+    group: "form",
+    label: "Opening",
+    type: "segments",
+    options: [
+      { value: "polygon", label: "Polygon" },
+      { value: "ellipse", label: "Ellipse" },
+    ],
+    inertWhen: (s) => !s.openings,
+  },
+  {
     key: "wallMm",
     group: "form",
     label: "Wall",
@@ -319,7 +354,7 @@ export const CONTROL_DEFS = [
     min: 0,
     max: 30,
     step: 0.1,
-    inertWhen: (s) => !s.openings,
+    inertWhen: (s) => !s.openings || s.openingStyle === "ellipse",
   },
   {
     // Dihedral rounding. On spiked meshes only convex ridges (and apexes)

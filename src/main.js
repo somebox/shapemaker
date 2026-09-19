@@ -513,6 +513,7 @@ const SKELETON_KEYS = [
   "separation",
   "jitter",
   "jitterMode",
+  "dual",
   "truncate",
   "spike",
   "subdiv",
@@ -571,16 +572,26 @@ function applyEdit(patchIn, commit) {
     // catch here. Skip adaptation — the draft is already failing compile.
     if (isKnownBase(nextBase)) {
       const probe = { ...draft, ...normalized, faceIndex: -1 };
-      const unit = hullSkeletonForBase(nextBase, probe);
-      const sk = scaleSkeleton(unit, probe.circumdiameterMm / 2);
-      const limits = computeLimits(sk, probe);
-      const adapted = adaptStateForBase({
-        currentState: { ...draft, ...normalized },
-        nextBase,
-        nextLimits: limits,
-      });
-      normalized = normalizePatch({ ...normalized, ...adapted.patch });
-      warnings = adapted.warnings;
+      // A skeleton operator can refuse the probe (spike fold, a parent with
+      // no clean dual). That is a validation result, not a crash: skip the
+      // adaptation and let compile() report it against the control.
+      let unit = null;
+      try {
+        unit = hullSkeletonForBase(nextBase, probe);
+      } catch (err) {
+        if (!err?.validation) throw err;
+      }
+      if (unit) {
+        const sk = scaleSkeleton(unit, probe.circumdiameterMm / 2);
+        const limits = computeLimits(sk, probe);
+        const adapted = adaptStateForBase({
+          currentState: { ...draft, ...normalized },
+          nextBase,
+          nextLimits: limits,
+        });
+        normalized = normalizePatch({ ...normalized, ...adapted.patch });
+        warnings = adapted.warnings;
+      }
     }
   }
 

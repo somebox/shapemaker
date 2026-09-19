@@ -202,12 +202,12 @@ export function createPanel(panelEl, handlers) {
   chooser.appendChild(baseCards);
   const presetSubhead = el("div", {
     className: "group-subheader",
-    textContent: "Stars",
+    textContent: "Presets",
   });
   presetSubhead.hidden = true;
   const presetCards = el("div", { className: "start-cards start-cards--grid start-presets" });
   presetCards.setAttribute("role", "group");
-  presetCards.setAttribute("aria-label", "Named star presets");
+  presetCards.setAttribute("aria-label", "Named presets");
   chooser.append(presetSubhead, presetCards);
   startSection.appendChild(chooser);
   scroll.appendChild(startSection);
@@ -742,6 +742,8 @@ export function createPanel(panelEl, handlers) {
         applyStateToControls(state, inputs, ranges, controlRoots, CONTROL_DEFS);
         setSegment("depth", state.depth);
         setSegment("openings", String(!!state.openings));
+        setSegment("openingStyle", state.openingStyle);
+        setSegment("dual", String(!!state.dual));
         setSegment("edgeDiv", state.edgeDiv);
         setSegment("subdiv", state.subdiv);
         setSegment("subdivStyle", state.subdivStyle);

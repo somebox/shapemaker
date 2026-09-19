@@ -131,6 +131,12 @@ corner radius is stored as `filletMm`; the applied radius may be lower on a
 face whose geometry cannot fit the requested value. Per-face applied
 millimetres (border and fillet) are reported in metrics.
 
+State keys are additive within format version 1. A key absent from a file
+takes its default, and the defaults reproduce the geometry that file was
+saved with: `dual` defaults to `false` and `openingStyle` to `"polygon"`, so
+projects and URLs written before those keys existed load unchanged. Under
+`openingStyle: "ellipse"` the stored `filletMm` is kept but not applied.
+
 ### `view`
 
 Contains optional presentation state such as camera and active overlay. Removing

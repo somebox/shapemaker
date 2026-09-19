@@ -17,7 +17,7 @@ describe("presets.json", () => {
   it("validates the shipped star presets", () => {
     const r = parsePresetsEnvelope(envelope);
     assert.equal(r.ok, true, r.error);
-    assert.equal(r.presets.length, 5);
+    assert.equal(r.presets.length, 7);
     const planes = {
       "stella-octangula": 8,
       "small-stellated-dodeca": 12,
@@ -25,11 +25,26 @@ describe("presets.json", () => {
       "great-stellated-dodeca": 12,
       "great-dodecahedron": 12,
     };
-    for (const p of r.presets) {
+    for (const p of r.presets.filter((q) => q.id in planes)) {
       assert.ok(p.state.spike > 0, p.id);
       const c = compile(p.state);
       assert.equal(c.validation.ok, true, `${p.id}: ${c.validation.errors[0]?.message}`);
       assert.equal(countPlanes(c.skeleton), planes[p.id], p.id);
+    }
+  });
+
+  it("ships ring-ball presets: dual cells with ellipse openings, printable as shipped", () => {
+    const r = parsePresetsEnvelope(envelope);
+    assert.equal(r.ok, true, r.error);
+    const rings = r.presets.filter((p) => p.state.openingStyle === "ellipse");
+    assert.deepEqual(rings.map((p) => p.id), ["ring-ball", "ring-lantern"]);
+    for (const p of rings) {
+      assert.equal(p.state.dual, true, p.id);
+      const c = compile(p.state);
+      assert.equal(c.validation.ok, true, `${p.id}: ${c.validation.errors[0]?.message}`);
+      assert.deepEqual(c.validation.warnings, [], `${p.id} ships with a warning`);
+      // Dual cells, not the parent's triangles.
+      assert.ok(c.skeleton.faces.every((f) => f.length >= 5), p.id);
     }
   });
 

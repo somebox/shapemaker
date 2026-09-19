@@ -10,13 +10,14 @@
 import { BASES, isKnownBase } from "./bases.js";
 import { hullToSkeleton, MERGE_POLICY_ID, MERGE_SKIP_ID } from "./hull.js";
 import { edgeList, assertStarShaped } from "./skeleton.js";
-import { buildShell } from "./solid/shell.js";
+import { buildShell, OPENING_GENERATORS } from "./solid/shell.js";
 import { validationError } from "./validate.js";
 import { DEFAULT_STATE } from "./schema.js";
 import { jitterPoints } from "./points/jitter.js";
 import { perturbSkeletonPlanes } from "./plane-perturb.js";
 import { subdivideSkeleton } from "./subdivide.js";
 import { truncateSkeleton } from "./truncate.js";
+import { dualSkeleton } from "./dual.js";
 import { spikeSkeleton } from "./solid/spike.js";
 
 /**
@@ -29,6 +30,7 @@ function generatorParams(base, state) {
   const truncate = state.truncate ?? DEFAULT_STATE.truncate;
   const spike = state.spike ?? DEFAULT_STATE.spike;
   const out = {
+    ...(state.dual === true ? { dual: true } : {}),
     ...(truncate > 0 ? { truncate } : {}),
     ...(spike > 0 ? { spike } : {}),
     ...(jitter > 0
@@ -89,7 +91,10 @@ function withJitter(base, cloud, params) {
 
 /**
  * Hull stage for one base. Operation order is load-bearing:
- * jitter (distort the form) → truncate → spike → subdivide → smooth.
+ * jitter (distort the form) → dual → truncate → spike → subdivide → smooth.
+ * Dual sits right after jitter: it needs the simple convex solid (its
+ * planes become the new vertices), and it must precede Truncate so a
+ * triangulation's dual — all three-valent corners — truncates exactly.
  * Plane perturbation must run on the simple base solid — perturbing the
  * near-coplanar plane families a subdivision creates makes most of them
  * non-binding, silently discarding the subdivision and its smoothing. The
@@ -105,6 +110,19 @@ function buildUnitSkeleton(base, cloud, merge, params) {
       jitter: params.jitter,
       mode: params.mode,
     });
+  }
+  if (params.dual) {
+    try {
+      sk = dualSkeleton(sk);
+    } catch (err) {
+      if (err?.validation) throw err;
+      throw validationError(
+        "points",
+        "dual",
+        "This shape has no clean dual — try less jitter or a different seed",
+        { clampTo: false },
+      );
+    }
   }
   if (params.truncate > 0) {
     sk = truncateSkeleton(sk, params.truncate / 100);
@@ -211,6 +229,7 @@ export function createPipeline() {
         roundingMm,
         edgeDiv: state.edgeDiv,
         openings: state.openings,
+        openingStyle: state.openingStyle ?? DEFAULT_STATE.openingStyle,
         depth: state.depth,
       });
 
@@ -226,6 +245,8 @@ export function createPipeline() {
           edgeDiv: state.edgeDiv,
           openings: state.openings,
           depth: state.depth,
+          openingGenerator:
+            OPENING_GENERATORS[state.openingStyle ?? DEFAULT_STATE.openingStyle],
         });
         return { skeleton, solid };
       });

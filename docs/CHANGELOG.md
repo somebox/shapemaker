@@ -7,6 +7,41 @@ surface is still moving, and git history is the detailed record. From **1.0**
 onward every release gets a full entry here, and breaking changes to the
 [project format](PROJECT_FORMAT.md) get a migration note.
 
+## [Unreleased]
+
+### Added
+
+- **Dual** — a new distort operator (Shape panel, between Jitter and
+  Truncate). Polar reciprocation about the origin swaps faces and vertices:
+  cube ↔ octahedron, dodecahedron ↔ icosahedron, icosidodecahedron → rhombic
+  triacontahedron, and any triangulated base (sphere, twisted globe, random
+  hull) → pentagon and hexagon cells. Dual faces are exactly planar on any
+  parent, and a triangulation's dual is all three-valent corners, so a
+  following Truncate cuts exactly. Canonical state key `dual` (default
+  `false`); older hashes and projects load unchanged.
+- **Ellipse openings** — a second opening style (Form → Opening). Each face
+  opens with its largest inscribed oval: a circle on regular faces, the
+  Steiner inellipse on triangles, the midpoint-tangent ellipse on rhombi.
+  Border keeps its meaning (the oval sits inside the polygon inset, so every
+  existing limit holds) and Fillet is inert. With Dual this is the ring-ball
+  form. Canonical state key `openingStyle` (`polygon` | `ellipse`, default
+  `polygon`); the polygon path is byte-identical to before.
+- **Rhombic enneacontahedron** base ("Rhomb 90"): the zonohedron of the ten
+  icosahedral three-fold axes — 90 equal-edged rhombi (60 broad, 30 slim) in
+  ten belts, 92 vertices, built directly as a zonotope.
+- **Twisted globe** base ("Twist"): the lat/long globe with alternate rings
+  rotated half a meridian step, so every band is an antiprism of triangles.
+  Density sets meridians (6–24); the start opens at 16.
+- **Ring ball** and **Ring lantern** presets (dual + ellipse on the sphere
+  and the twisted globe). The preset strip heading is now "Presets".
+- Acceptance matrix covers 15 bases and the ring-ball family (105 STLs).
+
+### Fixed
+
+- A skeleton operator refusing the edit-time limits probe (a folding Spike,
+  a parent with no clean dual) is reported as a validation message instead
+  of escaping the edit as an uncaught error.
+
 ## [0.13.0] — 2026-09-13
 
 ### Added

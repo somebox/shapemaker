@@ -14,6 +14,7 @@
 
 import { edgeInteriorFractions, edgeKey } from "../geom/edgesub.js";
 import { filletPolygon, insetScale } from "../geom/poly2.js";
+import { inscribedMomentEllipse, ellipsePolyline } from "../geom/ellipse.js";
 import { radialSample, quadToTris } from "../geom/annulus.js";
 import { edgeList, inradiusRange } from "../skeleton.js";
 import { faceFrames } from "../faceframe.js";
@@ -109,6 +110,33 @@ export const insetFillet = {
     return { opening: polyline, radiusUsed: radius };
   },
 };
+
+/**
+ * Ellipse openings — the ring-ball form. The opening is the face's largest
+ * inscribed moment ellipse (geom/ellipse.js) under the same centroid scale
+ * as the polygon inset, so Border keeps its meaning: the narrowest strut
+ * is still border × the binding centroid-to-edge distance. The ellipse lies
+ * inside the polygon inset, so every limit sized for the polygon (border
+ * ceiling, Stage-2 band allowance, rim clamp) holds here unchanged.
+ * Fillet does not apply; a degenerate face falls back to the bare inset.
+ * @type {OpeningGenerator}
+ */
+export const insetEllipse = {
+  generate(faceCorners2d, borderFraction, _filletMm, filletSegments = 64) {
+    const e = inscribedMomentEllipse(faceCorners2d);
+    if (!e) return { opening: insetScale(faceCorners2d, borderFraction), radiusUsed: 0 };
+    return {
+      opening: ellipsePolyline(e, 1 - borderFraction, Math.max(64, filletSegments * 2)),
+      radiusUsed: 0,
+    };
+  },
+};
+
+/** Canonical `openingStyle` values → generators. */
+export const OPENING_GENERATORS = Object.freeze({
+  polygon: insetFillet,
+  ellipse: insetEllipse,
+});
 
 /**
  * Build a hollow (or solid) shell mesh from a convex skeleton.
