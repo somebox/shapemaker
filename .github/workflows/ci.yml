@@ -85,6 +85,8 @@ jobs:
   acceptance:
     name: Mesh acceptance (Python reference)
     runs-on: ubuntu-latest
+    # A healthy run takes a few minutes; a stuck one should fail fast.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
