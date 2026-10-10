@@ -7,6 +7,45 @@ surface is still moving, and git history is the detailed record. From **1.0**
 onward every release gets a full entry here, and breaking changes to the
 [project format](PROJECT_FORMAT.md) get a migration note.
 
+## [Unreleased]
+
+### Changed
+
+- **Cut loads on demand.** The mesh boolean library behind Cut sides
+  (manifold-3d, about 0.5 MB of WebAssembly) is fetched the first time a
+  design uses Cut instead of at every startup, so a failed load can no
+  longer stop the app from rendering. A link to a Cut design waits for it
+  before the first build; if it can't load, Sides says so and offers
+  Straight. Headless callers `await loadCsg()` (`solid/csg.js`) first.
+- **Faster builds on big meshes.** The closed-mesh check that runs after
+  every build took hundreds of milliseconds on large meshes; it is now
+  linear. Rounded globe builds drop from about 600 ms to 180 ms.
+
+### Fixed
+
+- Cut sides with Rounding no longer leave thin rods or loose specks inside
+  spikes. The cavity was a copy of the rounded outside, so its ridges and
+  tips carried extra material that the cutters trimmed into slivers; with
+  rounding up to the wall thickness the cavity now keeps sharp edges, as a
+  wall of even thickness would. Cut designs with rounding up to the wall
+  come out slightly lighter and with fewer triangles.
+- Cut sides no longer tunnel out through neighbouring spikes. Where part of
+  an opening reaches the inside only through the next spike's wall, the hole
+  used to be cut that deep and came out at the valley between spikes; with
+  Break out on that left one extra hole per valley (a spiked rhombic
+  triacontahedron at a 4.2 mm wall: 60). Those parts now keep a floor, the
+  hole opens through its own wall, and such designs build without Break
+  out. Faces that must break out cut as shallow as opens them. Cut designs
+  that built without Break out are unchanged.
+- Cut sides no longer fail where the opening's rim lies over the inner
+  face's edge or over a thin sliver of cavity. The great dodecahedron preset
+  and a tetrahedron at a 6 mm wall now build; designs that already built are
+  unchanged.
+- The status strip names errors after their control ("Sides: …") instead of
+  the state key ("openingAxis: …").
+- A link or file that doesn't build no longer opens on an empty viewport:
+  the viewport says why and offers the same fix as the panel.
+
 ## [0.15.0] — 2026-10-10
 
 ### Added

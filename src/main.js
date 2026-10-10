@@ -31,6 +31,7 @@ import { toFaceFrame } from "./faceframe.js";
 import { HEAVY_COMPILE_MS, predictedCompileMs } from "./perf.js";
 import { computePrintRisk } from "./metrics.js";
 import { VERSION } from "./version.js";
+import { csgReady, loadCsg, needsCsg } from "./solid/csg.js";
 import {
   placeMesh,
   rankSplitOrientations,
@@ -428,6 +429,12 @@ function applyStart(id) {
  */
 function openProjectText(text) {
   const parsed = parseProject(text);
+  if (parsed.ok) whenCsgReady(parsed.state, () => openParsed(parsed));
+  else openParsed(parsed);
+}
+
+/** @param {ReturnType<typeof parseProject>} parsed */
+function openParsed(parsed) {
   const check = parsed.ok ? compile(parsed.state) : null;
   const decision = classifyOpen({
     parseOk: parsed.ok,
@@ -439,6 +446,7 @@ function openProjectText(text) {
       decision === "reject-parse"
         ? parsed.error
         : check.validation.errors[0]?.message || "Project failed to compile";
+    if (!last) ui.setEmptyNote({ errors: [{ key: "project", message }] });
     ui.setResult(
       {
         validation: {
@@ -494,15 +502,17 @@ window.addEventListener("popstate", () => {
     historyState: history.state,
   });
   if (!restored.ok) return;
-  liveHistoryEdit = false;
-  draft = restored.draft;
-  if (restored.projectName != null) {
-    projectName = restored.projectName;
-    cleanName = restored.cleanName;
-    cleanState = normalizeState(restored.cleanState);
-  }
-  regenerate({ forceFrame: false, fromHistory: true });
-  updateProjectStatus();
+  whenCsgReady(restored.draft, () => {
+    liveHistoryEdit = false;
+    draft = restored.draft;
+    if (restored.projectName != null) {
+      projectName = restored.projectName;
+      cleanName = restored.cleanName;
+      cleanState = normalizeState(restored.cleanState);
+    }
+    regenerate({ forceFrame: false, fromHistory: true });
+    updateProjectStatus();
+  });
 });
 
 /**
@@ -526,9 +536,34 @@ const SKELETON_KEYS = [
   "soften",
 ];
 
+/** Edits that arrived while the Cut library loads, merged; null when none wait. */
+let csgWaiting = null;
+
 function applyPatch(patch, commit) {
   if (splitActive) return;
   const normalized = normalizePatch(patch);
+  // While Cut sides load, later edits merge into the waiting one, so a
+  // slider dragged meanwhile builds once, not once per step.
+  if (csgWaiting) {
+    csgWaiting.patch = { ...csgWaiting.patch, ...normalized };
+    csgWaiting.commit ||= commit;
+    return;
+  }
+  const prospective = { ...draft, ...normalized };
+  if (needsCsg(prospective) && !csgReady()) {
+    csgWaiting = { patch: normalized, commit };
+    whenCsgReady(prospective, () => {
+      const { patch: merged, commit: anyCommit } = csgWaiting;
+      csgWaiting = null;
+      schedulePatch(merged, anyCommit);
+    });
+    return;
+  }
+  schedulePatch(normalized, commit);
+}
+
+/** Run the edit now, or behind the busy badge when it is predicted heavy. */
+function schedulePatch(normalized, commit) {
   // Predict cost BEFORE the adaptation probe: the probe builds the real next
   // skeleton, which for heavy configs is most of the freeze — the busy badge
   // must cover it too, not appear after it. Reshape edits pay for both the
@@ -646,6 +681,27 @@ function deferBehindBadge(run) {
 }
 
 /**
+ * Run `run` now, or once the Cut library has loaded when `state` cuts. The
+ * library is fetched on first use; a failed load still runs `run`, so
+ * compile() reports the failure against Sides.
+ * @param {object} state
+ * @param {() => void} run
+ */
+function whenCsgReady(state, run) {
+  if (!needsCsg(state) || csgReady()) {
+    run();
+    return;
+  }
+  setBusy(true);
+  loadCsg()
+    .catch((err) => console.error("csg:", err))
+    .finally(() => {
+      setBusy(false);
+      run();
+    });
+}
+
+/**
  * The control to highlight when the mesh builder hits an internal error:
  * the most failure-prone feature that is switched on.
  */
@@ -698,6 +754,7 @@ function regenerate({
       },
       { limits: limitsForState(draft) ?? lastLimits, invalid: true, warnings },
     );
+    ui.setEmptyNote(last ? null : { errors: [suspect] });
     updateProjectStatus();
     return;
   }
@@ -705,6 +762,8 @@ function regenerate({
     draftValid = false;
     viewer.setSplitEnabled(false);
     ui.setResult(next, { limits: next.limits, invalid: true, warnings });
+    // The last good model stays on screen; with none, the viewport says why.
+    ui.setEmptyNote(last ? null : next.validation);
     updateProjectStatus();
     // Do not write an invalid hash.
     return;
@@ -778,6 +837,7 @@ function regenerate({
     overhangFaceIndices: printRisk.overhangFaceIndices,
   });
   ui.setResult(stable, { limits: lastLimits, warnings });
+  ui.setEmptyNote(null);
   // Focus on frame or deliberate face pick — not on distort remaps.
   const facePick =
     prevFace != null &&
@@ -883,6 +943,13 @@ function fallbackCopy(url) {
 // Guarded: a non-validation throw out of the boot compile (an internal
 // invariant bug) must degrade to a readable error, not a dead interface.
 const boot = decodeHash(location.hash);
+// A link to a Cut design waits for the Cut library; a failed load falls
+// through to compile(), which reports it against Sides.
+if (boot.ok && needsCsg(boot.state)) {
+  setBusy(true);
+  await loadCsg().catch((err) => console.error("csg:", err));
+  setBusy(false);
+}
 try {
   if (boot.ok) {
     draft = boot.state;
@@ -915,6 +982,9 @@ try {
     },
     { limits: null, invalid: true },
   );
+  ui.setEmptyNote({
+    errors: [{ key: "boot", message: "Failed to build the model at startup — clear the URL hash or reload" }],
+  });
 }
 updateProjectStatus();
 // A shared link means the visitor came to see a specific shape — never

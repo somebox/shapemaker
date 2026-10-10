@@ -349,6 +349,13 @@ export function buildShell(skeleton, opts) {
     });
   }
 
+  // Cut builds the inner surface on its own: a copy of the rounded outer
+  // surface would round the cavity's ridges with the full radius, leaving
+  // material along them that is thicker than the wall and that the cutters
+  // trim into loose slivers. The surface a wall's thickness inside a ridge
+  // rounded by r ≤ wall is the sharp ridge of the inner planes.
+  const sharpInner = through && stage2 !== null && depth === "hollow" && stage2.radiusMax <= wallMm;
+
   const nOuter = verts.length;
   const baseO = 0;
   let baseI = -1;
@@ -454,8 +461,9 @@ export function buildShell(skeleton, opts) {
         } else {
           verts.push([cx * s, cy * s, cz * s]);
         }
-        for (let k = 0; k < m; k++) {
-          triIdx.push(cInner, BOr[(k + 1) % m] + baseI, BOr[k] + baseI);
+        const inner = sharpInner ? ring : BOr;
+        for (let k = 0; k < inner.length; k++) {
+          triIdx.push(cInner, inner[(k + 1) % inner.length] + baseI, inner[k] + baseI);
           faceIds.push(fi);
         }
       }
@@ -576,29 +584,74 @@ export function buildShell(skeleton, opts) {
       for (let k = 0; k < M; k += stride) {
         samples.push(onFace(Px[k], Py[k]), onFace(0.5 * Px[k], 0.5 * Py[k]));
       }
+      // Each ray caps how deep the cutter may end without coming out
+      // anywhere (`keep`):
+      // - a ray across the cavity at its far side (tOut), so the end stays
+      //   in free space;
+      // - a ray that only grazes the cavity (the rim over an inner edge, a
+      //   sliver of cavity inside a spike) can't hold the end, so the cutter
+      //   may run on into the far wall while half a wall stays before the
+      //   outside;
+      // - a ray through wall only at the neighbour's outside (tExit).
+      // Break out drops the last two (`brk`).
+      const thin = 0.05 * wallMm;
+      const keepMm = 0.5 * wallMm;
       const probe = (only) => {
-        const r = { tIn: -Infinity, tOut: Infinity, tExit: Infinity, exitFace: -1, spill: false };
+        const r = {
+          entries: [], deepest: -Infinity, tExit: Infinity,
+          keep: { stop: Infinity, atExit: false, exitFace: -1 },
+          brk: Infinity,
+        };
         for (const p of samples) {
           const hit = throughDepth(p, frame.normal, innerPolys, outerPolys, fi, only);
-          if (hit.tExit < r.tExit) ({ tExit: r.tExit, exitFace: r.exitFace } = hit);
-          if (!(hit.tIn < hit.tExit)) continue;
-          r.tIn = Math.max(r.tIn, hit.tIn);
-          r.tOut = Math.min(r.tOut, hit.tOut);
-          if (hit.inFace !== fi) r.spill = true;
+          r.tExit = Math.min(r.tExit, hit.tExit);
+          let cap = hit.tExit;
+          if (hit.tIn < hit.tExit) {
+            const grazes = hit.tOut - hit.tIn < thin;
+            r.entries.push({ t: hit.tIn, own: hit.inFace === fi, grazes });
+            r.deepest = Math.max(r.deepest, hit.tIn);
+            cap = grazes ? hit.tExit - keepMm : hit.tOut;
+            if (!grazes) r.brk = Math.min(r.brk, hit.tOut);
+          }
+          if (cap < r.keep.stop) {
+            r.keep = { stop: cap, atExit: cap !== hit.tOut, exitFace: hit.exitFace };
+          }
         }
         return r;
       };
       // Nearby faces first; a cutter reaching past them retests against all.
       const reach = 4 * (wallMm + roundingMm);
       let pr = probe(polysNear(outerPolys, outerPolys[fi].c, outerPolys[fi].r, reach));
-      if (!(pr.tIn + wallMm + roundingMm < reach)) pr = probe();
-      const { tIn, tOut, tExit, exitFace, spill } = pr;
-      // Break out ignores the neighbour's outside; rays that leave the part
-      // before reaching the cavity still never set the depth.
-      const stop = breakOut ? tOut : Math.min(tOut, tExit);
-      const roomy = stop - tIn > 0.05 * wallMm;
-      if (!Number.isFinite(tIn) || (!roomy && !breakOut)) {
-        const pierces = !breakOut && Number.isFinite(tIn) && tExit <= tOut && exitFace >= 0;
+      if (!(pr.deepest + wallMm + roundingMm < reach)) pr = probe();
+      // The cutter ends past every entry it opens. It opens as deep as the
+      // cap leaves room for; rays that reach the cavity only deeper, through
+      // a neighbour's wall, keep a floor, as parts over solid wall do. It
+      // must at least open through the face's own wall.
+      const own = pr.entries.filter((e) => e.own).map((e) => e.t);
+      const lo = own.length ? Math.max(...own) : Math.min(...pr.entries.map((e) => e.t));
+      const levels = [...new Set(pr.entries.map((e) => e.t))]
+        .filter((t) => t >= lo)
+        .sort((a, b) => b - a);
+      /** Deepest level (or shallowest, with `shallow`) that has room before `stop`. */
+      const choose = (stop, shallow = false) => {
+        for (let j = 0; j < levels.length; j++) {
+          const i = shallow ? levels.length - 1 - j : j;
+          const room = Math.min(stop, i > 0 ? levels[i - 1] : Infinity) - levels[i];
+          if (room > thin) return { level: levels[i], room };
+        }
+        return null;
+      };
+      let sel = choose(pr.keep.stop);
+      // Even its own wall can't open without coming out somewhere: break
+      // out, as shallow as opens the hole, past the cavity's far side if
+      // need be. Deeper cuts only notch more of the neighbours.
+      let forced = false;
+      if (!sel && breakOut && levels.length) {
+        sel = choose(pr.brk, true) ?? { level: lo, room: 0 };
+        forced = true;
+      }
+      if (!sel) {
+        const pierces = !breakOut && levels.length > 0 && pr.keep.atExit && pr.keep.exitFace >= 0;
         throw validationError(
           "solid",
           pierces ? "openingAxis" : "wallMm",
@@ -608,11 +661,13 @@ export function buildShell(skeleton, opts) {
             : `Wall ${wallMm} mm is too thick for Cut sides — a hole ` +
               "would not open into the inside",
           pierces
-            ? { clampTo: "normal", faceIds: [fi, exitFace] }
+            ? { clampTo: "normal", faceIds: [fi, pr.keep.exitFace] }
             : { faceIds: [fi] },
         );
       }
-      const gap = stop - tIn;
+      const opened = pr.entries.filter((e) => e.t <= sel.level);
+      const grazed = opened.some((e) => e.grazes);
+      const spill = opened.some((e) => !e.own);
       // Rounded rim: the Stage-2 strips keep up to 60% of the border band.
       let lipMm = 0;
       if (roundingActive) {
@@ -623,13 +678,13 @@ export function buildShell(skeleton, opts) {
       // different top and depth: coplanar caps on coplanar neighbours
       // (subdivided faces, symmetric solids) leave slivers in the boolean.
       const jig = 0.5 + ((fi * 0.6180339887) % 1) * 0.5;
-      // Under Break out a ray may cross a thin sliver of cavity before
-      // another ray first reaches it; the cutter then passes that sliver's
-      // far wall and ends just past the deepest entry.
-      const depthMm = tIn + jig * (roomy
-        ? Math.min(0.5 * gap, wallMm + roundingMm)
+      // Halfway into the room before the next cap, at most a wall (and
+      // rounding) past the entry. Past a grazed ray, or breaking out, the
+      // end sits in a wall: keep that notch to a quarter wall.
+      const depthMm = sel.level + jig * (sel.room > thin
+        ? Math.min(0.5 * sel.room, wallMm + roundingMm, grazed || forced ? 0.25 * wallMm : Infinity)
         : 0.25 * wallMm);
-      if (depthMm > tExit) throughBreakOutFaces++;
+      if (depthMm > pr.tExit) throughBreakOutFaces++;
       cutters.push(throughCutter(frame, Px, Py, {
         lipMm,
         segments: roundingSegmentsFor(edgeDiv),
@@ -966,14 +1021,14 @@ export function buildShell(skeleton, opts) {
   if (stage2) {
     for (const [a, b, c, d, fid] of stage2.quads) {
       pushQuad(triIdx, faceIds, a, b, c, d, fid);
-      if (depth === "hollow") {
+      if (depth === "hollow" && !sharpInner) {
         pushQuad(triIdx, faceIds, d + baseI, c + baseI, b + baseI, a + baseI, fid);
       }
     }
     for (const [a, b, c, fid] of stage2.tris) {
       triIdx.push(a, b, c);
       faceIds.push(fid);
-      if (depth === "hollow") {
+      if (depth === "hollow" && !sharpInner) {
         triIdx.push(c + baseI, b + baseI, a + baseI);
         faceIds.push(fid);
       }

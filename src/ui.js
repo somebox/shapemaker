@@ -390,6 +390,11 @@ export function createPanel(panelEl, handlers) {
 
   const strip = document.getElementById("dimension-strip");
   const barEl = document.getElementById("bottombar");
+  // Viewport note for a design that has never built (a broken link or file):
+  // without it the viewport is an empty grid.
+  const emptyNote = el("div", { className: "empty-note", role: "status" });
+  emptyNote.hidden = true;
+  document.getElementById("canvas-host")?.appendChild(emptyNote);
   const shareWrap = el("div", { className: "share-wrap" });
   const shareBtn = el("button", {
     type: "button",
@@ -844,6 +849,31 @@ export function createPanel(panelEl, handlers) {
       sched.setHeavy(!!on);
     },
 
+    /**
+     * With no model on screen, say in the viewport why nothing built and
+     * offer the first fix the errors name. Null hides the note.
+     * @param {{ errors: { key?: string, message: string, clampTo?: unknown }[] } | null} validation
+     */
+    setEmptyNote(validation) {
+      emptyNote.replaceChildren();
+      emptyNote.hidden = !validation?.errors?.length;
+      if (emptyNote.hidden) return;
+      emptyNote.append(
+        el("p", { className: "empty-note-title", textContent: "This design doesn't build" }),
+        el("p", { textContent: stripErrorText(validation.errors) }),
+      );
+      const fix = validation.errors.map((e) => fixPatch(e, CONTROL_DEFS)).find(Boolean);
+      if (fix) {
+        const btn = el("button", {
+          type: "button",
+          className: "control-fix",
+          textContent: `Use ${fix.label}`,
+        });
+        btn.addEventListener("click", () => handlers.onPatch(fix.patch, { commit: true }));
+        emptyNote.append(btn);
+      }
+    },
+
     /** Measured compile duration — scales the live-drag throttle. */
     setCompileMs(ms) {
       sched.setCompileMs(ms);
@@ -1078,11 +1108,31 @@ function formatStripCore(m, validation) {
   return line1 + "\n" + line2 + warn;
 }
 
+/** Error keys that no control carries, named after the control they belong to. */
+const ERROR_LABELS = new Map([
+  ...CONTROL_DEFS.map((d) => [d.key, d.label]),
+  ["borderMm", "Border"],
+  ["base", "Shape"],
+  ["faceIndex", "Face"],
+]);
+
+/**
+ * Status-strip text for failed builds: each message under the panel label
+ * of the control it concerns, unless the message already starts with it.
+ * @param {{ key?: string, message: string }[]} errors
+ */
+export function stripErrorText(errors) {
+  return errors
+    .map((e) => {
+      const label = ERROR_LABELS.get(e.key);
+      return label && !e.message.startsWith(label) ? `${label}: ${e.message}` : e.message;
+    })
+    .join("\n");
+}
+
 function updateStripErrors(strip, validation) {
   strip.innerHTML = "";
   const p = el("span", { className: "err" });
-  p.textContent = validation.errors
-    .map((e) => `${e.key ?? e.stage}: ${e.message}`)
-    .join("\n");
+  p.textContent = stripErrorText(validation.errors);
   strip.appendChild(p);
 }

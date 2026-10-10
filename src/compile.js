@@ -13,6 +13,7 @@ import { computeOrientation, defaultRestingFace } from "./orient.js";
 import { computeMetrics } from "./metrics.js";
 import { computeLimits, borderPrintabilityWarning } from "./limits.js";
 import { validateState } from "./validate.js";
+import { csgLoadError, csgReady, needsCsg } from "./solid/csg.js";
 
 /**
  * Result when nothing could be built. `limits` still describes the shape
@@ -124,6 +125,22 @@ export function compile(partial = {}) {
   // 1. Pure parameter checks — before any geometry runs.
   const validation = validateState(state);
   if (!validation.ok) return emptyResult(state, validation);
+
+  // Cut sides run on a mesh library that loads on demand (loadCsg). The app
+  // waits for it before building, so this is a failed load or a headless
+  // caller that skipped the await.
+  if (needsCsg(state) && !csgReady()) {
+    validation.ok = false;
+    validation.errors.push({
+      stage: "solid",
+      key: "openingAxis",
+      message: csgLoadError()
+        ? "Cut sides couldn't load — reload to try again, or use Straight"
+        : "Cut sides aren't loaded yet (headless callers: await loadCsg() first)",
+      clampTo: "normal",
+    });
+    return emptyResult(state, validation);
+  }
 
   // 2. Geometry. Stages throw validationError() for constraints that need a
   //    skeleton to evaluate (border vs apothem, wall vs inradius).

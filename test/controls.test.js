@@ -22,6 +22,7 @@ import {
   GROUPS_OPEN_KEY,
   estimateMassG,
   MATERIAL_PRESETS,
+  stripErrorText,
 } from "../src/ui.js";
 import { HEAVY_COMPILE_MS, predictedCompileMs } from "../src/perf.js";
 import {
@@ -306,5 +307,23 @@ describe("typed values and drag scheduling", () => {
     const store = { getItem: () => null, setItem() {} };
     assert.equal(loadGroupsOpen(store).jitter, false);
     assert.equal(loadGroupsOpen(store).shape, true);
+  });
+});
+
+describe("stripErrorText", () => {
+  it("names errors after their control, not the state key", () => {
+    assert.equal(
+      stripErrorText([{ key: "openingAxis", message: "Cut sides would come out through a neighbouring face" }]),
+      "Sides: Cut sides would come out through a neighbouring face",
+    );
+    assert.equal(stripErrorText([{ key: "borderMm", message: "Too wide" }]), "Border: Too wide");
+  });
+
+  it("drops a label the message already starts with, and unknown keys", () => {
+    assert.equal(stripErrorText([{ key: "wallMm", message: "Wall is too thick" }]), "Wall is too thick");
+    assert.equal(
+      stripErrorText([{ key: "project", message: "Project failed to compile" }, { message: "x" }]),
+      "Project failed to compile\nx",
+    );
   });
 });

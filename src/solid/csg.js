@@ -1,13 +1,51 @@
 /**
- * Mesh booleans via manifold-3d (vendored WASM). The module loads once with
- * a top-level await, so every caller stays synchronous after import.
+ * Mesh booleans via manifold-3d (vendored WASM). The library is about half a
+ * megabyte and only Cut sides use it, so it loads on demand: await
+ * loadCsg() before a build that cuts (needsCsg), and every boolean after
+ * that stays synchronous.
  */
 
-import Module from "../../vendor/manifold/manifold.js";
+/** @type {any} the initialised module once loaded */
+let wasm = null;
+/** @type {Promise<void>|null} */
+let pending = null;
+/** @type {unknown} the last load failure, cleared by a later success */
+let failure = null;
 
-const wasm = await Module();
-wasm.setup();
-const { Manifold, Mesh } = wasm;
+/**
+ * Load the library once; concurrent callers share the load. A failed load
+ * is forgotten, so the next call tries again.
+ * @returns {Promise<void>}
+ */
+export function loadCsg() {
+  pending ??= import("../../vendor/manifold/manifold.js")
+    .then(({ default: Module }) => Module())
+    .then((m) => {
+      m.setup();
+      wasm = m;
+      failure = null;
+    })
+    .catch((err) => {
+      pending = null;
+      failure = err;
+      throw err;
+    });
+  return pending;
+}
+
+/** Whether subtractAll can run now. */
+export const csgReady = () => wasm !== null;
+
+/** The last load failure, or null. */
+export const csgLoadError = () => failure;
+
+/**
+ * Whether a build of `state` subtracts cutters (Cut sides).
+ * @param {{ openings?: boolean, depth?: string, openingAxis?: string }} state
+ */
+export function needsCsg(state) {
+  return Boolean(state.openings) && state.depth === "hollow" && state.openingAxis === "through";
+}
 
 /**
  * @typedef {{ positions: Float64Array|number[], indices: Uint32Array|number[], faceIds: Uint32Array|number[] }} CsgInput
@@ -15,6 +53,7 @@ const { Manifold, Mesh } = wasm;
 
 /** @param {CsgInput} m */
 function toManifold(m) {
+  const { Manifold, Mesh } = wasm;
   const mesh = new Mesh({
     numProp: 3,
     vertProperties: Float32Array.from(m.positions),
@@ -37,6 +76,8 @@ function toManifold(m) {
  * @returns {{ positions: Float64Array, indices: Uint32Array, faceIds: Uint32Array, genus: number, dropped: number, droppedVolume: number }}
  */
 export function subtractAll(base, tools, { keepLargest = false } = {}) {
+  if (!wasm) throw new Error("mesh boolean library not loaded — await loadCsg() first");
+  const { Manifold } = wasm;
   const owned = [];
   try {
     const a = toManifold(base);

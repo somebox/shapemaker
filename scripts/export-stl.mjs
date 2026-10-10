@@ -17,6 +17,7 @@ import { writeFileSync } from "node:fs";
 import { compile } from "../src/compile.js";
 import { writeBinaryStl } from "../src/export/stl.js";
 import { clearPipelineCache } from "../src/pipeline.js";
+import { loadCsg, needsCsg } from "../src/solid/csg.js";
 import { DEFAULT_STATE } from "../src/schema.js";
 import {
   chooseSplit,
@@ -78,6 +79,7 @@ if (!outfile) {
 }
 
 clearPipelineCache();
+if (needsCsg({ ...DEFAULT_STATE, ...opts })) await loadCsg();
 const result = compile(opts);
 
 for (const w of result.validation.warnings) {

@@ -435,6 +435,25 @@
     }
     /* Explicit display beats the hidden attribute; restore it. */
     #busy[hidden] { display: none; }
+    .empty-note {
+      position: absolute;
+      left: 50%;
+      top: 45%;
+      transform: translate(-50%, -50%);
+      width: max-content;
+      max-width: min(380px, calc(100% - 32px));
+      padding: 12px 14px;
+      border: 1px solid var(--line);
+      border-radius: 3px;
+      background: color-mix(in srgb, var(--panel) 92%, transparent);
+      font: 12px/1.45 var(--font-mono);
+      color: var(--err);
+      white-space: pre-line;
+    }
+    .empty-note[hidden] { display: none; }
+    .empty-note p { margin: 0; }
+    .empty-note .empty-note-title { color: var(--text); margin-bottom: 6px; }
+    .empty-note .control-fix { margin: 10px 0 0; padding: 2px 8px; }
     .busy-ring {
       width: 10px;
       height: 10px;

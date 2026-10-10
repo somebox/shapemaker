@@ -35,6 +35,9 @@ done < <(node --input-type=module - <<'JS'
 import { compile } from "./src/compile.js";
 import { clearPipelineCache } from "./src/pipeline.js";
 import { BASE_IDS, BASES } from "./src/bases.js";
+import { loadCsg } from "./src/solid/csg.js";
+
+await loadCsg();
 
 const combos = [
   { tag: "solid_closed", depth: "solid", openings: false },

@@ -66,6 +66,11 @@ node scripts/export-stl.mjs out.stl --wall=2.0 --border=4 --fillet=4.5
 node scripts/export-stl.mjs out.stl --base=dodecahedron --depth=solid --openings=false
 ```
 
+Cut sides (`openingAxis: "through"`) run on the manifold-3d WebAssembly
+library, which loads on demand. Scripts that call `compile()` on such a state
+`await loadCsg()` from `src/solid/csg.js` first; `export-stl.mjs` does this
+when the flags ask for Cut.
+
 ## Canonical state
 
 Authoring state lives in [`src/schema.js`](src/schema.js) (`DEFAULT_STATE`,

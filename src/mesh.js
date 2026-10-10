@@ -43,25 +43,37 @@ export function assertMeshInvariants(mesh) {
     }
   }
 
-  // Directed-edge map: each directed edge must appear exactly once
-  // (manifold AND consistent orientation).
-  // Numeric keys u·nVerts + v stay exact below 2^53.
-  const directed = new Set();
+  // Directed edges grouped by tail vertex (flat arrays: a Set keyed on
+  // u·nVerts + v leaves small-integer range on large meshes and costs
+  // hundreds of ms). Each directed edge must appear exactly once
+  // (manifold AND consistent orientation) and have its reverse (closed).
+  const start = new Uint32Array(nVerts + 1);
+  for (let i = 0; i < indices.length; i++) start[indices[i] + 1]++;
+  for (let v = 0; v < nVerts; v++) start[v + 1] += start[v];
+  const fill = start.slice(0, nVerts);
+  const head = new Uint32Array(indices.length);
   for (let t = 0; t < nTris; t++) {
     const a = indices[t * 3], b = indices[t * 3 + 1], c = indices[t * 3 + 2];
-    for (const [u, v] of [[a, b], [b, c], [c, a]]) {
-      const key = u * nVerts + v;
-      if (directed.has(key)) {
+    head[fill[a]++] = b;
+    head[fill[b]++] = c;
+    head[fill[c]++] = a;
+  }
+  const seen = new Int32Array(nVerts).fill(-1);
+  for (let u = 0; u < nVerts; u++) {
+    for (let k = start[u]; k < start[u + 1]; k++) {
+      const v = head[k];
+      if (seen[v] === u) {
         throw new Error(`directed edge ${u},${v} used twice — winding/manifold failure`);
       }
-      directed.add(key);
+      seen[v] = u;
     }
   }
-  // Every directed edge must have its reverse (closed manifold)
-  for (const key of directed) {
-    const u = Math.floor(key / nVerts), v = key % nVerts;
-    if (!directed.has(v * nVerts + u)) {
-      throw new Error(`boundary edge ${u},${v} — mesh is not closed`);
+  for (let u = 0; u < nVerts; u++) {
+    for (let k = start[u]; k < start[u + 1]; k++) {
+      const v = head[k];
+      let back = false;
+      for (let j = start[v]; j < start[v + 1] && !back; j++) back = head[j] === u;
+      if (!back) throw new Error(`boundary edge ${u},${v} — mesh is not closed`);
     }
   }
 

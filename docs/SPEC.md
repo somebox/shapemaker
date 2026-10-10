@@ -358,30 +358,47 @@ shrinks to the inner flat that is left.
 
 Under **Cut** (`through`) the solidifier builds the closed hollow shell (faces as
 plain polygons, no edge subdivision), then subtracts one straight cutter per
-face with a mesh boolean (`solid/csg.js`, manifold-3d). A cutter is the
+face with a mesh boolean (`solid/csg.js`, manifold-3d). The library is
+about half a megabyte of WebAssembly and loads on first use: the app waits
+for it before a build that cuts (`loadCsg`, `needsCsg`), headless callers
+await `loadCsg()` themselves, and a build that cuts without it is a
+validation error on Sides. A cutter is the
 opening ring extruded along `−normal` (`solid/through.js`). Its depth comes
-from rays cast from the opening: it runs past the deepest point where the
-opening reaches the cavity, and stops before the cavity's far side or any
-other face's outside. Parts of an opening over solid wall keep a ledge; a
-hole may run into neighbouring inner faces, and overlapping cutters merge.
-Two cases are validation errors: a ray leaves through another face's outside
-before the cutter is deep enough (sharp ridges; Fix → Straight), or no part of
+from rays cast from the opening. Each ray caps how deep the cutter may end
+without coming out anywhere: at the cavity's far side, or at another face's
+outside for a ray through wall only. A ray that only grazes the cavity — its
+pass is under 5% of the wall, as when the rim lies over the inner face's edge
+or over a sliver of cavity inside a spike — does not set the far side; the
+cutter may run into the wall beyond by up to a quarter wall, as long as half
+a wall stays before the outside. Under that cap the cutter opens as deep as
+there is room: it ends past the deepest entry into the cavity that still
+leaves room before the cap, halfway into that room and at most a wall (plus
+rounding) past the entry. Rays that reach the cavity only deeper — through a
+neighbouring spike's wall, say — keep a floor, as parts of an opening over
+solid wall do; cutting down to them would come out through the neighbour.
+The cutter must at least open through the face's own wall. A hole may run
+into neighbouring inner faces, and overlapping cutters merge. Two cases are
+validation errors: the face's own wall can't open before a ray comes out
+through another face's outside (sharp ridges; Fix → Straight), or no part of
 the opening reaches the cavity (Wall). Openings under 0.2 mm across stay
 closed, reported as a warning.
 
 **Break out** (`breakOut`, in Form → Advanced, active under Cut only,
-default off) lifts the
-first error. The cutter ignores other faces' outsides and notches them where
-it crosses. Its depth is still set only by rays that reach the cavity before
-leaving the part. When one ray crosses a thin sliver of cavity before
-another ray first reaches it, the cutter passes the sliver's far wall and
-ends a quarter wall past the deepest entry. Crossing cuts can free pieces;
-the largest connected piece is kept and the rest are dropped, reported as a
-warning with their count and volume. Rounding keeps Stage-2 edge strips on the
-closed shell and gives each cutter a quarter-circle flare at the top, so the
-outer rim is rounded; the inner rim stays sharp. Cutter vertices get a fixed
-nudge of 1e-4 × the largest inradius so cutter features never coincide
-exactly with shell planes. The boolean output then has edges shorter than
+default off) lifts the first error. Such a face cuts as shallow as opens its
+own wall, past the cavity's far side if need be, ending at most a quarter
+wall past the entry, and notches the neighbours it crosses; faces that open
+without coming out are cut exactly as without Break out. Crossing cuts can
+free pieces; the largest connected piece is kept and the rest are dropped,
+reported as a warning with their count and volume. Rounding keeps Stage-2 edge strips on the
+closed shell's outside and gives each cutter a quarter-circle flare at the
+top, so the outer rim is rounded; the inner rim stays sharp. When no edge's
+radius exceeds the wall, the cavity is the sharp inner polyhedron — the
+surface one wall inside a ridge rounded by r ≤ wall — rather than a copy of
+the rounded outside. A copy would round the cavity's ridges and spike tips
+with the full radius, leaving material along them that the cutters trim into
+thin rods or loose pieces. Larger radii keep the copied cavity. Cutter
+vertices get a fixed nudge of 1e-4 × the largest inradius so cutter features
+never coincide exactly with shell planes. The boolean output then has edges shorter than
 1e-5 × the part size collapsed (only where the collapse fuses no other
 edges and turns no triangle by more than 60°), and flat triangles flipped
 (`collapseCoincident`). Left in place, the folds around such micro-edges
