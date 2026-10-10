@@ -133,8 +133,11 @@ millimetres (border and fillet) are reported in metrics.
 
 State keys are additive within format version 1. A key absent from a file
 takes its default, and the defaults reproduce the geometry that file was
-saved with: `dual` defaults to `false` and `openingStyle` to `"polygon"`, so
-projects and URLs written before those keys existed load unchanged. Under
+saved with: `dual` defaults to `false`, `openingStyle` to `"polygon"`,
+`openingAxis` to `"center"` and `breakOut` to `false`, so projects and URLs written before those keys
+existed load unchanged. `wallMode` is the exception to "absent means
+default": new designs start `"even"`, but a file or URL without the key
+loads as `"scaled"`, the only construction that existed before it. Under
 `openingStyle: "ellipse"` the stored `filletMm` is kept but not applied.
 
 ### `view`

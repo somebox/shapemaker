@@ -7,6 +7,7 @@ import { faceFrames, projectToFrame } from "./faceframe.js";
 import { inradiusRange } from "./skeleton.js";
 import { filletRMax, insetScale, collapseMicroEdges } from "./geom/poly2.js";
 import { DEFAULT_STATE, SPIKE_T_MAX } from "./schema.js";
+import { cornerOffsets, offsetWallLimit } from "./solid/offset.js";
 
 /** Practical FDM floor (≈ 6 lines at 0.4 mm nozzle); see docs/BORDER_EVIDENCE.md. */
 export const PRINTABLE_BORDER_MM = 2.5;
@@ -73,7 +74,12 @@ export function computeLimits(skeleton, state) {
   const depth = state.depth ?? "hollow";
   const openings = state.openings !== false;
 
-  const wallMmMax = depth === "hollow" ? inradius.min * 0.9 : null;
+  const even = (state.wallMode ?? DEFAULT_STATE.wallMode) === "even";
+  const wallMmMax = depth !== "hollow"
+    ? null
+    : even
+      ? offsetWallLimit(skeleton, cornerOffsets(skeleton, frames)) * 0.9
+      : inradius.min * 0.9;
 
   let borderMmMax = null;
   let borderFractionMax = null;
@@ -123,7 +129,8 @@ export function computeLimits(skeleton, state) {
 
     if (depth === "hollow" && Number.isFinite(minBorderFlat)) {
       const wallMm = state.wallMm ?? DEFAULT_STATE.wallMm;
-      const s = 1 - wallMm / inradius.min;
+      // Even walls keep each inner face's flat; Scaled shrinks it by s.
+      const s = even ? 1 : 1 - wallMm / inradius.min;
       if (s > 0 && Number.isFinite(s)) {
         const rimMax = 0.95 * Math.min(wallMm / 2, s * minBorderFlat);
         if (rimMax > 0) maxStage2 = Math.max(maxStage2, rimMax);

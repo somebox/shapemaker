@@ -3,7 +3,7 @@
  */
 
 import { VERSION } from "./version.js";
-import { normalizeState, serializeState } from "./schema.js";
+import { normalizeSavedState, serializeState } from "./schema.js";
 
 export const FORMAT_ID = "shapemaker-project";
 export const FORMAT_VERSION = 1;
@@ -76,7 +76,7 @@ export function parseProject(text) {
     };
   }
 
-  const state = normalizeState(project.state);
+  const state = normalizeSavedState(project.state);
   return {
     ok: true,
     project: {

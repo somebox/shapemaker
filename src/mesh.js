@@ -45,22 +45,23 @@ export function assertMeshInvariants(mesh) {
 
   // Directed-edge map: each directed edge must appear exactly once
   // (manifold AND consistent orientation).
-  const directed = new Map();
+  // Numeric keys u·nVerts + v stay exact below 2^53.
+  const directed = new Set();
   for (let t = 0; t < nTris; t++) {
     const a = indices[t * 3], b = indices[t * 3 + 1], c = indices[t * 3 + 2];
     for (const [u, v] of [[a, b], [b, c], [c, a]]) {
-      const key = `${u},${v}`;
+      const key = u * nVerts + v;
       if (directed.has(key)) {
-        throw new Error(`directed edge ${key} used twice — winding/manifold failure`);
+        throw new Error(`directed edge ${u},${v} used twice — winding/manifold failure`);
       }
-      directed.set(key, t);
+      directed.add(key);
     }
   }
   // Every directed edge must have its reverse (closed manifold)
-  for (const key of directed.keys()) {
-    const [u, v] = key.split(",");
-    if (!directed.has(`${v},${u}`)) {
-      throw new Error(`boundary edge ${key} — mesh is not closed`);
+  for (const key of directed) {
+    const u = Math.floor(key / nVerts), v = key % nVerts;
+    if (!directed.has(v * nVerts + u)) {
+      throw new Error(`boundary edge ${u},${v} — mesh is not closed`);
     }
   }
 

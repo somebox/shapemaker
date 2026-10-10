@@ -206,6 +206,39 @@ export function limitTitle(label, floor, ceil, unit = "") {
   return `${label}: ${fmt2(floor)}–${fmt2(ceil)}${u}`;
 }
 
+/**
+ * One-click fix for a validation error that names a value that fits
+ * (`clampTo`, in state units). Ranges round down to the control's step so
+ * the fix never lands back above the limit.
+ * @param {{ key?: string, clampTo?: unknown }} err
+ * @param {object[]} defs
+ * @returns {{ patch: Record<string, unknown>, label: string } | null}
+ */
+export function fixPatch(err, defs) {
+  // Legacy constant-mm border has no control of its own (it shows under Border).
+  const def = err?.key === "borderMm"
+    ? { key: "borderMm", type: "range", step: 0.1, unit: "mm" }
+    : defs.find((d) => d.key === err?.key);
+  if (!def || err.clampTo == null) return null;
+  if (def.type === "segments") {
+    const opt = def.options?.find((o) => o.value === String(err.clampTo));
+    if (!opt) return null;
+    const value = def.boolean ? opt.value === "true" : opt.value;
+    return { patch: { [def.key]: value }, label: opt.label };
+  }
+  if (typeof err.clampTo !== "number" || !Number.isFinite(err.clampTo)) return null;
+  const unit = def.unit ? ` ${def.unit}` : "";
+  // Zero is a deliberate fix ("turn Spike off"), not a rounding casualty.
+  if (err.clampTo === 0) return { patch: { [def.key]: 0 }, label: `0${unit}` };
+  const ui = stateToUi(def, err.clampTo);
+  const step = def.step > 0 ? def.step : 0.01;
+  let v = Math.floor(ui / step + 1e-9) * step;
+  if (!(v > 0)) v = Math.floor(ui * 100) / 100;
+  if (!(v > 0)) return null;
+  v = Number(v.toFixed(6));
+  return { patch: { [def.key]: uiToState(def, v) }, label: `${fmtInput(v)}${unit}` };
+}
+
 export function uiToState(def, uiVal) {
   if (def?.toState) return def.toState(uiVal);
   return uiVal;
@@ -251,9 +284,10 @@ export function buildControl(def, inputs, ranges, errNodes, limitLabels) {
   const root = el("div", { className: "control", dataset: { key: def.key } });
 
   if (def.type === "segments") {
-    const lab = el("div", { className: "control-row control-row--seg" });
-    lab.appendChild(el("label", { textContent: def.label }));
-    root.appendChild(lab);
+    // Label and buttons share one row, on the same grid as the sliders.
+    const row = el("div", { className: "control-row control-row--seg" });
+    row.appendChild(el("label", { textContent: def.label }));
+    root.appendChild(row);
     const segs = el("div", { className: "segments", role: "group" });
     segs.setAttribute("aria-label", def.label);
     for (const opt of def.options || []) {
@@ -261,6 +295,7 @@ export function buildControl(def, inputs, ranges, errNodes, limitLabels) {
         type: "button",
         textContent: opt.label,
       });
+      if (opt.title) btn.title = opt.title;
       btn.setAttribute("data-seg-key", def.key);
       btn.setAttribute("data-seg-value", opt.value);
       btn.setAttribute("aria-pressed", "false");
@@ -271,7 +306,7 @@ export function buildControl(def, inputs, ranges, errNodes, limitLabels) {
       tag.setAttribute("data-custom-key", def.key);
       segs.appendChild(tag);
     }
-    root.appendChild(segs);
+    row.appendChild(segs);
   } else if (def.type === "seed") {
     const row = el("div", { className: "control-row control-row--seed" });
     const lab = el("label", { textContent: def.label });
@@ -474,8 +509,9 @@ export function applyStateToControls(state, inputs, ranges, controlRoots, defs) 
     const uiVal = stateToUi(def, v);
     const input = inputs.get(def.key);
     const range = ranges.get(def.key);
-    // Prefer the live control bounds (limits / boundsForState) so the
-    // number field and range never disagree after a base switch.
+    // The thumb can only sit inside the live bounds (limits /
+    // boundsForState); the number field shows the real value, so an
+    // out-of-range setting reads as what it is next to its error.
     const lo = range != null && range.min !== "" ? Number(range.min) : def.min;
     const hi = range != null && range.max !== "" ? Number(range.max) : def.max;
     const display =
@@ -486,17 +522,17 @@ export function applyStateToControls(state, inputs, ranges, controlRoots, defs) 
         ? clampUi(uiVal, lo, hi)
         : uiVal;
     if (input && document.activeElement !== input) {
-      input.value = fmtInput(display);
+      input.value = fmtInput(uiVal);
       // What Escape / an invalid blur revert to.
-      input.dataset.committed = fmtInput(display);
+      input.dataset.committed = fmtInput(uiVal);
       const readout = input.parentElement?.querySelector(".value-readout");
-      if (readout && !readout.hidden) readout.textContent = fmtInput(display);
+      if (readout && !readout.hidden) readout.textContent = fmtInput(uiVal);
     }
     if (range && document.activeElement !== range) {
       range.value = String(display);
       const readout = range.parentElement?.querySelector(".value-readout");
       if (readout && !readout.hidden) {
-        readout.textContent = fmtInput(Number(range.value));
+        readout.textContent = fmtInput(uiVal);
       }
     }
   }

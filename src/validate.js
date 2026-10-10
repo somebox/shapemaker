@@ -17,6 +17,8 @@ import { isKnownBase } from "./bases.js";
 import { SPIKE_T_MAX } from "./schema.js";
 const DEPTHS = new Set(["solid", "hollow"]);
 const OPENING_STYLES = new Set(["polygon", "ellipse"]);
+const OPENING_AXES = new Set(["center", "normal", "through"]);
+const WALL_MODES = new Set(["even", "scaled"]);
 
 /**
  * Attach structured validation info to an Error so compile() can unwrap it.
@@ -135,9 +137,20 @@ export function validateState(state) {
   // Validated for every state (canonical with a default), like the
   // random-base parameters: a corrupt hash must not hide behind Closed faces.
   if (!OPENING_STYLES.has(state.openingStyle)) {
-    err("solid", "openingStyle", "Opening must be polygon or ellipse", {
+    err("solid", "openingStyle", "Outline must be Polygon or Ellipse", {
       clampTo: "polygon",
     });
+  }
+  if (!OPENING_AXES.has(state.openingAxis)) {
+    err("solid", "openingAxis", "Sides must be Tapered, Straight or Cut", {
+      clampTo: "center",
+    });
+  }
+  if (typeof state.breakOut !== "boolean") {
+    err("solid", "breakOut", "Break out must be on or off", { clampTo: false });
+  }
+  if (!WALL_MODES.has(state.wallMode)) {
+    err("solid", "wallMode", "Inner wall must be Even or Scaled", { clampTo: "even" });
   }
 
   // Rounding softens rims AND dihedral edges — valid on every depth/face mode.

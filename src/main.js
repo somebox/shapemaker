@@ -3,7 +3,7 @@
  * Must not branch on pipeline stages.
  */
 
-import { compile } from "./compile.js";
+import { compile, limitsForState } from "./compile.js";
 import { createViewer } from "./viewer.js";
 import { writeBinaryStl } from "./export/stl.js";
 import { exportSvg } from "./export/svg.js";
@@ -505,9 +505,14 @@ window.addEventListener("popstate", () => {
   updateProjectStatus();
 });
 
-/** Keys that change the skeleton itself — edits to them re-run adaptation. */
+/**
+ * Keys that change the skeleton or its millimetre limits — edits to them
+ * re-run adaptation. Size (and Edge, which writes it) scales every wall and
+ * border ceiling with the shape.
+ */
 const SKELETON_KEYS = [
   "base",
+  "circumdiameterMm",
   "seed",
   "points",
   "separation",
@@ -640,6 +645,23 @@ function deferBehindBadge(run) {
   setTimeout(launch, 150);
 }
 
+/**
+ * The control to highlight when the mesh builder hits an internal error:
+ * the most failure-prone feature that is switched on.
+ */
+function internalFailureKey(state) {
+  if (state.roundingMm > 0) {
+    return { key: "roundingMm", message: "Rounding couldn't be built on this shape — try a smaller value" };
+  }
+  if (state.subdiv > 0) {
+    return { key: "subdiv", message: "This subdivision couldn't be built — try fewer subdivisions" };
+  }
+  if (state.spike > 0) {
+    return { key: "spike", message: "Spike couldn't be built on this shape — try a smaller value" };
+  }
+  return { key: "base", message: "This shape couldn't be built — try another seed or base" };
+}
+
 /** Synchronous rebuild — callers read `last`/`draftValid` right after. */
 function regenerate({
   forceFrame = false,
@@ -656,6 +678,7 @@ function regenerate({
     console.error("compile:", err);
     draftValid = false;
     viewer.setSplitEnabled(false);
+    const suspect = internalFailureKey(draft);
     ui.setResult(
       {
         skeleton: last?.skeleton ?? null,
@@ -665,15 +688,15 @@ function regenerate({
         validation: {
           ok: false,
           errors: [{
-            key: "compile",
+            key: suspect.key,
             stage: "compile",
-            message: "Failed to generate this shape — try a smaller Rounding value or fewer subdivisions",
+            message: suspect.message,
           }],
           warnings,
         },
         state: draft,
       },
-      { limits: lastLimits, invalid: true, warnings },
+      { limits: limitsForState(draft) ?? lastLimits, invalid: true, warnings },
     );
     updateProjectStatus();
     return;
@@ -681,7 +704,7 @@ function regenerate({
   if (!next.validation.ok) {
     draftValid = false;
     viewer.setSplitEnabled(false);
-    ui.setResult(next, { limits: null, invalid: true, warnings });
+    ui.setResult(next, { limits: next.limits, invalid: true, warnings });
     updateProjectStatus();
     // Do not write an invalid hash.
     return;
@@ -764,13 +787,11 @@ function regenerate({
   if (stable.state.faceIndex >= 0 && (shouldFrame || facePick)) {
     viewer.setFocusFaces([stable.state.faceIndex]);
   }
-  updateProjectStatus();
 
-  if (fromHistory) {
-    lastWrittenHash = encodeHash(draft);
-    return;
-  }
-  syncHistory(commit);
+  if (fromHistory) lastWrittenHash = encodeHash(draft);
+  else syncHistory(commit);
+  // After the push, so Undo enables on the first edit.
+  updateProjectStatus();
 }
 
 function syncHistory(commit) {

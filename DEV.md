@@ -78,7 +78,10 @@ files, the URL hash, and dirty tracking.
 | `circumdiameterMm` | 100 | outer diameter across opposite vertices |
 | `borderFraction` | 0.36 | frame width ÷ face apothem (Form %); legacy `borderMm` via `--border=` |
 | `wallMm` | 1.4 | minimum wall thickness |
+| `wallMode` | `even` | Inner wall: `even` (face planes offset by the wall) or `scaled` (uniform scale about the origin); absent in a link or project → `scaled` |
 | `openingStyle` | `polygon` | `polygon` (inset + fillet) or `ellipse` (inscribed oval) |
+| `openingAxis` | `center` | Sides: `center` Tapered (origin ray), `normal` Straight (along the face normal; tilts only beside a tight inner edge) or `through` Cut (straight cut by mesh boolean; holes may merge) |
+| `breakOut` | `false` | Cut only: holes may cut through neighbouring faces' outsides; loose pieces are dropped |
 | `filletMm` | 4.5 | requested opening corner radius; clamped per face; inert under `ellipse` |
 | `jitter` | 0 | distort amount |
 | `dual` | false | polar dual (faces ↔ vertices, re-hull with merge) |

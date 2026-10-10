@@ -230,6 +230,9 @@ export function createPipeline() {
         edgeDiv: state.edgeDiv,
         openings: state.openings,
         openingStyle: state.openingStyle ?? DEFAULT_STATE.openingStyle,
+        openingAxis: state.openingAxis ?? DEFAULT_STATE.openingAxis,
+        breakOut: state.breakOut ?? DEFAULT_STATE.breakOut,
+        wallMode: state.wallMode ?? DEFAULT_STATE.wallMode,
         depth: state.depth,
       });
 
@@ -247,6 +250,9 @@ export function createPipeline() {
           depth: state.depth,
           openingGenerator:
             OPENING_GENERATORS[state.openingStyle ?? DEFAULT_STATE.openingStyle],
+          openingAxis: state.openingAxis ?? DEFAULT_STATE.openingAxis,
+          breakOut: state.breakOut ?? DEFAULT_STATE.breakOut,
+          wallMode: state.wallMode ?? DEFAULT_STATE.wallMode,
         });
         return { skeleton, solid };
       });

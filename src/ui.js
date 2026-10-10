@@ -21,6 +21,7 @@ import {
   buildControl,
   applyLimits,
   applyStateToControls,
+  fixPatch,
   uiToState,
   clampUi,
   parseTyped,
@@ -271,6 +272,35 @@ export function createPanel(panelEl, handlers) {
   const groupsOpen = loadGroupsOpen();
   /** @type {HTMLElement|null} collapsed-state readout in the Jitter header */
   let jitterSummary = null;
+  /** @type {HTMLElement|null} collapsed-state readout in the Advanced header */
+  let advancedSummary = null;
+
+  /**
+   * Collapsible cluster inside a group. The header carries a summary so a
+   * folded cluster still shows what it holds. Open state persists by id.
+   */
+  function makeCluster(id, label) {
+    const cluster = el("div", { className: "control-cluster", dataset: { cluster: id } });
+    const open = groupsOpen[id] === true;
+    const toggle = el("button", { type: "button", className: "cluster-toggle" });
+    toggle.setAttribute("aria-expanded", open ? "true" : "false");
+    const chevron = el("span", { className: "group-chevron", textContent: open ? "▾" : "▸" });
+    chevron.setAttribute("aria-hidden", "true");
+    const summary = el("span", { className: "cluster-summary", textContent: "" });
+    toggle.append(chevron, el("span", { className: "cluster-label", textContent: label }), summary);
+    const body = el("div", { className: "cluster-body" });
+    body.hidden = !open;
+    toggle.addEventListener("click", () => {
+      const next = body.hidden;
+      body.hidden = !next;
+      toggle.setAttribute("aria-expanded", next ? "true" : "false");
+      chevron.textContent = next ? "▾" : "▸";
+      groupsOpen[id] = next;
+      saveGroupsOpen(groupsOpen);
+    });
+    cluster.append(toggle, body);
+    return { cluster, body, summary };
+  }
 
   for (const g of GROUPS) {
     const section = el("section", {
@@ -303,77 +333,59 @@ export function createPanel(panelEl, handlers) {
       saveGroupsOpen(groupsOpen);
     });
 
-    if (g.id === "shape" || g.id === "form") {
-      /** @type {HTMLElement | null} */
-      let jitterCluster = null;
-      /** @type {HTMLElement | null} */
-      let pendingSeed = null;
-      for (const def of CONTROL_DEFS.filter((c) => c.group === g.id)) {
-        const root = buildControl(def, inputs, ranges, errNodes, limitLabels);
-        controlRoots.set(def.key, root);
-        if (def.key === "seed") {
-          // Park until the jitter cluster exists, then nest under it.
-          pendingSeed = root;
-          root.classList.add("control--clustered");
-          continue;
-        }
-        if (def.key === "jitter") {
-          jitterCluster = el("div", {
-            className: "control-cluster",
-            dataset: { cluster: "jitter" },
-          });
-          // Collapsible: the header carries a summary so a folded cluster
-          // still shows whether jitter is on.
-          const jOpen = groupsOpen.jitter === true;
-          const jToggle = el("button", {
-            type: "button",
-            className: "cluster-toggle",
-          });
-          jToggle.setAttribute("aria-expanded", jOpen ? "true" : "false");
-          const jChevron = el("span", {
-            className: "group-chevron",
-            textContent: jOpen ? "▾" : "▸",
-          });
-          jChevron.setAttribute("aria-hidden", "true");
-          jitterSummary = el("span", { className: "cluster-summary", textContent: "" });
-          jToggle.append(
-            jChevron,
-            el("span", { className: "cluster-label", textContent: "Jitter" }),
-            jitterSummary,
-          );
-          const jBody = el("div", { className: "cluster-body" });
-          jBody.hidden = !jOpen;
-          jToggle.addEventListener("click", () => {
-            const next = jBody.hidden;
-            jBody.hidden = !next;
-            jToggle.setAttribute("aria-expanded", next ? "true" : "false");
-            jChevron.textContent = next ? "▾" : "▸";
-            groupsOpen.jitter = next;
-            saveGroupsOpen(groupsOpen);
-          });
-          jitterCluster.append(jToggle, jBody);
-          root.classList.add("control--clustered");
-          const lab = root.querySelector("label");
-          if (lab) lab.textContent = "Amount";
-          jBody.appendChild(root);
-          if (pendingSeed) {
-            jBody.appendChild(pendingSeed);
-            pendingSeed = null;
-          }
-          body.appendChild(jitterCluster);
-        } else if (def.key === "jitterMode" && jitterCluster) {
-          root.classList.add("control--clustered");
-          jitterCluster.querySelector(".cluster-body")?.appendChild(root);
-        } else {
-          body.appendChild(root);
-        }
+    /** @type {ReturnType<typeof makeCluster> | null} */
+    let jitter = null;
+    /** @type {ReturnType<typeof makeCluster> | null} */
+    let advanced = null;
+    /** @type {HTMLElement | null} */
+    let pendingSeed = null;
+    let subgroup = null;
+    for (const def of CONTROL_DEFS.filter((c) => c.group === g.id)) {
+      const root = buildControl(def, inputs, ranges, errNodes, limitLabels);
+      controlRoots.set(def.key, root);
+      if (def.key === "seed") {
+        // Park until the jitter cluster exists, then nest under it.
+        pendingSeed = root;
+        root.classList.add("control--clustered");
+        continue;
       }
-      if (pendingSeed && jitterCluster) {
-        jitterCluster.querySelector(".cluster-body")?.appendChild(pendingSeed);
-      } else if (pendingSeed) body.appendChild(pendingSeed);
-    } else if (g.id === "make") {
-      body.appendChild(buildMake(handlers));
+      if (def.key === "jitter") {
+        jitter = makeCluster("jitter", "Jitter");
+        jitterSummary = jitter.summary;
+        root.classList.add("control--clustered");
+        const lab = root.querySelector("label");
+        if (lab) lab.textContent = "Amount";
+        jitter.body.appendChild(root);
+        if (pendingSeed) {
+          jitter.body.appendChild(pendingSeed);
+          pendingSeed = null;
+        }
+        body.appendChild(jitter.cluster);
+        continue;
+      }
+      if (def.key === "jitterMode" && jitter) {
+        root.classList.add("control--clustered");
+        jitter.body.appendChild(root);
+        continue;
+      }
+      if (def.advanced) {
+        if (!advanced) {
+          advanced = makeCluster(`${g.id}-advanced`, "Advanced");
+          if (g.id === "form") advancedSummary = advanced.summary;
+        }
+        root.classList.add("control--clustered");
+        advanced.body.appendChild(root);
+        continue;
+      }
+      if (def.subgroup && def.subgroup !== subgroup) {
+        body.appendChild(el("div", { className: "subgroup-label", textContent: def.subgroup }));
+      }
+      subgroup = def.subgroup ?? null;
+      body.appendChild(root);
     }
+    if (pendingSeed) (jitter?.body ?? body).appendChild(pendingSeed);
+    if (advanced) body.appendChild(advanced.cluster);
+    if (g.id === "make") body.appendChild(buildMake(handlers));
   }
 
   const strip = document.getElementById("dimension-strip");
@@ -736,6 +748,9 @@ export function createPanel(panelEl, handlers) {
       const metrics = result?.metrics;
       const validation = result?.validation;
       const lim = limits || metrics?.limits;
+      // Ranges first: the values below are placed against this shape's
+      // limits, not the previous one's.
+      if (lim) applyLimits(lim, ranges, limitLabels, CONTROL_DEFS);
 
       if (state) {
         circumdiameter = state.circumdiameterMm;
@@ -743,6 +758,9 @@ export function createPanel(panelEl, handlers) {
         setSegment("depth", state.depth);
         setSegment("openings", String(!!state.openings));
         setSegment("openingStyle", state.openingStyle);
+        setSegment("openingAxis", state.openingAxis);
+        setSegment("breakOut", String(!!state.breakOut));
+        setSegment("wallMode", state.wallMode);
         setSegment("dual", String(!!state.dual));
         setSegment("edgeDiv", state.edgeDiv);
         setSegment("subdiv", state.subdiv);
@@ -751,6 +769,11 @@ export function createPanel(panelEl, handlers) {
         if (jitterSummary) {
           jitterSummary.textContent =
             state.jitter > 0 ? `${fmt(state.jitter)} % · ${state.jitterMode}` : "off";
+        }
+        if (advancedSummary) {
+          const notes = [`${state.wallMode} wall`];
+          if (state.openingAxis === "through" && state.breakOut) notes.push("break out");
+          advancedSummary.textContent = notes.join(" · ");
         }
         const customTag = panelEl.querySelector('[data-custom-key="edgeDiv"]');
         if (customTag) {
@@ -793,16 +816,26 @@ export function createPanel(panelEl, handlers) {
         updateStripErrors(strip, validation);
       }
 
-      if (lim) applyLimits(lim, ranges, limitLabels, CONTROL_DEFS);
-
       for (const [, node] of errNodes) node.textContent = "";
       for (const [, root] of controlRoots) root.classList.remove("has-error");
       if (validation && !validation.ok) {
         for (const err of validation.errors) {
-          const root = controlRoots.get(err.key);
-          const msg = errNodes.get(err.key);
+          const at = err.key === "borderMm" ? "borderFraction" : err.key;
+          const root = controlRoots.get(at);
+          const msg = errNodes.get(at);
           if (root) root.classList.add("has-error");
-          if (msg) msg.textContent = `▲ ${err.message}`;
+          if (!msg) continue;
+          msg.textContent = `▲ ${err.message}`;
+          const fix = fixPatch(err, CONTROL_DEFS);
+          if (fix) {
+            const btn = el("button", {
+              type: "button",
+              className: "control-fix",
+              textContent: `Use ${fix.label}`,
+            });
+            btn.addEventListener("click", () => handlers.onPatch(fix.patch, { commit: true }));
+            msg.append(" ", btn);
+          }
         }
       }
     },

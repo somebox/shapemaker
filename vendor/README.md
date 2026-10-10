@@ -44,6 +44,19 @@ Import-map entries must stay `./`-relative — see SPEC.md § Deployment.
 Single-file ESM bundle at `quickhull3d/quickhull3d.js` (see
 [`quickhull3d/README.md`](quickhull3d/README.md)). Only `src/hull.js` imports it.
 
+## manifold-3d
+
+| | |
+|---|---|
+| version | **3.5.4** |
+| upstream | https://github.com/elalish/manifold |
+| license | Apache-2.0 — see [`manifold/LICENSE`](manifold/LICENSE) |
+
+`manifold/manifold.js` and `manifold/manifold.wasm` copied from the npm
+package root (`npm pack manifold-3d`). The JS file loads the WASM from its
+own directory. Only `src/solid/csg.js` imports it (Through openings); it
+loads once with a top-level await, about 0.5 MB transferred.
+
 ## Fonts
 
 Latin WOFF2 subsets only (no CDN). Declared in `index.html` via `@font-face`.

@@ -4,8 +4,9 @@
 # Matrix: 15 bases × 4 entries (3 shell combos + stress) = 60, plus
 # Draft/Fine on the default solid (2) + jittered random (1) + 3 random
 # seeds × Draft/Fine (6) + M5 irregular extremes (8) = 77, plus rounding,
-# truncate, split halves, subdiv+rounding, spike, and the dual / ellipse
-# ring-ball cases. Count is EXPECTED below.
+# truncate, split halves, subdiv+rounding, spike, the dual / ellipse
+# ring-ball cases, normal-axis and through openings, and Scaled walls (every other
+# case builds Even walls, the default). Count is EXPECTED below.
 #
 # Requires: node, and .venv with prototype/requirements.txt installed.
 set -euo pipefail
@@ -22,7 +23,7 @@ OUT="${ROOT}/test/out/acceptance"
 rm -rf "$OUT"
 mkdir -p "$OUT"
 EXPORT=(node scripts/export-stl.mjs)
-EXPECTED=105
+EXPECTED=126
 
 while IFS=$'\t' read -ra parts; do
   [[ ${#parts[@]} -gt 0 ]] || continue
@@ -67,10 +68,10 @@ function probedBorder(opts) {
 const kebab = (k) => k.replace(/([A-Z])/g, "-$1").toLowerCase();
 
 function emitHollowOpen(name, opts) {
-  const border = probedBorder(opts);
   const flags = Object.entries({ depth: "hollow", openings: true, ...opts })
     .map(([k, v]) => `--${kebab(k)}=${v}`);
-  const extra = [`--border=${border}`];
+  // An explicit relative border is kept; otherwise fit a mm border.
+  const extra = opts.borderFraction != null ? [] : [`--border=${probedBorder(opts)}`];
   if (opts.filletMm == null) extra.push("--fillet=2");
   console.log([name, ...flags, ...extra].join("\t"));
 }
@@ -256,6 +257,85 @@ emitHollowOpen("random_s1337_j10_dual_ellipse__hollow_open.stl", {
 });
 emitHollowOpen("rhombicenneaconta_dual_ellipse_rounding05__hollow_open.stl", {
   base: "rhombicenneaconta", dual: true, openingStyle: "ellipse", roundingMm: 0.5,
+});
+
+// Normal-axis openings — straight walls, plus partial lean on spike flanks.
+emitHollowOpen("icosidodeca_axisnormal__hollow_open.stl", {
+  openingAxis: "normal",
+});
+emitHollowOpen("cube_axisnormal_rounding15__hollow_open.stl", {
+  base: "cube", openingAxis: "normal", roundingMm: 1.5,
+});
+emitHollowOpen("icosidodeca_spike15_axisnormal__hollow_open.stl", {
+  base: "icosidodeca", spike: 1.5, openingAxis: "normal", filletMm: 1.5,
+});
+emitHollowOpen("icosahedron_spike15_axisnormal_rounding1__hollow_open.stl", {
+  base: "icosahedron", spike: 1.5, openingAxis: "normal", roundingMm: 1,
+});
+emitHollowOpen("random_s1337_axisnormal__hollow_open.stl", {
+  base: "random", seed: 1337, openingAxis: "normal",
+});
+emitHollowOpen("tetrahedron_wall4_axisnormal__hollow_open.stl", {
+  base: "tetrahedron", wallMm: 4, openingAxis: "normal",
+});
+// Straight sides that tilt only beside a tight inner edge: the stella stays
+// straight; the great stellated dodecahedron and the jittered hull tilt part
+// of some walls, zip their inner band off-centre, and round both rims.
+emitHollowOpen("octahedron_spike_stella_axisnormal_rounding1__hollow_open.stl", {
+  base: "octahedron", spike: Math.sqrt(3), filletMm: 1.5, borderFraction: 0.36,
+  openingAxis: "normal", roundingMm: 1,
+});
+emitHollowOpen("icosahedron_spike_greatstellated_axisnormal_rounding15__hollow_open.stl", {
+  base: "icosahedron", spike: 2.383963416875298, filletMm: 1.5, borderFraction: 0.36,
+  openingAxis: "normal", roundingMm: 1.5,
+});
+emitHollowOpen("random_s7_j10_wall25_axisnormal_rounding15__hollow_open.stl", {
+  base: "random", seed: 7, jitter: 10, wallMm: 2.5, borderFraction: 0.36,
+  openingAxis: "normal", roundingMm: 1.5,
+});
+// Through openings — boolean cut; holes may run into neighbouring inner
+// faces (random hull, thick wall) and each other.
+emitHollowOpen("icosidodeca_axisthrough__hollow_open.stl", {
+  openingAxis: "through",
+});
+emitHollowOpen("cube_wall10_axisthrough_rounding15__hollow_open.stl", {
+  base: "cube", wallMm: 10, openingAxis: "through", roundingMm: 1.5,
+});
+emitHollowOpen("random_s1337_wall8_axisthrough__hollow_open.stl", {
+  base: "random", seed: 1337, wallMm: 8, openingAxis: "through",
+});
+emitHollowOpen("icosahedron_spike08_axisthrough__hollow_open.stl", {
+  base: "icosahedron", spike: 0.8, openingAxis: "through",
+});
+emitHollowOpen("cube_subdiv1_wall8_axisthrough__hollow_open.stl", {
+  base: "cube", subdiv: 1, wallMm: 8, openingAxis: "through",
+});
+emitHollowOpen("globe_axisthrough_wallscaled__hollow_open.stl", {
+  base: "globe", openingAxis: "through", wallMode: "scaled",
+});
+// Break out — holes notch neighbouring faces (icosahedron: all 60), cut
+// past thin cavity slivers (dodecahedron), and free loose pieces that are
+// dropped (rhombic triacontahedron, 15% border: 30 pieces).
+emitHollowOpen("icosahedron_spike06_wall8_breakout_rounding2__hollow_open.stl", {
+  base: "icosahedron", spike: 0.6, wallMm: 8, roundingMm: 2,
+  openingAxis: "through", breakOut: true,
+});
+emitHollowOpen("dodecahedron_spike04_wall4_breakout__hollow_open.stl", {
+  base: "dodecahedron", spike: 0.4, wallMm: 4, openingAxis: "through", breakOut: true,
+});
+emitHollowOpen("rhombictriaconta_spike06_wall4_breakout_border15__hollow_open.stl", {
+  base: "rhombictriaconta", spike: 0.6, wallMm: 4, borderFraction: 0.15, filletMm: 4.5,
+  openingAxis: "through", breakOut: true,
+});
+// Scaled walls — the construction links saved before Even load with.
+emitHollowOpen("random_s1337_wallscaled__hollow_open.stl", {
+  base: "random", seed: 1337, wallMode: "scaled",
+});
+emitHollowOpen("icosidodeca_spike15_wallscaled__hollow_open.stl", {
+  base: "icosidodeca", spike: 1.5, filletMm: 1.5, wallMode: "scaled",
+});
+emitHollowOpen("icosahedron_j125_rounding2_wallscaled__hollow_open.stl", {
+  base: "icosahedron", jitter: 12.5, roundingMm: 2, wallMode: "scaled",
 });
 // Dual then truncate: every corner is three-valent, so the cut is exact and
 // leaves one tiny triangle per corner. Relative border only — a constant-mm

@@ -271,10 +271,30 @@ Openings require a hollow shell because their rims close against the inner
 surface. Solid bodies with through-holes require a different construction and
 are deferred.
 
-A hollow shell uses a uniformly scaled inner surface. This keeps shared vertices
-exact and makes the shell watertight by construction. Wall thickness specifies
-the minimum thickness; the actual range is reported. That uniform inner scale
-requires origin-star-convexity, which is why Spike is legal and general
+A hollow shell's inner surface is a copy of the outer mesh with every vertex
+displaced inward, so shared vertices stay exact and the shell is watertight
+by construction. Wall thickness specifies the minimum thickness; the actual
+range is reported. **Inner wall** (`wallMode`, in Form → Advanced) picks the
+displacement:
+
+- **Even** (default) moves every face plane in along its own normal by the
+  wall. Each skeleton corner moves to the point where no incident face plane
+  is closer than the wall and the excess is least (`fitCorner` in
+  `solid/offset.js`). That is exact where the offset planes meet in one
+  point (every three-valent corner, every regular solid) and slightly thick
+  where four or more planes meet without one: the icosidodecahedron keeps
+  1.40–1.54 mm, as under Scaled, and spike valleys reach about 1.8× the
+  wall. Corners joined by an edge shorter than 5% of the smallest inradius
+  move together, so Distort's split corners don't fold. Edge, strip and cap
+  points blend their corners' moves; face-interior points (closed-face
+  centres, opening rings) use mean value coordinates over the face corners.
+  The wall limit is where an inner edge would shrink below 10% of its length.
+- **Scaled** shrinks the whole surface by `s = 1 − wall / inradius_min`
+  about the origin. The face nearest the centre gets the set wall and faces
+  farther out get thicker. This is the construction before Even existed, and
+  links and project files without the key load with it.
+
+Both need origin-star-convexity, which is why Spike is legal and general
 concave offset is not.
 
 There are two opening styles, chosen by `openingStyle`. Both are
@@ -302,6 +322,72 @@ sampled on matching centroid rays, preserving the prototype's non-intersecting
 annulus construction. Spike does not change this: openings still require
 hollow, and each unmerged pyramid flank is one opening.
 
+**Sides** (`openingAxis`) sets the direction of the opening wall through the
+shell. Under **Tapered** (`center`, default) each inner opening point is its
+outer point moved the same way as the inner face around it: `s ×` the outer
+point under Scaled walls (the origin ray), the mean-value blend of the face
+corners' moves under Even (the origin ray again on a regular solid). Walls
+lean on off-axis faces (up to ≈20° on the icosidodecahedron) and holes taper
+inward.
+
+Under **Straight** (`normal`) every inner opening point starts directly
+below its outer point, at the inner face's depth there, so the wall runs
+along the face normal. The inner rim must keep a flat of
+`min(0.4 mm, ½ × the outer border)` along every inner edge. A point that
+would come closer moves back along the ray from a centre `o` until it sits
+on that inset (`straightRing` in `geom/annulus.js`); only the stretch of
+wall beside a tight edge tilts, and the rest stays straight. `o` is the face
+centroid when it clears the inset, otherwise the centroid of the opening
+clipped to it. The moved points are the radial boundary of that clipped
+convex region about `o`, so they stay in ring order and the wall quads
+cannot fold. They no longer share rays with the inner boundary samples, so
+the inner face band is triangulated by an angular walk about `o` that never
+emits a triangle that turns over (`zipperBand`); a band where every triangle
+keeps its orientation is a true annulus. A face where less than 5% of the
+opening fits the inset, or whose band cannot be walked, keeps Tapered.
+Under Scaled walls the same construction applies to the scaled inner face.
+
+An inner edge moves in linearly with the wall, so each edge stays clear of
+the opening up to `wall × (outer clearance − flat) / (outer clearance −
+inner clearance)`. The smallest of these over every face is the thickest
+wall that keeps every opening straight (`metrics.normalStraightWallMm`).
+Openings that tilt by more than 1° anywhere, or keep Tapered, are a status
+warning with the worst tilt and that wall. Rounding does not widen the
+required flat: a straight wall wins, and the rim radius on a tight face
+shrinks to the inner flat that is left.
+
+Under **Cut** (`through`) the solidifier builds the closed hollow shell (faces as
+plain polygons, no edge subdivision), then subtracts one straight cutter per
+face with a mesh boolean (`solid/csg.js`, manifold-3d). A cutter is the
+opening ring extruded along `−normal` (`solid/through.js`). Its depth comes
+from rays cast from the opening: it runs past the deepest point where the
+opening reaches the cavity, and stops before the cavity's far side or any
+other face's outside. Parts of an opening over solid wall keep a ledge; a
+hole may run into neighbouring inner faces, and overlapping cutters merge.
+Two cases are validation errors: a ray leaves through another face's outside
+before the cutter is deep enough (sharp ridges; Fix → Straight), or no part of
+the opening reaches the cavity (Wall). Openings under 0.2 mm across stay
+closed, reported as a warning.
+
+**Break out** (`breakOut`, in Form → Advanced, active under Cut only,
+default off) lifts the
+first error. The cutter ignores other faces' outsides and notches them where
+it crosses. Its depth is still set only by rays that reach the cavity before
+leaving the part. When one ray crosses a thin sliver of cavity before
+another ray first reaches it, the cutter passes the sliver's far wall and
+ends a quarter wall past the deepest entry. Crossing cuts can free pieces;
+the largest connected piece is kept and the rest are dropped, reported as a
+warning with their count and volume. Rounding keeps Stage-2 edge strips on the
+closed shell and gives each cutter a quarter-circle flare at the top, so the
+outer rim is rounded; the inner rim stays sharp. Cutter vertices get a fixed
+nudge of 1e-4 × the largest inradius so cutter features never coincide
+exactly with shell planes. The boolean output then has edges shorter than
+1e-5 × the part size collapsed (only where the collapse fuses no other
+edges and turns no triangle by more than 60°), and flat triangles flipped
+(`collapseCoincident`). Left in place, the folds around such micro-edges
+can cross after the STL export rotates and rounds the part to float32. Cut costs
+5–10× a Tapered build (≈0.5 s on the 288-face globe, ≈4 s at 2,000 faces).
+
 **Rounding** (`roundingMm`) is a separate Form parameter that softens every
 hard edge of the model: quarter-circle roundovers on the opening lips (outer
 face → opening wall, and the inner mirror) AND circular-arc strips along every
@@ -324,8 +410,12 @@ each subdivision knee by averaging the two strip columns. As a safety net any
 crease whose rolling-ball band would be narrower than 0.1 % of the
 circumradius stays sharp (a micrometre strip is degenerate in float32). Rim
 lips are rolling-ball fillets between the face plane and the actual opening
-wall (which follows the origin ray, so it leans on off-axis sub-faces); on-axis
-lips are the quarter circle. An internal invariant failure during rounding
+wall (under Tapered it follows the origin ray, so it leans on off-axis
+sub-faces); on-axis and Straight lips are the quarter circle. On a Straight
+face whose wall tilts, both lips run along the ray from `o`, so a lip stays
+on the same ray as its opening point and neighbouring lips cannot cross; if
+the inner lip's outer ring would cut a corner of the inner face, its radius
+halves until it fits, or the rim stays sharp. An internal invariant failure during rounding
 does not emit a corrupt mesh — the last valid preview stays on screen.
 
 Clamping is **proportional per feature**: each edge clamps to its own two
@@ -334,7 +424,32 @@ faces, 45% of the centroid–edge distance on closed ones) and each rim to its
 face's remaining flat and wall — one small feature never caps the whole
 model. The applied range is reported as `metrics.roundingMm` {min,max}; the
 slider ceiling is the LARGEST useful value, not the tightest limit. Hollow
-depths mirror the rounding on the inner shell via the uniform inner scale.
+depths mirror the rounding on the inner shell through the same inner
+displacement as every other vertex; under Even walls each strip column
+moves with the two nearest vertices along its edge (its corners, or a
+subdivision vertex on the edge), weighted by its position between them
+along the trimmed strip, so a strip's end column moves exactly with its
+corner cap and a column at a subdivision vertex moves with the faces
+beside it. Under Even walls a rim whose inner lip ring would cut an inner
+edge between samples (tiny faces, where the inner boundary and the inner
+opening move by different blends) halves its radius until the band from
+the lip to the boundary keeps its winding, or stays sharp.
+
+A corner cap is a fan of rings swept from the cap's loop toward an apex
+along directions out of the corner sphere's centre X, so the apex must lie
+inside the loop as seen from X. The line from X through the corner does on
+a symmetric corner; where strips of very different widths meet (Truncate,
+Jitter, Dual) a strip arc can lie on that line or past it, and the apex
+aims at the loop's mean direction instead. If that is not inside either,
+or any fan triangle ends up facing X (the rings folded), the loop is
+filled flat in its best-fit plane. A flat fill (ear-clipped, else fanned
+from its centroid) keeps its ear-clip only if no triangle faces the
+origin by more than 60° past edge-on: the surface is star-shaped about the
+origin, and on a strongly bent loop the best-fit projection can turn a
+reflex corner into an ear lying back across a face. A face outline that
+steps out to a sharp strip end and straight back (a spur of a few microns
+where Jitter leaves two faces almost coplanar) drops the spur, whose two
+edges only pair with each other; left in, the rim lips on its rays cross.
 Arc segment count tracks the quality preset via edge subdivision.
 
 Mesh density is controlled by edge subdivision and fillet-arc sampling. A

@@ -5,7 +5,7 @@
 
 import { BASES } from "./bases.js";
 
-/** @typedef {{ key: string, group: string, label: string, type: string, unit?: string, min?: number, max?: number, step?: number, options?: {value:string,label:string,disabled?:boolean}[], numeric?: boolean, boolean?: boolean, customTag?: boolean, hideWhen?: (s:object)=>boolean, inertWhen?: (s:object)=>boolean, boundsForState?: (s:object)=>({min:number,max:number}|null) }} ControlDef */
+/** @typedef {{ key: string, group: string, subgroup?: string, advanced?: boolean, label: string, type: string, unit?: string, min?: number, max?: number, step?: number, options?: {value:string,label:string,title?:string,disabled?:boolean}[], numeric?: boolean, boolean?: boolean, customTag?: boolean, hideWhen?: (s:object)=>boolean, inertWhen?: (s:object)=>boolean, boundsForState?: (s:object)=>({min:number,max:number}|null) }} ControlDef */
 
 /** Canonical geometry keys in documented order. */
 export const STATE_KEYS = Object.freeze([
@@ -15,8 +15,11 @@ export const STATE_KEYS = Object.freeze([
   "borderMm",
   "depth",
   "wallMm",
+  "wallMode",
   "openings",
   "openingStyle",
+  "openingAxis",
+  "breakOut",
   "filletMm",
   "roundingMm",
   "edgeDiv",
@@ -50,8 +53,11 @@ export const DEFAULT_STATE = Object.freeze({
   borderFraction: 0.36,
   depth: "hollow",
   wallMm: 1.4,
+  wallMode: "even",
   openings: true,
   openingStyle: "polygon",
+  openingAxis: "center",
+  breakOut: false,
   filletMm: 4.5,
   roundingMm: 0,
   edgeDiv: 10,
@@ -280,6 +286,9 @@ export const CONTROL_DEFS = [
     step: 1,
     inertWhen: (s) => !(s.subdiv > 0) || s.subdivStyle === "grid" || s.spike > 0,
   },
+  // Form reads top to bottom as shell → openings → advanced. `subgroup`
+  // opens a labelled run of controls; `advanced` folds a control into the
+  // collapsed Advanced cluster at the end of the group.
   {
     key: "depth",
     group: "form",
@@ -291,8 +300,33 @@ export const CONTROL_DEFS = [
     ],
   },
   {
+    key: "wallMm",
+    group: "form",
+    label: "Wall",
+    type: "range",
+    unit: "mm",
+    min: 0.4,
+    max: 20,
+    step: 0.1,
+    inertWhen: (s) => s.depth === "solid",
+  },
+  {
+    // Dihedral rounding. On spiked meshes only convex ridges (and apexes)
+    // take a radius — reflex valleys skip, because the blend centre would
+    // sit outside the fold.
+    key: "roundingMm",
+    group: "form",
+    label: "Rounding",
+    type: "range",
+    unit: "mm",
+    min: 0,
+    max: 5,
+    step: 0.1,
+  },
+  {
     key: "openings",
     group: "form",
+    subgroup: "Openings",
     label: "Faces",
     type: "segments",
     boolean: true,
@@ -309,7 +343,8 @@ export const CONTROL_DEFS = [
     // under Ellipse.
     key: "openingStyle",
     group: "form",
-    label: "Opening",
+    subgroup: "Openings",
+    label: "Outline",
     type: "segments",
     options: [
       { value: "polygon", label: "Polygon" },
@@ -318,23 +353,13 @@ export const CONTROL_DEFS = [
     inertWhen: (s) => !s.openings,
   },
   {
-    key: "wallMm",
-    group: "form",
-    label: "Wall",
-    type: "range",
-    unit: "mm",
-    min: 0.4,
-    max: 20,
-    step: 0.1,
-    inertWhen: (s) => s.depth === "solid",
-  },
-  {
     // Relative border: fraction of each face's centroid–edge distance
     // (apothem). Scales with every opening — subdiv/globe/mixed faces no
     // longer hard-fail on the smallest strut. Applied mm range is reported
     // in the status strip. Legacy borderMm remains valid via hash/API.
     key: "borderFraction",
     group: "form",
+    subgroup: "Openings",
     label: "Border",
     type: "range",
     unit: "%",
@@ -348,6 +373,7 @@ export const CONTROL_DEFS = [
   {
     key: "filletMm",
     group: "form",
+    subgroup: "Openings",
     label: "Fillet",
     type: "range",
     unit: "mm",
@@ -357,17 +383,56 @@ export const CONTROL_DEFS = [
     inertWhen: (s) => !s.openings || s.openingStyle === "ellipse",
   },
   {
-    // Dihedral rounding. On spiked meshes only convex ridges (and apexes)
-    // take a radius — reflex valleys skip, because the blend centre would
-    // sit outside the fold.
-    key: "roundingMm",
+    // Direction of the opening's sides through the shell (`openingAxis`).
+    // Tapered (center) follows the ray to the origin, so sides lean on
+    // off-axis faces and holes narrow inward. Straight (normal) runs each
+    // side along the face normal; only the stretch beside an inner edge
+    // that would leave no inner rim tilts. Cut (through) cuts each opening
+    // straight in out of the closed shell, so holes may run into
+    // neighbouring inner faces and each other.
+    key: "openingAxis",
     group: "form",
-    label: "Rounding",
-    type: "range",
-    unit: "mm",
-    min: 0,
-    max: 5,
-    step: 0.1,
+    subgroup: "Openings",
+    label: "Sides",
+    type: "segments",
+    options: [
+      { value: "center", label: "Tapered", title: "Sides follow the line to the centre, so holes narrow inward" },
+      { value: "normal", label: "Straight", title: "Sides run straight through, square to the face" },
+      { value: "through", label: "Cut", title: "Holes cut straight in from the closed shell and may run into neighbouring faces (slower)" },
+    ],
+    inertWhen: (s) => !s.openings,
+  },
+  {
+    // Inner-shell construction. Even moves every face in along its own
+    // normal, so the wall is the same everywhere. Scaled shrinks the whole
+    // shell about the origin: the face nearest the centre gets the set wall
+    // and faces farther out get thicker (designs saved before Even existed).
+    key: "wallMode",
+    group: "form",
+    advanced: true,
+    label: "Inner wall",
+    type: "segments",
+    options: [
+      { value: "even", label: "Even", title: "Every face moves in by the wall, so it is the same thickness everywhere" },
+      { value: "scaled", label: "Scaled", title: "The shell shrinks about the centre; faces far from it get thicker (designs saved before Even)" },
+    ],
+    inertWhen: (s) => s.depth === "solid",
+  },
+  {
+    // Cut sides only. Off, a hole that would come out through a
+    // neighbouring face's outside is an error; On, it cuts that notch, and
+    // loose pieces the crossing cuts free are dropped.
+    key: "breakOut",
+    group: "form",
+    advanced: true,
+    label: "Break out",
+    type: "segments",
+    boolean: true,
+    options: [
+      { value: "false", label: "Off" },
+      { value: "true", label: "On", title: "Cut sides may notch neighbouring faces; loose pieces are dropped" },
+    ],
+    inertWhen: (s) => !s.openings || s.openingAxis !== "through",
   },
   {
     // Quality is UI-only vocabulary over canonical edgeDiv — one tessellation
@@ -375,7 +440,7 @@ export const CONTROL_DEFS = [
     // shows when edgeDiv matches no level. Named Quality, never "preset":
     // preset already means shape recipes in this app.
     key: "edgeDiv",
-    group: "form",
+    group: "make",
     label: "Quality",
     type: "segments",
     numeric: true,
@@ -451,6 +516,18 @@ export function serializeState(state) {
     delete out.borderMm;
   }
   return out;
+}
+
+/**
+ * {@link normalizeState} for saved designs (URL hashes, project files).
+ * Keys whose default changed after release fill from their old value when
+ * absent, so a design saved before the key existed rebuilds the same mesh.
+ * @param {Record<string, unknown>} input
+ */
+export function normalizeSavedState(input = {}) {
+  return normalizeState(
+    input.wallMode == null ? { ...input, wallMode: "scaled" } : input,
+  );
 }
 
 /**

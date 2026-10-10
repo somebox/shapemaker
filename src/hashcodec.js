@@ -3,7 +3,7 @@
  * Equal serializeState(state) ⇒ equal hash.
  */
 
-import { normalizeState, serializeState } from "./schema.js";
+import { normalizeSavedState, serializeState } from "./schema.js";
 
 export const HASH_VERSION = 1;
 const PREFIX = `v${HASH_VERSION}.`;
@@ -44,7 +44,7 @@ export function decodeHash(hash) {
   if (!obj || typeof obj !== "object") {
     return { ok: false, error: "hash payload must be an object" };
   }
-  return { ok: true, state: normalizeState(obj) };
+  return { ok: true, state: normalizeSavedState(obj) };
 }
 
 function base64UrlEncode(str) {

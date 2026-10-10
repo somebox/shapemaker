@@ -7,6 +7,95 @@ surface is still moving, and git history is the detailed record. From **1.0**
 onward every release gets a full entry here, and breaking changes to the
 [project format](PROJECT_FORMAT.md) get a migration note.
 
+## [Unreleased]
+
+### Added
+
+- **Sides** (Form → Openings → Sides; state key `openingAxis`, `center` |
+  `normal` | `through`, default `center`). *Tapered* keeps the existing
+  construction: each opening wall follows the ray to the origin, so walls
+  lean on off-axis faces and holes taper inward; it is byte-identical to
+  before. *Straight* runs each wall along the face normal. Where an inner
+  edge would leave less than `min(0.4 mm, ½ border)` of inner flat, only
+  that stretch of wall tilts back inside it; the rest stays straight. The
+  status strip reports how many openings tilt, the worst angle, and the
+  thickest Wall that keeps every one straight. All star presets except the
+  two great ones stay straight at their default walls (stella octangula,
+  small stellated dodecahedron, small triambic icosahedron), as do a cube
+  at an 18% border and 3 mm wall, and a tetrahedron up to a 5.7 mm wall.
+- **Inner wall** (Form → Advanced). *Even* moves every face in along its
+  own normal, so the wall no longer grows on faces far from the centre
+  (random hull, seed 1337: 1.40–2.29 mm under Scaled, 1.40–1.63 mm under
+  Even). Corners where four or more faces meet without a common offset
+  point stay a little thick, and the status strip reports the measured
+  range. *Scaled* is the previous uniform scale about the origin. Canonical
+  state key `wallMode` (`even` | `scaled`): new designs start Even; links
+  and project files without the key load as Scaled, so their STLs are
+  unchanged. Regular solids build the same mesh either way. Short dense
+  spikes (globe or twisted globe at Spike 0.6) and heavy Distort fold the
+  inner surface before 1.4 mm under Even; those report a Wall error with a
+  value that fits (0.85–0.93 mm), and Scaled still builds them.
+- **Cut** sides (Form → Openings → Sides, value `through`). The closed
+  shell is built first, then each opening is cut straight in along its
+  face normal with a mesh boolean
+  ([manifold-3d](https://github.com/elalish/manifold) 3.5.4, vendored).
+  Holes can run into neighbouring inner faces and into each other instead
+  of tilting (random hull at 8 mm wall: Straight tilts 16 of 44 openings).
+  Rounding rounds the outer rim and the edges; the inner rim stays sharp.
+  Builds take 5–10× longer than Tapered. A hole that would exit through a
+  neighbouring face (sharp ridges) is an error with a fix to Straight;
+  openings under 0.2 mm stay closed.
+- **Break out** (Form → Advanced, active under Cut; state key `breakOut`,
+  default off). Holes may cut through neighbouring faces' outsides instead
+  of failing, and loose pieces the cuts free are dropped with a warning. In
+  a sweep of 74 states that failed with the neighbouring-face error, 65
+  build with Break out on; the other 9 have no part of the opening that
+  reaches the cavity. Acceptance matrix 126 STLs.
+- Errors that name a value that fits now show a **Use …** button under the
+  control; one click applies that value as a normal, undoable edit.
+
+### Changed
+
+- The Form panel reads top to bottom as Shell, Wall and Rounding, then an
+  **Openings** run (Faces, Outline, Border, Fillet, Sides), then a folded
+  **Advanced** cluster (Inner wall, Break out). Toggles sit on one row with
+  their label, like the sliders. *Opening* is now *Outline*, *Axis* is
+  *Sides*, *Walls* is *Inner wall*. **Quality** moved to Make. State keys
+  and links are unchanged.
+
+### Fixed
+
+- Rounding no longer fails with "mesh is not closed", "directed edge
+  twice", "repeated vertex" or "degenerate triangle" on Distorted,
+  Truncated and globe shapes. Strips on short edges now narrow together
+  until the corner fits, cap triangulations that leave a hole fall back to
+  a fan, and a corner point landing on an untrimmed sharp strip end now
+  reuses that vertex instead of duplicating it. A sweep of 15 bases ×
+  13 shape options × 4 radii × open/closed (1,560 builds per wall mode)
+  finishes without an internal error under both Even and Scaled walls.
+- Rounded models no longer fold through themselves on Truncated,
+  Jittered, Dual, Spiked and subdivided shapes (the self-intersection
+  check in acceptance). Corner caps whose apex fell on or outside their
+  own outline now aim at the outline's mean direction, and caps that
+  still fold fill flat; a flat fill no longer ear-clips a reflex corner
+  back across a face; face outlines drop the micron-scale spurs Jitter
+  leaves where two faces are almost coplanar. Under Even walls, inner
+  strips now move with the vertices along their own edge (not only its
+  end corners), and a rim lip that would cut an inner edge on a tiny
+  face shrinks until it fits. Over 15 bases × 7 shape options × 3 radii ×
+  both wall modes × Draft and Normal (1,260 rounded builds), the builds
+  that self-intersect went from 159 to 5. The 5 left are jittered globes
+  and twisted globes at Draft, where a corner smaller than 0.1 mm has an
+  outline that folds onto itself.
+- A failed build no longer leaves the sliders on the previous shape's
+  ranges, and an out-of-range value shows as itself instead of the slider
+  maximum. Size edits now shrink a wall that no longer fits, like base
+  changes already did. An internal build error highlights Rounding,
+  Subdivide or Spike (whichever is in use) instead of Shape.
+- A mm Border from an older link now reports its error on the Border
+  control, with a value that fits.
+- Undo now enables after the first edit of a session.
+
 ## [0.14.0] — 2026-09-19
 
 ### Added

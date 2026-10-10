@@ -96,7 +96,7 @@ const norm = (a) => {
  *   allowForEdge?: (key: string) => number,
  *   segments: number,
  *   lengthwise: number[],
- *   pushVert: (x: number, y: number, z: number) => number,
+ *   pushVert: (x: number, y: number, z: number, host: [number, number][]) => number,
  *   getVert: (i: number) => number[],
  * }} opts
  * @returns {{
@@ -227,6 +227,45 @@ export function buildEdgeRounding(skeleton, frames, opts) {
     return null;
   };
 
+  // Corner trim: how far along e the strip stops so the two strips of
+  // macro m meet at the inset corner. It depends on e and its neighbour,
+  // so on a short edge (a jittered corner splits into a cluster of them)
+  // two wide strips can demand more than the edge holds. The inset corner
+  // and the strip end must agree, so instead of clipping the trim, both
+  // strips narrow until it fits; one that still cannot goes sharp.
+  const trimAt = (e, vert, m) => {
+    const gamma = macroAngleAt(m, vert);
+    const wOther = otherEdgeAtMacro(m, vert, e)?.w ?? e.w;
+    return Math.max(
+      (e.w * Math.cos(gamma) + wOther) / Math.max(Math.sin(gamma), 1e-6),
+      0,
+    );
+  };
+  const narrow = (e, k) => {
+    e.w *= k;
+    e.r = e.w < wFloor ? 0 : e.cotHalf > 1e-9 ? e.w / e.cotHalf : e.w;
+    if (e.r === 0) e.w = 0;
+  };
+  for (let pass = 0; pass < 12; pass++) {
+    let changed = false;
+    for (const e of edges) {
+      for (const vert of [e.u, e.v]) {
+        if (!cornerVerts.has(vert)) continue;
+        for (const m of [e.ma, e.mb]) {
+          const l = trimAt(e, vert, m);
+          const cap = 0.45 * e.len;
+          if (!(l > cap)) continue;
+          const other = otherEdgeAtMacro(m, vert, e);
+          const k = pass < 11 ? (0.999 * cap) / l : 0;
+          if (e.w > 0) narrow(e, k);
+          if (other && other.w > 0) narrow(other, k);
+          changed = true;
+        }
+      }
+    }
+    if (!changed) break;
+  }
+
   for (const e of edges) {
     e.trim = {};
     for (const vert of [e.u, e.v]) {
@@ -237,13 +276,10 @@ export function buildEdgeRounding(skeleton, frames, opts) {
       let lMax = 0;
       const perFace = {};
       for (const m of [e.ma, e.mb]) {
-        const gamma = macroAngleAt(m, vert);
-        const wOther = otherEdgeAtMacro(m, vert, e)?.w ?? e.w;
-        const l = (e.w * Math.cos(gamma) + wOther) / Math.max(Math.sin(gamma), 1e-6);
-        perFace[m] = Math.max(l, 0);
+        perFace[m] = Math.min(trimAt(e, vert, m), 0.45 * e.len);
         lMax = Math.max(lMax, perFace[m]);
       }
-      e.trim[vert] = { lMax: Math.min(lMax, 0.45 * e.len), perFace };
+      e.trim[vert] = { lMax, perFace };
     }
   }
 
@@ -255,7 +291,6 @@ export function buildEdgeRounding(skeleton, frames, opts) {
     const t0edge = e.len > 0 ? lu / e.len : 0;
     const t1edge = e.len > 0 ? 1 - lv / e.len : 1;
     const denom = (t1edge - t0edge) || 1;
-
     const colFracs = [{ frac: 0, vert: e.u }];
     for (const fr of lengthwise) colFracs.push({ frac: fr, vert: -1 });
     for (let i = 1; i < e.verts.length - 1; i++) {
@@ -275,13 +310,28 @@ export function buildEdgeRounding(skeleton, frames, opts) {
         merged.push({ frac: c.frac, vert: c.vert });
       }
     }
+    // Inner-shell displacement weights per column, piecewise linear along
+    // the edge's own vertices. The end columns move exactly with their
+    // corner, as the corner cap does, so cap and strip stay stitched
+    // however small the cap is; a column at a subdivision vertex moves with
+    // that vertex, as the faces' inner rims beside it do (blending only the
+    // two end corners there folds the inner strip into its neighbours on a
+    // thick Even wall).
+    const anchors = merged.filter((c) => c.vert >= 0);
+    const hostAt = (frac) => {
+      let i = 0;
+      while (i < anchors.length - 2 && anchors[i + 1].frac <= frac) i++;
+      const a = anchors[i], b = anchors[i + 1];
+      const t = (frac - a.frac) / (b.frac - a.frac);
+      return [[a.vert, 1 - t], [b.vert, t]];
+    };
 
     const grid = [];
     if (e.r === 0) {
       const row = [];
       for (const c of merged) {
         const p = add(U2, mul(span, c.frac));
-        row.push(pushVert(p[0], p[1], p[2]));
+        row.push(pushVert(p[0], p[1], p[2], hostAt(c.frac)));
       }
       for (let j = 0; j <= J; j++) grid.push(row);
     } else {
@@ -315,7 +365,7 @@ export function buildEdgeRounding(skeleton, frames, opts) {
           if (!Number.isFinite(p[0]) || !Number.isFinite(p[1]) || !Number.isFinite(p[2])) {
             throw new Error("rounding strip produced a non-finite vertex");
           }
-          row.push(pushVert(p[0], p[1], p[2]));
+          row.push(pushVert(p[0], p[1], p[2], hostAt(c.frac)));
         }
         grid.push(row);
       }
@@ -459,7 +509,8 @@ export function buildEdgeRounding(skeleton, frames, opts) {
         idx = endA.idx;
       } else {
         // Two macros whose spokes at v are all sharp (r = 0) both keep the
-        // raw vertex; share one index so the cap loop sees a pinch, not
+        // raw vertex, and so does the end of any sharp strip at v that is
+        // untrimmed; share one index so the cap loop sees a pinch, not
         // two coincident points it could not stitch.
         for (const m2 of macros) {
           const i2 = cornerIdx.get(m2 * 0x100000 + v);
@@ -468,7 +519,18 @@ export function buildEdgeRounding(skeleton, frames, opts) {
             break;
           }
         }
-        if (idx === undefined) idx = pushVert(pos[0], pos[1], pos[2]);
+        for (const ti of eids) {
+          if (idx !== undefined) break;
+          const ei = edgeByTopo.get(topo.edges[ti].keys[0]);
+          if (ei == null) continue;
+          for (const i2 of columnAt(edges[ei], v)) {
+            if (near(i2, pos)) {
+              idx = i2;
+              break;
+            }
+          }
+        }
+        if (idx === undefined) idx = pushVert(pos[0], pos[1], pos[2], [[v, 1]]);
       }
       cornerIdx.set(m * 0x100000 + v, idx);
     }
@@ -534,6 +596,7 @@ export function buildEdgeRounding(skeleton, frames, opts) {
         A[0] + (B[0] - A[0]) * t,
         A[1] + (B[1] - A[1]) * t,
         A[2] + (B[2] - A[2]) * t,
+        [[lo, 1 - t], [hi, t]],
       ));
     }
     seamExtra.set(key, idx);
@@ -563,6 +626,10 @@ export function buildEdgeRounding(skeleton, frames, opts) {
       if (clean.length === 0 || clean[clean.length - 1] !== i) clean.push(i);
     }
     if (clean.length > 1 && clean[0] === clean[clean.length - 1]) clean.pop();
+    // A spur out to a sharp strip end and straight back (a few microns,
+    // where Jitter leaves faces almost coplanar) pairs its two edges with
+    // each other; left in, the rim lips on its two rays cross.
+    cancelRetraced(clean);
     if (clean.length < 3) {
       throw new Error(`rounding face ring ${f} has ${clean.length} vertices`);
     }
@@ -580,6 +647,19 @@ export function buildEdgeRounding(skeleton, frames, opts) {
     const vx = cx - ax, vy = cy - ay, vz = cz - az;
     const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
     return nx * (ax + bx + cx) + ny * (ay + by + cy) + nz * (az + bz + cz) > 0;
+  };
+
+  /**
+   * Clearly facing the origin. A flat fill across a spike valley can tip
+   * a few degrees past edge-on (cos ≈ −0.05) and still lie clear of
+   * everything; a reflex ear turned back across a face points about 35°
+   * from straight in (cos ≈ −0.8).
+   */
+  const facesInward = (i0, i1, i2) => {
+    const a = getVert(i0), b = getVert(i1), c = getVert(i2);
+    const n = cross(sub(b, a), sub(c, a));
+    const g = add(add(a, b), c);
+    return dot(n, g) < -0.5 * Math.hypot(...n) * Math.hypot(...g);
   };
 
   let radiusMin = Infinity;
@@ -601,9 +681,71 @@ export function buildEdgeRounding(skeleton, frames, opts) {
   }
 
   /**
-   * Flat-fill one simple loop (no repeated index) with outward winding:
-   * ear-clip in its best-fit plane, or fan from its first vertex if the
-   * projection is pathological. Used for the lobes of a pinched corner.
+   * Triangulate an outward-ordered loop from its 2D projection. earcut
+   * drops collinear points and can skip part of a self-crossing
+   * projection, and either would leave a hole in the cap. Its result is
+   * kept only when it closes the loop exactly — every loop edge once in
+   * loop order, every diagonal once each way — and every triangle faces
+   * away from the origin, as all of a star-shaped surface does: on a
+   * strongly bent loop the best-fit projection can turn a reflex corner
+   * into an ear whose triangle lies back across a neighbouring face.
+   * @returns {boolean} whether triangles were emitted
+   */
+  const tryEarcut = (ordered, pts2d, fid) => {
+    const n = ordered.length;
+    let local = null;
+    try {
+      local = earClip(pts2d, [...ordered.keys()]);
+    } catch {
+      local = null;
+    }
+    if (local && local.length === 3 * (n - 2)) {
+      const used = new Map();
+      for (let i = 0; i < local.length; i += 3) {
+        for (let s = 0; s < 3; s++) {
+          const key = local[i + s] * 0x100000 + local[i + (s + 1) % 3];
+          used.set(key, (used.get(key) ?? 0) + 1);
+        }
+      }
+      let closed = true;
+      for (const [key, count] of used) {
+        const a = Math.floor(key / 0x100000), b = key % 0x100000;
+        const boundary = b === (a + 1) % n;
+        const back = used.get(b * 0x100000 + a) ?? 0;
+        if (count !== 1 || (boundary ? back !== 0 : back !== 1)) { closed = false; break; }
+      }
+      for (let i = 0; closed && i < n; i++) {
+        if (!used.has(i * 0x100000 + (i + 1) % n)) closed = false;
+      }
+      for (let i = 0; closed && i < local.length; i += 3) {
+        const a = ordered[local[i]], b = ordered[local[i + 1]], c = ordered[local[i + 2]];
+        if (facesInward(a, b, c)) closed = false;
+      }
+      if (closed) {
+        for (let i = 0; i < local.length; i += 3) {
+          capEmitTri(ordered[local[i]], ordered[local[i + 1]], ordered[local[i + 2]], fid, tris);
+        }
+        return true;
+      }
+    }
+    return false;
+  };
+
+  /** Fan an outward-ordered loop from a new vertex at its centroid. */
+  const centroidFan = (ordered, fid) => {
+    const n = ordered.length;
+    let cx = 0, cy = 0, cz = 0;
+    for (const i of ordered) {
+      const p = getVert(i);
+      cx += p[0]; cy += p[1]; cz += p[2];
+    }
+    const c = pushVert(cx / n, cy / n, cz / n, [[capHost, 1]]);
+    for (let i = 0; i < n; i++) capEmitTri(c, ordered[i], ordered[(i + 1) % n], fid, tris);
+  };
+
+  /**
+   * Flat-fill one simple loop (no repeated index) with outward winding
+   * in its best-fit plane. Used for the lobes of a pinched corner.
    */
   const capLobe = (lobe, fid) => {
     let nx = 0, ny = 0, nz = 0, sx = 0, sy = 0, sz = 0;
@@ -628,33 +770,7 @@ export function buildEdgeRounding(skeleton, frames, opts) {
       pts2d[i * 2] = dot(d, e1);
       pts2d[i * 2 + 1] = dot(d, e2);
     }
-    try {
-      const local = earClip(pts2d, [...ordered.keys()]);
-      for (let i = 0; i < local.length; i += 3) {
-        capEmitTri(ordered[local[i]], ordered[local[i + 1]], ordered[local[i + 2]], fid, tris);
-      }
-    } catch {
-      for (let i = 1; i < ordered.length - 1; i++) {
-        capEmitTri(ordered[0], ordered[i], ordered[i + 1], fid, tris);
-      }
-    }
-  };
-
-  /** Remove every (a, b, a) run from a cyclic index loop, in place. */
-  const cancelRetraced = (loop) => {
-    for (let changed = true; changed && loop.length > 2;) {
-      changed = false;
-      for (let i = 0; i < loop.length; i++) {
-        const n = loop.length;
-        if (loop[(i - 1 + n) % n] !== loop[(i + 1) % n]) continue;
-        const j = (i + 1) % n;
-        loop.splice(Math.max(i, j), 1);
-        loop.splice(Math.min(i, j), 1);
-        changed = true;
-        break;
-      }
-    }
-    while (loop.length > 1 && loop[0] === loop[loop.length - 1]) loop.pop();
+    if (!tryEarcut(ordered, pts2d, fid)) centroidFan(ordered, fid);
   };
 
   /**
@@ -747,9 +863,11 @@ export function buildEdgeRounding(skeleton, frames, opts) {
     emitRibbon(columnAt(recs[0], v), columnAt(recs[1], v), recs[0].fa);
   }
 
+  let capHost = -1;
   for (const v of cornerVerts) {
     const fan = fans.get(v);
     if (!fan) continue;
+    capHost = v;
     const spokes = [];
     for (let i = 0; i < fan.edges.length; i++) {
       const other = fan.edges[i][1];
@@ -865,8 +983,39 @@ export function buildEdgeRounding(skeleton, frames, opts) {
     if (!(loopArea > 1e-9 * perim * perim)) continue;
     const outwardLoop = nx * sx + ny * sy + nz * sz > 0;
     const ordered = outwardLoop ? clean : [...clean].reverse();
+    /** Ear-clip the loop in its best-fit plane; false if that fails. */
+    const flatCap = () => {
+      const nrm = outwardLoop
+        ? norm([nx, ny, nz])
+        : norm([-nx, -ny, -nz]);
+      const axis = Math.abs(nrm[0]) < 0.9 ? [1, 0, 0] : [0, 1, 0];
+      const e1 = norm(cross(nrm, axis));
+      const e2 = cross(nrm, e1);
+      const c0 = mul([sx, sy, sz], 1 / clean.length);
+      const pts2d = new Float64Array(ordered.length * 2);
+      for (let i = 0; i < ordered.length; i++) {
+        const d = sub(getVert(ordered[i]), c0);
+        pts2d[i * 2] = dot(d, e1);
+        pts2d[i * 2 + 1] = dot(d, e2);
+      }
+      return tryEarcut(ordered, pts2d, capFid);
+    };
 
-    const dirApex = norm(sub(P(v), X));
+    // The fan below sweeps rings from the loop to an apex along directions
+    // out of X, so the apex must sit inside the loop as seen from X. The
+    // line from X through v does on a symmetric corner, but unequal strip
+    // widths (Truncate's hexagon–triangle corners, Jitter, Dual) can put a
+    // strip's arc on that line or past it; aim at the loop's mean direction
+    // then, and fill flat if even that is not inside.
+    let dirApex = norm(sub(P(v), X));
+    const loopDirs = ordered.map((i) => norm(sub(getVert(i), X)));
+    if (!windsOnceAround(loopDirs, dirApex)) {
+      dirApex = norm(loopDirs.reduce(add, [0, 0, 0]));
+      if (!windsOnceAround(loopDirs, dirApex)) {
+        if (!flatCap()) centroidFan(ordered, capFid);
+        continue;
+      }
+    }
     const cyls = [];
     for (const s of spokes) {
       const e = edges[s.ei];
@@ -926,39 +1075,11 @@ export function buildEdgeRounding(skeleton, frames, opts) {
       return add(X, mul(dir, rho));
     };
     const compact = loopArea / (perim * perim);
-    if (compact < 0.03) {
-      const nrm = outwardLoop
-        ? norm([nx, ny, nz])
-        : norm([-nx, -ny, -nz]);
-      const axis = Math.abs(nrm[0]) < 0.9 ? [1, 0, 0] : [0, 1, 0];
-      const e1 = norm(cross(nrm, axis));
-      const e2 = cross(nrm, e1);
-      const c0 = mul([sx, sy, sz], 1 / clean.length);
-      const pts2d = new Float64Array(ordered.length * 2);
-      for (let i = 0; i < ordered.length; i++) {
-        const d = sub(getVert(ordered[i]), c0);
-        pts2d[i * 2] = dot(d, e1);
-        pts2d[i * 2 + 1] = dot(d, e2);
-      }
-      try {
-        const local = earClip(pts2d, [...ordered.keys()]);
-        for (let i = 0; i < local.length; i += 3) {
-          capEmitTri(
-            ordered[local[i]],
-            ordered[local[i + 1]],
-            ordered[local[i + 2]],
-            capFid,
-            tris,
-          );
-        }
-        continue;
-      } catch {
-        // Pathological projection — fall through to the apex fan.
-      }
-    }
+    // An incomplete or failed ear-clip falls through to the apex fan.
+    if (compact < 0.03 && flatCap()) continue;
 
     const apexPos = clampRadial(dirApex, rApex);
-    const apex = pushVert(apexPos[0], apexPos[1], apexPos[2]);
+    const apex = pushVert(apexPos[0], apexPos[1], apexPos[2], [[v, 1]]);
 
     const L = Math.max(2, J);
     let prev = ordered;
@@ -994,7 +1115,7 @@ export function buildEdgeRounding(skeleton, frames, opts) {
         } else if (nearPt(apex)) {
           ring[i] = apex;
         } else {
-          ring[i] = pushVert(p[0], p[1], p[2]);
+          ring[i] = pushVert(p[0], p[1], p[2], [[v, 1]]);
           interior.add(ring[i]);
         }
       }
@@ -1007,6 +1128,24 @@ export function buildEdgeRounding(skeleton, frames, opts) {
     for (let i = 0; i < prev.length; i++) {
       const a = prev[i], b = prev[(i + 1) % prev.length];
       capTri(apex, a, b);
+    }
+
+    // Even with the apex inside the loop, rings blended between very
+    // different strip radii can fold. Every fan triangle must face away
+    // from X; if one turns toward it, the loop fills flat instead.
+    let folded = false;
+    for (let ti = fanStart; ti < tris.length && !folded; ti++) {
+      const [a, b, c] = tris[ti];
+      const pa = getVert(a), pb = getVert(b), pc = getVert(c);
+      const n = cross(sub(pb, pa), sub(pc, pa));
+      const nl = Math.hypot(n[0], n[1], n[2]);
+      const g = mul(add(add(pa, pb), pc), 1 / 3);
+      if (nl > 1e-12 * perim * perim && dot(n, sub(g, X)) < 0) folded = true;
+    }
+    if (folded) {
+      tris.length = fanStart;
+      if (!flatCap()) centroidFan(ordered, capFid);
+      continue;
     }
 
     const nudged = new Set();
@@ -1033,6 +1172,48 @@ export function buildEdgeRounding(skeleton, frames, opts) {
 
   if (!Number.isFinite(radiusMin)) radiusMin = 0;
   return { faceRings, quads, tris, radiusMin, radiusMax };
+}
+
+/**
+ * Whether unit directions `qs` (from a centre) wind exactly once about
+ * the axis `a`, every step turning the same way — the loop they trace is
+ * star-shaped around that axis.
+ */
+function windsOnceAround(qs, a) {
+  const ref = Math.abs(a[0]) < 0.9 ? [1, 0, 0] : [0, 1, 0];
+  const e1 = norm(cross(a, ref));
+  const e2 = cross(a, e1);
+  let total = 0, sign = 0;
+  for (let i = 0; i < qs.length; i++) {
+    const p = qs[i], q = qs[(i + 1) % qs.length];
+    // A direction on (or behind) the axis has no angle around it.
+    if (!(dot(p, a) > 1e-9) || !(Math.hypot(dot(p, e1), dot(p, e2)) > 1e-9)) return false;
+    let step = Math.atan2(dot(q, e2), dot(q, e1)) - Math.atan2(dot(p, e2), dot(p, e1));
+    if (step > Math.PI) step -= 2 * Math.PI;
+    if (step < -Math.PI) step += 2 * Math.PI;
+    if (step === 0) continue;
+    if (sign === 0) sign = Math.sign(step);
+    else if (Math.sign(step) !== sign) return false;
+    total += step;
+  }
+  return Math.abs(Math.abs(total) - 2 * Math.PI) < 1e-6;
+}
+
+/** Remove every (a, b, a) run from a cyclic index loop, in place. */
+function cancelRetraced(loop) {
+  for (let changed = true; changed && loop.length > 2;) {
+    changed = false;
+    for (let i = 0; i < loop.length; i++) {
+      const n = loop.length;
+      if (loop[(i - 1 + n) % n] !== loop[(i + 1) % n]) continue;
+      const j = (i + 1) % n;
+      loop.splice(Math.max(i, j), 1);
+      loop.splice(Math.min(i, j), 1);
+      changed = true;
+      break;
+    }
+  }
+  while (loop.length > 1 && loop[0] === loop[loop.length - 1]) loop.pop();
 }
 
 function capEmitTri(a, b, c, fid, tris) {

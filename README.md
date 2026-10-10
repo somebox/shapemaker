@@ -44,7 +44,7 @@ flat-bridge overlays, and a height clip to inspect cavities.
 |---|---|
 | Start | Platonic solids, icosidodecahedron, cuboctahedron, rhombicosidodecahedron, rhombic 12/30/90, globe, twisted globe, sphere, random hull; named star and ring-ball presets |
 | Size | Overall diameter; Edge length on regular shapes |
-| Form | Hollow or solid, open or closed faces, polygon or ellipse openings, wall, border, fillet |
+| Form | Hollow or solid, wall, rounding; openings: open or closed faces, polygon or ellipse outline, border, fillet, tapered / straight / cut sides; advanced: inner wall (even or scaled about the centre), break out |
 | Distort | Jitter (amount, direction, seed), dual, truncate, spike, subdivide, smooth |
 | Make | Resting face, mesh quality (Draft / Normal / Fine), material / mass estimate |
 

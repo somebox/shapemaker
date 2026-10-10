@@ -14,9 +14,89 @@ import { computeMetrics } from "./metrics.js";
 import { computeLimits, borderPrintabilityWarning } from "./limits.js";
 import { validateState } from "./validate.js";
 
-/** Result when nothing could be built. */
+/**
+ * Result when nothing could be built. `limits` still describes the shape
+ * when its skeleton builds, so the controls can show what fits.
+ */
 function emptyResult(state, validation) {
-  return { skeleton: null, mesh: null, metrics: null, validation, orientation: null, state };
+  return {
+    skeleton: null, mesh: null, metrics: null, validation, orientation: null, state,
+    limits: limitsForState(state),
+  };
+}
+
+/**
+ * Status line for Normal openings that cannot go fully straight: how many,
+ * how far they tilt, and the wall that would straighten them all.
+ * @param {{ axisLeanFaces: number|null, axisCentreFaces: number|null, axisTiltMaxDeg: number|null, normalStraightWallMm: number|null }} info
+ * @param {number} faceCount
+ * @param {number} wallMm
+ */
+function straightAxisWarning(info, faceCount, wallMm) {
+  if (!(info.axisLeanFaces > 0)) return null;
+  const centre = info.axisCentreFaces ?? 0;
+  const tilted = info.axisLeanFaces - centre;
+  const parts = [];
+  if (tilted > 0) {
+    parts.push(
+      `${tilted} of ${faceCount} openings tilt up to ${info.axisTiltMaxDeg.toFixed(1)}° ` +
+      `beside a tight edge to keep an inner rim`,
+    );
+  }
+  if (centre > 0) {
+    parts.push(
+      `${centre} of ${faceCount} openings follow the centre because a straight ` +
+      `hole misses their inner face`,
+    );
+  }
+  const fit = info.normalStraightWallMm;
+  // Only a wall below the current one is advice; a fit at or above it
+  // would contradict the tilt (the per-edge limit is linear, the corners
+  // of uneven shapes are not quite).
+  const hint = fit != null && fit >= 0.1 && fit < wallMm
+    ? ` — a Wall of ${(Math.floor(fit * 10) / 10).toFixed(1)} mm or less keeps them straight`
+    : "";
+  return { stage: "solid", key: "openingAxis", message: parts.join("; ") + hint };
+}
+
+/**
+ * Slider ceilings for a state, or null when its skeleton cannot be built
+ * (unknown base, a skeleton operator refusing the parameters).
+ * @param {Partial<typeof DEFAULT_STATE>} state
+ */
+export function limitsForState(state) {
+  const s = { ...DEFAULT_STATE, ...state };
+  if (!(s.circumdiameterMm > 0)) return null;
+  // Best effort on an already-failing state: any skeleton failure here is
+  // reported by the compile that called it, so it only means "no limits".
+  try {
+    const unit = hullSkeletonForBase(s.base, s);
+    return limitsFor(scaleSkeleton(unit, s.circumdiameterMm / 2), s);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Wall and border ceilings come from the skeleton the shell will actually
+ * solidify — exceeding them is a hard validation error. Fillet and rounding
+ * may use the pre-subdivision solid when subdivided: tiny sub-faces would
+ * crush those sliders to near-zero, and the shell clamps both per-feature
+ * at solidify time, so a generous ceiling is safe.
+ */
+function limitsFor(skeleton, state) {
+  const limits = computeLimits(skeleton, state);
+  if ((state.subdiv ?? 0) > 0) {
+    const unit = hullSkeletonForBase(state.base, { ...state, subdiv: 0, soften: 0 });
+    const preSub = computeLimits(scaleSkeleton(unit, state.circumdiameterMm / 2), state);
+    if (limits.filletMmMax != null && preSub.filletMmMax != null) {
+      limits.filletMmMax = Math.max(limits.filletMmMax, preSub.filletMmMax);
+    }
+    if (limits.roundingMmMax != null && preSub.roundingMmMax != null) {
+      limits.roundingMmMax = Math.max(limits.roundingMmMax, preSub.roundingMmMax);
+    }
+  }
+  return limits;
 }
 
 /**
@@ -75,36 +155,34 @@ export function compile(partial = {}) {
   let orientation, metrics;
   try {
     orientation = computeOrientation(skeleton, faceIndex);
-    // Wall and border ceilings must come from the skeleton the shell will
-    // actually solidify — exceeding them is a hard validation error. Fillet
-    // and rounding may use the pre-subdivision solid when subdivided: tiny
-    // sub-faces would crush those sliders to near-zero, and the shell clamps
-    // both per-feature at solidify time, so a generous ceiling is safe.
-    const limits = computeLimits(skeleton, state);
-    if ((state.subdiv ?? 0) > 0) {
-      const unit = hullSkeletonForBase(state.base, {
-        ...state,
-        subdiv: 0,
-        soften: 0,
-      });
-      const preSub = computeLimits(
-        scaleSkeleton(unit, state.circumdiameterMm / 2),
-        state,
-      );
-      if (limits.filletMmMax != null && preSub.filletMmMax != null) {
-        limits.filletMmMax = Math.max(limits.filletMmMax, preSub.filletMmMax);
-      }
-      if (limits.roundingMmMax != null && preSub.roundingMmMax != null) {
-        limits.roundingMmMax = Math.max(
-          limits.roundingMmMax,
-          preSub.roundingMmMax,
-        );
-      }
-    }
+    const limits = limitsFor(skeleton, state);
     // State-derived, so shared links / presets / project opens see it too —
     // not only the edit that clamped a border.
     const guidance = borderPrintabilityWarning(state, limits, solid.info.borderMm);
     if (guidance) validation.warnings.push(guidance);
+    const axisWarning = straightAxisWarning(solid.info, skeleton.faces.length, state.wallMm);
+    if (axisWarning) validation.warnings.push(axisWarning);
+    if (solid.info.throughClosedFaces > 0) {
+      validation.warnings.push({
+        stage: "solid",
+        key: "openingAxis",
+        message:
+          `${solid.info.throughClosedFaces} of ${skeleton.faces.length} faces are too ` +
+          `small to cut through and stay closed`,
+      });
+    }
+    if (solid.info.looseDropped > 0) {
+      const v = solid.info.looseVolumeMm3 / 1000;
+      const cm3 = v < 0.01 ? "< 0.01" : v.toFixed(2);
+      validation.warnings.push({
+        stage: "solid",
+        key: "breakOut",
+        message:
+          `Break out cut ${solid.info.looseDropped} loose ` +
+          `piece${solid.info.looseDropped === 1 ? "" : "s"} free (${cm3} cm³); ` +
+          `they are left out of the model`,
+      });
+    }
     metrics = computeMetrics({
       skeleton,
       info: solid.info,
