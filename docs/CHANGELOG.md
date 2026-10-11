@@ -7,7 +7,7 @@ surface is still moving, and git history is the detailed record. From **1.0**
 onward every release gets a full entry here, and breaking changes to the
 [project format](PROJECT_FORMAT.md) get a migration note.
 
-## [Unreleased]
+## [0.16.1] — 2026-10-11
 
 ### Fixed
 
