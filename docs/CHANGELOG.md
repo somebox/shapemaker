@@ -7,6 +7,18 @@ surface is still moving, and git history is the detailed record. From **1.0**
 onward every release gets a full entry here, and breaking changes to the
 [project format](PROJECT_FORMAT.md) get a migration note.
 
+## [Unreleased]
+
+### Fixed
+
+- Cut sides no longer leave self-intersections in exported STLs. After the
+  mesh boolean, near-flat triangles (a corner a fraction of a micrometre from
+  the opposite edge, often along the rim where a hole meets a rounding strip)
+  were valid in double precision but folded through a neighbour once the STL
+  rounded positions to float32. They are now flipped away, or collapsed where
+  several corners lie on one line, without moving the surface. Many Cut
+  designs with rounding had 1–5 such crossings; a sweep of 120 now has none.
+
 ## [0.16.0] — 2026-10-11
 
 ### Changed

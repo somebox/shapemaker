@@ -119,6 +119,24 @@ describe("Through openings", () => {
     }
   });
 
+  it("has no crossings once positions are rounded to float32 for the STL", () => {
+    // Each of these had 1-2: a corner a fraction of a micrometre from the
+    // opposite edge of a flat triangle crossed it in float32.
+    for (const state of [
+      { base: "tetrahedron", roundingMm: 1 },
+      {
+        base: "icosahedron", spike: 2.383963416875298, borderFraction: 0.47,
+        wallMm: 3, wallMode: "scaled", filletMm: 2.3, roundingMm: 1.8,
+      },
+      { base: "icosidodeca", truncate: 30, roundingMm: 1, edgeDiv: 6 },
+      { base: "cuboctahedron", spike: 0.5, wallMm: 4, roundingMm: 2, breakOut: true },
+    ]) {
+      const r = build(state);
+      assert.equal(r.validation.ok, true, r.validation.errors[0]?.message);
+      assert.deepEqual(selfIntersections(r.mesh, 1), [], JSON.stringify(state));
+    }
+  });
+
   it("rejects a hole that would cut out through a neighbouring face, with a fix", () => {
     const r = build({ base: "icosahedron", spike: 0.5, borderMm: 0.8, borderFraction: null, filletMm: 2 });
     assert.equal(r.validation.ok, false);

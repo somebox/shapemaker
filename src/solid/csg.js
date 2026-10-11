@@ -200,14 +200,15 @@ function collapseCoincident(P, I, F) {
       }
     }
   }
-  const tris = [];
-  const faces = [];
+  let tris = [];
+  let faces = [];
   for (let t = 0; t < nT; t++) {
     if (!alive[t]) continue;
     tris.push(T[t * 3], T[t * 3 + 1], T[t * 3 + 2]);
     faces.push(F[t]);
   }
-  const flipped = flipFlat(P, nV, tris);
+  let flipped;
+  ({ tris, faces, fixed: flipped } = fixFlat(P, nV, tris, faces, Math.sqrt(tol2)));
   if (!merged && !flipped) {
     return {
       positions: Float64Array.from(P),
@@ -263,60 +264,168 @@ function collapseKeepsNormals(P, T, alive, vt, drop, keep) {
 }
 
 /**
- * Flat triangles (a vertex lying on the opposite edge) are flipped away:
- * the flat triangle and its neighbour across the long edge become two
- * triangles meeting at the middle vertex. Edits `tris` in place; the
- * triangle count stays the same.
- * @returns {number} flips made
+ * Measures on positions `P` for the flat-triangle passes. A triangle is flat
+ * when a corner lies within `tol` of the opposite (longest) edge. Such a
+ * corner can sit a fraction of a micrometre on the right side of the edge in
+ * double precision and cross it once positions are rounded to float32 for
+ * the STL, folding the triangle through its neighbour. Needles (two corners
+ * within `tol` of each other) are the edge collapse's business, not these
+ * passes'.
  */
-function flipFlat(P, nV, tris) {
-  const key = (u, v) => u * nV + v;
-  const nT = tris.length / 3;
-  const area2 = (a, b, c) => {
+function flatGeometry(P, tol) {
+  const len2 = (a, b) =>
+    (P[a * 3] - P[b * 3]) ** 2 + (P[a * 3 + 1] - P[b * 3 + 1]) ** 2 + (P[a * 3 + 2] - P[b * 3 + 2]) ** 2;
+  const normal = (a, b, c) => {
     const ax = P[a * 3], ay = P[a * 3 + 1], az = P[a * 3 + 2];
     const e1x = P[b * 3] - ax, e1y = P[b * 3 + 1] - ay, e1z = P[b * 3 + 2] - az;
     const e2x = P[c * 3] - ax, e2y = P[c * 3 + 1] - ay, e2z = P[c * 3 + 2] - az;
-    return Math.hypot(e1y * e2z - e1z * e2y, e1z * e2x - e1x * e2z, e1x * e2y - e1y * e2x);
+    return [e1y * e2z - e1z * e2y, e1z * e2x - e1x * e2z, e1x * e2y - e1y * e2x];
   };
-  const len2 = (a, b) =>
-    (P[a * 3] - P[b * 3]) ** 2 + (P[a * 3 + 1] - P[b * 3 + 1]) ** 2 + (P[a * 3 + 2] - P[b * 3 + 2]) ** 2;
-  const set = (t, a, b, c) => {
-    tris[t * 3] = a; tris[t * 3 + 1] = b; tris[t * 3 + 2] = c;
-    owner.set(key(a, b), t); owner.set(key(b, c), t); owner.set(key(c, a), t);
+  const area2 = (a, b, c) => Math.hypot(...normal(a, b, c));
+  const flat = (a, b, c) => {
+    const ar = area2(a, b, c);
+    if (ar < 1e-12) return true;
+    const l = [len2(a, b), len2(b, c), len2(c, a)];
+    if (Math.min(...l) < tol * tol) return false;
+    return ar < tol * Math.sqrt(Math.max(...l));
   };
-  const queue = [];
-  for (let t = 0; t < nT; t++) {
-    if (area2(tris[t * 3], tris[t * 3 + 1], tris[t * 3 + 2]) < 1e-12) queue.push(t);
-  }
-  if (!queue.length) return 0;
-  /** directed edge → triangle slot */
-  const owner = new Map();
-  for (let t = 0; t < nT; t++) {
-    for (let e = 0; e < 3; e++) owner.set(key(tris[t * 3 + e], tris[t * 3 + (e + 1) % 3]), t);
-  }
-  let flips = 0;
-  while (queue.length && flips < 4 * nT) {
-    const t = queue.pop();
-    const v = [tris[t * 3], tris[t * 3 + 1], tris[t * 3 + 2]];
-    if (!(area2(v[0], v[1], v[2]) < 1e-12)) continue;
-    // Long edge (a → b) with the middle vertex c opposite it.
+  /** Corners as [a, b, c] with a → b the longest edge. */
+  const byLongEdge = (v) => {
     let e = 0, best = -1;
     for (let k = 0; k < 3; k++) {
       const l = len2(v[k], v[(k + 1) % 3]);
       if (l > best) { best = l; e = k; }
     }
-    const a = v[e], b = v[(e + 1) % 3], c = v[(e + 2) % 3];
-    const n = owner.get(key(b, a));
-    if (n == null || n === t) continue;
-    const w = [tris[n * 3], tris[n * 3 + 1], tris[n * 3 + 2]];
-    const d = w.find((x) => x !== a && x !== b);
-    if (d == null || d === c) continue;
-    if (owner.has(key(c, d)) || owner.has(key(d, c))) continue;
-    owner.delete(key(a, b)); owner.delete(key(b, a));
-    set(t, b, c, d);
-    set(n, c, a, d);
-    flips++;
+    return [v[e], v[(e + 1) % 3], v[(e + 2) % 3]];
+  };
+  return { len2, normal, area2, flat, byLongEdge };
+}
+
+/**
+ * Removes flat triangles. Each is flipped away where it can be: the flat
+ * triangle and its neighbour across the long edge become two triangles
+ * meeting at the middle corner, which is the neighbour split at that corner,
+ * and the shape does not change. A flip is only taken when neither new
+ * triangle is flat; with the neighbour's far corner near the line too the
+ * split is as flat as before and flips would cycle. Where no flip works — a
+ * fan over several corners on one line, every triangle flat — the middle
+ * corner slides along the line onto the nearer end of the long edge (an edge
+ * collapse). That is only taken when the two corners share exactly the two
+ * neighbours of their edge, and every triangle left around the moved corner
+ * stays within `tol` of its own plane and keeps its orientation (a flat one
+ * stays flat), so the surface neither moves nor folds.
+ * @returns {{ tris: number[], faces: number[], fixed: number }}
+ */
+function fixFlat(P, nV, tris, faces, tol) {
+  const { len2, normal, flat, byLongEdge } = flatGeometry(P, tol);
+  const nT = tris.length / 3;
+  const isFlat = (t) => flat(tris[t * 3], tris[t * 3 + 1], tris[t * 3 + 2]);
+  const queue = [];
+  for (let t = 0; t < nT; t++) if (isFlat(t)) queue.push(t);
+  if (!queue.length) return { tris, faces, fixed: 0 };
+
+  // Vertex → triangles: flat arrays built once, plus what a vertex gains
+  // later. Entries a triangle has since lost are filtered on read.
+  const start = new Uint32Array(nV + 1);
+  for (let i = 0; i < tris.length; i++) start[tris[i] + 1]++;
+  for (let v = 0; v < nV; v++) start[v + 1] += start[v];
+  const fill = start.slice(0, nV);
+  const inc = new Uint32Array(tris.length);
+  for (let t = 0; t < nT; t++) for (let j = 0; j < 3; j++) inc[fill[tris[t * 3 + j]]++] = t;
+  const gained = new Map();
+  const gain = (v, t) => {
+    const g = gained.get(v);
+    if (g) g.push(t);
+    else gained.set(v, [t]);
+  };
+  const alive = new Uint8Array(nT).fill(1);
+  const has = (t, v) => tris[t * 3] === v || tris[t * 3 + 1] === v || tris[t * 3 + 2] === v;
+  const star = (v) => {
+    const out = [];
+    for (let k = start[v]; k < start[v + 1]; k++) {
+      const t = inc[k];
+      if (alive[t] && has(t, v)) out.push(t);
+    }
+    for (const t of gained.get(v) ?? []) if (alive[t] && has(t, v) && !out.includes(t)) out.push(t);
+    return out;
+  };
+  /** Triangle holding the directed edge u → v, or -1. */
+  const owner = (u, v) => {
+    for (const t of star(u)) {
+      for (let j = 0; j < 3; j++) {
+        if (tris[t * 3 + j] === u && tris[t * 3 + (j + 1) % 3] === v) return t;
+      }
+    }
+    return -1;
+  };
+  const dot = (p, q) => p[0] * q[0] + p[1] * q[1] + p[2] * q[2];
+
+  const tryFlip = (t, a, b, c) => {
+    const n = owner(b, a);
+    if (n < 0 || n === t) return false;
+    const d = [tris[n * 3], tris[n * 3 + 1], tris[n * 3 + 2]].find((x) => x !== a && x !== b);
+    if (d == null || d === c) return false;
+    if (owner(c, d) >= 0 || owner(d, c) >= 0) return false;
+    if (flat(b, c, d) || flat(c, a, d)) return false;
+    tris[t * 3] = b; tris[t * 3 + 1] = c; tris[t * 3 + 2] = d;
+    tris[n * 3] = c; tris[n * 3 + 1] = a; tris[n * 3 + 2] = d;
+    gain(d, t);
+    gain(c, n);
     queue.push(t, n);
+    return true;
+  };
+  const tryCollapse = (drop, keep) => {
+    const around = star(drop);
+    if (around.filter((t) => has(t, keep)).length !== 2) return false;
+    const ringOf = (v) => {
+      const out = new Set();
+      for (const t of star(v)) for (let j = 0; j < 3; j++) if (tris[t * 3 + j] !== v) out.add(tris[t * 3 + j]);
+      return out;
+    };
+    const rk = ringOf(keep);
+    let common = 0;
+    for (const v of ringOf(drop)) if (rk.has(v)) common++;
+    if (common !== 2) return false;
+    const move = [0, 1, 2].map((k) => P[keep * 3 + k] - P[drop * 3 + k]);
+    for (const t of around) {
+      if (has(t, keep)) continue;
+      const v = [tris[t * 3], tris[t * 3 + 1], tris[t * 3 + 2]];
+      const w = v.map((x) => (x === drop ? keep : x));
+      // A flat triangle has no plane to keep; it must stay flat, or it
+      // would open up facing any way.
+      if (isFlat(t)) {
+        if (!flat(w[0], w[1], w[2])) return false;
+        continue;
+      }
+      const n0 = normal(v[0], v[1], v[2]);
+      if (Math.abs(dot(n0, move)) > tol * Math.hypot(...n0)) return false;
+      if (!(dot(normal(w[0], w[1], w[2]), n0) > 0)) return false;
+    }
+    for (const t of around) {
+      if (has(t, keep)) { alive[t] = 0; continue; }
+      for (let j = 0; j < 3; j++) if (tris[t * 3 + j] === drop) tris[t * 3 + j] = keep;
+      gain(keep, t);
+      queue.push(t);
+    }
+    return true;
+  };
+
+  let fixed = 0;
+  let removed = false;
+  while (queue.length && fixed < 4 * nT) {
+    const t = queue.pop();
+    if (!alive[t] || !isFlat(t)) continue;
+    const [a, b, c] = byLongEdge([tris[t * 3], tris[t * 3 + 1], tris[t * 3 + 2]]);
+    if (tryFlip(t, a, b, c)) { fixed++; continue; }
+    const ends = len2(c, a) <= len2(c, b) ? [a, b] : [b, a];
+    if (ends.some((keep) => tryCollapse(c, keep))) { fixed++; removed = true; }
   }
-  return flips;
+  if (!removed) return { tris, faces, fixed };
+  const outT = [], outF = [];
+  for (let t = 0; t < nT; t++) {
+    if (!alive[t]) continue;
+    outT.push(tris[t * 3], tris[t * 3 + 1], tris[t * 3 + 2]);
+    outF.push(faces[t]);
+  }
+  return { tris: outT, faces: outF, fixed };
 }

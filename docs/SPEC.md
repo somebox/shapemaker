@@ -398,11 +398,18 @@ the rounded outside. A copy would round the cavity's ridges and spike tips
 with the full radius, leaving material along them that the cutters trim into
 thin rods or loose pieces. Larger radii keep the copied cavity. Cutter
 vertices get a fixed nudge of 1e-4 × the largest inradius so cutter features
-never coincide exactly with shell planes. The boolean output then has edges shorter than
-1e-5 × the part size collapsed (only where the collapse fuses no other
-edges and turns no triangle by more than 60°), and flat triangles flipped
-(`collapseCoincident`). Left in place, the folds around such micro-edges
-can cross after the STL export rotates and rounds the part to float32. Cut costs
+never coincide exactly with shell planes. The boolean output then has edges
+shorter than 1e-5 × the part size collapsed (only where the collapse fuses no
+other edges and turns no triangle by more than 60°), and flat triangles — a
+corner within that distance of the opposite edge — removed (`collapseCoincident`,
+`fixFlat`). A flat triangle is flipped with its neighbour across the long
+edge, which splits the neighbour at that corner, when neither result is flat;
+otherwise (a fan over several corners on one line) the corner slides along
+the line onto the nearer end of the edge, only where every triangle around it
+stays within the tolerance of its plane, keeps its orientation, and a flat one
+stays flat. Left in place, such a corner can sit a fraction of a micrometre
+on the right side of the edge in double precision and cross it once the STL
+export rounds positions to float32, folding through its neighbour. Cut costs
 5–10× a Tapered build (≈0.5 s on the 288-face globe, ≈4 s at 2,000 faces).
 
 **Rounding** (`roundingMm`) is a separate Form parameter that softens every
