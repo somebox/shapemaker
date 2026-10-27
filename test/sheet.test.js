@@ -1,0 +1,117 @@
+import { describe, it } from "node:test";
+import assert from "node:assert/strict";
+import { compile } from "../src/compile.js";
+import { DEFAULT_STATE } from "../src/schema.js";
+import { OPENING_GENERATORS } from "../src/solid/shell.js";
+import { extractPanels } from "../src/sheet/panels.js";
+import { buildSheet, boardSvg, BOARD_PROFILES } from "../src/sheet/index.js";
+import { area, apply, convexHull, convexOverlap } from "../src/sheet/geom2.js";
+import { pointInPoly } from "../src/sheet/cut.js";
+
+const skeletonOf = (state) =>
+  compile({ ...DEFAULT_STATE, roundingMm: 0, openings: false, ...state }).skeleton;
+const falcon = BOARD_PROFILES["falcon-a1"];
+
+describe("sheet panels", () => {
+  it("makes one panel per face and one joint per edge", () => {
+    const { panels, joints } = extractPanels(skeletonOf({ base: "icosidodeca", circumdiameterMm: 150 }));
+    assert.equal(panels.length, 32);
+    assert.equal(joints.length, 60);
+    for (const p of panels) assert.ok(area(p.outline) > 0, "outlines are CCW");
+  });
+
+  it("merges coplanar sub-faces back into one panel", () => {
+    const { panels, joints } = extractPanels(skeletonOf({ base: "cube", subdiv: 1, subdivStyle: "grid" }));
+    assert.equal(panels.length, 6);
+    assert.equal(joints.length, 12);
+    assert.ok(joints.every((j) => Math.abs(j.dihedralDeg - 90) < 1e-6));
+  });
+
+  it("marks valley edges between spikes as reflex", () => {
+    const { joints } = extractPanels(skeletonOf({ base: "icosahedron", spike: 1.5, circumdiameterMm: 200 }));
+    const reflex = joints.filter((j) => j.reflex);
+    assert.equal(reflex.length, 30);
+    assert.ok(reflex.every((j) => j.dihedralDeg > 180));
+  });
+});
+
+describe("sheet cut mode", () => {
+  const cut = (state, opts) =>
+    buildSheet(skeletonOf(state), { mode: "cut", sheetMm: 3, board: falcon, ...opts });
+
+  it("puts every clip slot inside its panel and clear of the openings", () => {
+    const state = { base: "icosidodeca", circumdiameterMm: 200, openings: true, borderFraction: 0.6 };
+    const res = cut(state, {
+      join: "clips",
+      openings: { generator: OPENING_GENERATORS.polygon, borderFraction: 0.6, filletMm: 4.5 },
+    });
+    assert.deepEqual(res.warnings, []);
+    assert.equal(res.stats.clips.A, 60);
+    for (const part of res.parts.filter((p) => p.kind === "panel")) {
+      const [outline, ...holes] = part.paths.filter((p) => p.layer === "cut").map((p) => p.pts);
+      const slots = holes.filter((h) => h.length === 4);
+      const openings = holes.filter((h) => h.length > 4);
+      assert.ok(slots.length >= 3, `${part.name} has a slot per side`);
+      for (const s of slots) {
+        for (const q of s) assert.ok(pointInPoly(q, outline), `${part.name} slot inside the panel`);
+        for (const o of openings) assert.ok(!convexOverlap(s, convexHull(o), 0), `${part.name} slot clear of opening`);
+      }
+    }
+  });
+
+  it("recommends the border the joints need", () => {
+    const res = cut(
+      { base: "icosidodeca", circumdiameterMm: 200 },
+      { join: "clips", openings: { generator: OPENING_GENERATORS.polygon, borderFraction: 0.36, filletMm: 4.5 } },
+    );
+    assert.ok(res.stats.minBorderFraction > 0.36);
+    assert.match(res.warnings.join(" "), /raise Border/);
+  });
+
+  it("uses tabs near 90° and falls back to clips elsewhere", () => {
+    const cube = cut({ base: "cube", circumdiameterMm: 140 }, { join: "tabs" });
+    assert.equal(cube.stats.tabs, 24);
+    assert.deepEqual(cube.stats.clips, {});
+    const ico = cut({ base: "icosahedron", circumdiameterMm: 160 }, { join: "tabs" });
+    assert.equal(ico.stats.tabs, 0);
+    assert.match(ico.warnings.join(" "), /too far from 90° for tabs/);
+  });
+
+  it("gives valley edges their own clip class", () => {
+    const res = cut({ base: "icosahedron", spike: 1.5, circumdiameterMm: 220 }, { join: "clips" });
+    assert.deepEqual(Object.keys(res.stats.clips).sort(), ["A", "B"]);
+  });
+});
+
+describe("sheet fold mode", () => {
+  it("folds a spanning forest: folds = panels − nets", () => {
+    for (const base of ["icosahedron", "dodecahedron", "icosidodeca"]) {
+      const res = buildSheet(skeletonOf({ base, circumdiameterMm: 180 }), { mode: "fold", join: "flaps", board: falcon });
+      assert.equal(res.stats.folds, res.stats.panels - res.stats.nets, base);
+    }
+  });
+});
+
+describe("sheet layout", () => {
+  it("keeps parts on the board and apart", () => {
+    const res = buildSheet(skeletonOf({ base: "octahedron", circumdiameterMm: 160 }), {
+      mode: "cut", join: "tabs", sheetMm: 3, board: falcon, coupon: true,
+    });
+    for (const b of res.boards) {
+      const hulls = b.items.map(({ part, tf }) => convexHull(part.paths.flatMap((p) => p.pts).map((q) => apply(tf, q))));
+      for (const h of hulls) for (const [x, y] of h) assert.ok(x >= 0 && y >= 0 && x <= falcon.w && y <= falcon.h);
+      for (let i = 0; i < hulls.length; i++)
+        for (let j = i + 1; j < hulls.length; j++) assert.ok(!convexOverlap(hulls[i], hulls[j], 0), "parts overlap");
+    }
+  });
+
+  it("writes a layered SVG in millimetres", () => {
+    const res = buildSheet(skeletonOf({ base: "cube", circumdiameterMm: 100 }), {
+      mode: "cut", join: "clips", sheetMm: 3, board: falcon,
+    });
+    const svg = boardSvg(res.boards[0], falcon);
+    assert.match(svg, /width="381mm" height="305mm"/);
+    assert.match(svg, /id="cut"[^>]*stroke="#FF0000"/);
+    assert.match(svg, /id="mark"/);
+  });
+});

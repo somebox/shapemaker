@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Laser joints by angle</title>
+<style>
+:root{--surface-2:#fff;--border:rgba(0,0,0,.12);--border-strong:rgba(0,0,0,.25);--border-accent:#378ADD;--bg-accent:#E6F1FB;--text-accent:#0C447C;
+--bg-success:#EAF3DE;--text-success:#27500A;--bg-warning:#FAEEDA;--text-warning:#633806;--bg-danger:#FCEBEB;--text-danger:#791F1F;
+--text-primary:#1d1d1b;--text-secondary:#5F5E5A;--text-muted:#888780;--radius:8px;--font-mono:ui-monospace,Menlo,monospace;--page:#faf9f5}
+@media (prefers-color-scheme: dark){:root{--surface-2:#262624;--border:rgba(255,255,255,.12);--border-strong:rgba(255,255,255,.25);--bg-accent:#0C447C;--text-accent:#B5D4F4;
+--bg-success:#27500A;--text-success:#C0DD97;--bg-warning:#633806;--text-warning:#FAC775;--bg-danger:#791F1F;--text-danger:#F7C1C1;
+--text-primary:#f1efe8;--text-secondary:#B4B2A9;--text-muted:#888780;--page:#1c1c1a}}
+body{margin:0;padding:24px 16px;background:var(--page);color:var(--text-primary);font:16px/1.6 system-ui,sans-serif}
+main{max-width:720px;margin:0 auto} h1{font-size:22px;font-weight:500;margin:0 0 4px} p.lede{color:var(--text-secondary);margin:0 0 16px;font-size:14px}
+.sr-only{position:absolute;left:-9999px} .ts{font-size:12px;fill:var(--text-secondary)}
+button{font:inherit;background:transparent;color:var(--text-primary);border:0.5px solid var(--border-strong);border-radius:var(--radius);padding:4px 10px;cursor:pointer}
+select{font:inherit;padding:2px 6px} input[type=range]{accent-color:#378ADD}
+a{color:var(--text-accent)}
+</style>
+<main>
+<h1>Six ways to join laser-cut panels</h1>
+<p class="lede">Each card shows a cut across the edge (top) and the flat parts (bottom), recomputed for the edge angle θ, sheet thickness and, for hubs, how many faces meet at a vertex. Geometry and rules: <a href="../LASER_RESEARCH.md">LASER_RESEARCH.md</a> §3, §4 and §7.</p>
+<h2 class="sr-only">Six ways to join laser-cut panels, each drawn as a cross-section across the edge and as flat cut parts, recomputed for the chosen edge angle, sheet thickness and vertex degree.</h2>
+<style>
+.cw-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px}
+.cw-card{background:var(--surface-2);border:0.5px solid var(--border);border-radius:12px;padding:12px 14px}
+.cw-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.cw-pill{font-size:12px;padding:2px 10px;border-radius:var(--radius);white-space:nowrap}
+.cw-ok{background:var(--bg-success);color:var(--text-success)}
+.cw-warn{background:var(--bg-warning);color:var(--text-warning)}
+.cw-no{background:var(--bg-danger);color:var(--text-danger)}
+.cw-row{display:flex;align-items:center;gap:10px;margin:0 0 10px;font-size:14px;color:var(--text-secondary)}
+</style>
+<div style="padding:0.5rem 0 0">
+<div class="cw-row"><label for="cw-th" style="min-width:92px">Edge angle θ</label><input type="range" id="cw-th" min="60" max="300" step="0.1" value="138.2" style="flex:1"><span id="cw-th-out" style="min-width:56px;text-align:right;font-weight:500;color:var(--text-primary)">138.2°</span></div>
+<div class="cw-row"><label for="cw-t" style="min-width:92px">Sheet t</label><input type="range" id="cw-t" min="1" max="6" step="0.5" value="3" style="flex:1"><span id="cw-t-out" style="min-width:56px;text-align:right;font-weight:500;color:var(--text-primary)">3 mm</span></div>
+<div class="cw-row"><label for="cw-k" style="min-width:92px">Hub degree</label><select id="cw-k"><option>3</option><option>4</option><option selected>5</option><option>6</option></select><span style="font-size:13px">faces meeting at a vertex (hub only)</span></div>
+<div style="display:flex;flex-wrap:wrap;gap:6px;margin:0 0 14px" id="cw-presets"></div>
+<div class="cw-grid" id="cw-grid"></div>
+</div>
+<script>
+(function(){
+const D2R=Math.PI/180, $=id=>document.getElementById(id);
+const add=(p,q)=>[p[0]+q[0],p[1]+q[1]], mul=(p,s)=>[p[0]*s,p[1]*s];
+const f1=v=>(Math.round(v*10)/10).toString();
+const PRE=[["Tetrahedron",70.5,3],["Cube",90,3],["Dodecahedron",116.6,3],["Icosahedron",138.2,5],["Pentakis (your kit)",156.7,6],["Globe",172,4],["Star valley",240,5]];
+const pre=$('cw-presets');
+PRE.forEach(([n,a,k])=>{const b=document.createElement('button');b.textContent=n+' '+a+'°';b.style.fontSize='13px';b.onclick=()=>{$('cw-th').value=a;$('cw-k').value=k;draw();};pre.appendChild(b);});
+const band=(d,n,s0,s1,T)=>[mul(d,s0),mul(d,s1),add(mul(d,s1),mul(n,T)),add(mul(d,s0),mul(n,T))];
+const P=(pts,k)=>({pts,k});
+function tri(side){const r=side/Math.sqrt(3);return [0,1,2].map(i=>{const g=(90+120*i)*D2R;return [r*Math.cos(g),r*Math.sin(g)];});}
+function insetTri(side,d){const ri=side/(2*Math.sqrt(3));return tri(side).map(p=>mul(p,Math.max(0,(ri-d)/ri)));}
+function edges(T){return T.map((p,i)=>{const q=T[(i+1)%3];const e=[q[0]-p[0],q[1]-p[1]];const L=Math.hypot(...e);const u=mul(e,1/L);const m=[-u[1],u[0]];const mid=mul(add(p,q),0.5);const s=(m[0]*-mid[0]+m[1]*-mid[1])>0?1:-1;return {p,q,u,m:mul(m,s),L};});}
+function circ(c,r,n=18){const o=[];for(let i=0;i<n;i++){const g=2*Math.PI*i/n;o.push([c[0]+r*Math.cos(g),c[1]+r*Math.sin(g)]);}return o;}
+function bez(a,c,b,n=14){const o=[];for(let i=0;i<=n;i++){const s=i/n,u=1-s;o.push([u*u*a[0]+2*u*s*c[0]+s*s*b[0],u*u*a[1]+2*u*s*c[1]+s*s*b[1]]);}return o;}
+function clipHalf(poly,n,c){const o=[];for(let i=0;i<poly.length;i++){const p=poly[i],q=poly[(i+1)%poly.length],dp=n[0]*p[0]+n[1]*p[1]-c,dq=n[0]*q[0]+n[1]*q[1]-c;if(dp<=0)o.push(p);if((dp<0)!==(dq<0)&&dp!==dq){const u=dp/(dp-dq);o.push([p[0]+(q[0]-p[0])*u,p[1]+(q[1]-p[1])*u]);}}return o;}
+function hubTilt(th,k){const phi=(180-th)*D2R,c=Math.cos(2*Math.PI/k),v=(Math.cos(phi)-c)/(1-c);if(th>=180||v<0||v>1)return null;return Math.acos(Math.sqrt(v));}
+function build(th,t,k){
+ const a=th*D2R, dA=[-1,0], nA=[0,1], dB=[-Math.cos(a),-Math.sin(a)], nB=[Math.sin(a),-Math.cos(a)];
+ const bisIn=[Math.cos(Math.PI+a/2),Math.sin(Math.PI+a/2)], bisOut=mul(bisIn,-1);
+ const reflex=th>180, trim=reflex?-t/Math.tan(a/2):0, L=24, out=[];
+ const gapA=(g0,g1)=>[P(band(dA,nA,trim,g0,t),'plate'),P(band(dA,nA,g1,L,t),'plate')];
+ const gapB=(g0,g1)=>[P(band(dB,nB,trim,g0,t),'plate'),P(band(dB,nB,g1,L,t),'plate')];
+ const plain=[P(band(dA,nA,trim,L,t),'plate'),P(band(dB,nB,trim,L,t),'plate')];
+ {
+  const tape=reflex?[add(mul(dA,12),mul(nA,-0.7)),add(mul(dA,trim),mul(nA,-0.7)),add(mul(dB,trim),mul(nB,-0.7)),add(mul(dB,12),mul(nB,-0.7))]:[add(mul(dA,12),mul(nA,-0.7)),mul(bisIn,0.7/Math.sin(a/2)),add(mul(dB,12),mul(nB,-0.7))];
+  const sk=tri(40), cut=insetTri(40,trim);
+  out.push({name:'Glue or tape',st:['ok','Any angle'],sec:[...plain,P(tape,'tie')],flat:[P(sk,'skel'),P(cut,'plate')],
+   read:reflex?'Panels step back '+f1(trim)+' mm; tape bridges the inside gap':'Outside groove '+f1(2*t*Math.cos(a/2))+' mm wide; panel = face, no inset'});
+ }
+ {
+  const dH=Math.max(1.5*t,3), h=trim+t+dH/2;
+  const inA=add(mul(dA,h),mul(nA,-1.4)), outA=add(mul(dA,h),mul(nA,t+1.4)), inB=add(mul(dB,h),mul(nB,-1.4)), outB=add(mul(dB,h),mul(nB,t+1.4));
+  const tie=[inA,...bez(outA,mul(bisOut,h*0.9+t),outB),...bez(inB,mul(bisIn,h*0.9),inA)];
+  const sk=tri(70), holes=[];
+  edges(sk).forEach(e=>[0.35,0.65].forEach(f=>holes.push(P(circ(add(add(e.p,mul(e.u,e.L*f)),mul(e.m,h)),dH/2),'hole'))));
+  const ok=(th>=130&&th<=230);
+  out.push({name:'Lacing or zip ties',st:ok?['ok','Best at 130–230°']:['warn','Hinges; needs glue'],sec:[...gapA(h-dH/2,h+dH/2),...gapB(h-dH/2,h+dH/2),P(tie,'tie')],flat:[P(insetTri(70,trim),'plate'),...holes],
+   read:'Holes ⌀'+f1(dH)+' mm, '+f1(h)+' mm in from the edge'});
+ }
+ {
+  const w=Math.max(2*t,5), hc=trim+t, b=hc+w+Math.max(t,3), D=Math.max(2*t,6);
+  const Q=mul(bisIn,D/Math.sin(a/2)), A=s=>mul(dA,s), B=s=>mul(dB,s);
+  const clip=[A(b),A(hc+w),add(A(hc+w),mul(nA,t)),add(A(hc),mul(nA,t)),A(hc),[0,0],B(hc),add(B(hc),mul(nB,t)),add(B(hc+w),mul(nB,t)),B(hc+w),B(b),add(B(b),mul(nB,-D)),Q,add(A(b),mul(nA,-D))];
+  const sk=tri(40), slots=[];
+  edges(sk).forEach(e=>{const mid=add(e.p,mul(e.u,e.L/2));const r=[add(add(mid,mul(e.u,-t/2)),mul(e.m,hc)),add(add(mid,mul(e.u,t/2)),mul(e.m,hc)),add(add(mid,mul(e.u,t/2)),mul(e.m,hc+w)),add(add(mid,mul(e.u,-t/2)),mul(e.m,hc+w))];slots.push(P(r,'hole'));});
+  out.push({name:'Edge clip',st:['ok','Any angle, incl. valleys'],sec:[...gapA(hc,hc+w),...gapB(hc,hc+w),P(clip,'conn')],flat:[P(insetTri(40,trim),'plate'),...slots],
+   read:'Clip holds '+f1(th)+'° exactly; slot '+f1(t)+' × '+f1(w)+' mm, '+f1(hc)+' mm in'});
+ }
+ {
+  const al=hubTilt(th,k);
+  if(al===null){out.push({name:'Vertex hub + struts',st:['no',th>=180?'No valleys':'Not at this degree'],sec:[],flat:[],read:th>=180?'A hub sits under a convex corner; valley edges need clips':'No convex '+k+'-way vertex has a '+f1(th)+'° edge; try another degree'});}
+  else{
+   const tw=Math.max(2*t,4), r1=5, r2=r1+2*tw+8, R=r2+3, f=[Math.cos(al),-Math.sin(al)], nf=[Math.sin(al),Math.cos(al)], Hd=r2*Math.tan(al)+6;
+   const F=s=>mul(f,s), smid=((r1+r2)/2)/Math.cos(al), slo=smid-tw/2, shi=smid+tw/2, Lf=r2/Math.cos(al)+8, y0=-Hd, yb=-Hd-t;
+   const strut=[[r1,y0],[r1+2,y0],[r1+2,yb],[r1+2+tw,yb],[r1+2+tw,y0],[r2-2-tw,y0],[r2-2-tw,yb],[r2-2,yb],[r2-2,y0],[r2,y0],F(r2/Math.cos(al)),F(shi),add(F(shi),mul(nf,t)),add(F(slo),mul(nf,t)),F(slo),F(r1/Math.cos(al))];
+   const rect=(x0,x1)=>[[x0,yb],[x1,yb],[x1,y0],[x0,y0]];
+   const face=[P(band(f,nf,0,slo,t),'plate'),P(band(f,nf,shi,Lf,t),'plate')];
+   const hub=[P(rect(-R,r1+2),'plate'),P(rect(r1+2+tw,r2-2-tw),'plate'),P(rect(r2-2,R),'plate')];
+   const axis=P([[0,yb-4],[0,6]],'skel');
+   const poly=[],slots=[];
+   for(let i=0;i<k;i++){const g=(90+360*i/k)*D2R, u=[Math.cos(g),Math.sin(g)], v=[-u[1],u[0]];poly.push(mul([Math.cos(g+Math.PI/k),Math.sin(g+Math.PI/k)],R/Math.cos(Math.PI/k)));
+    [[r1+2,r1+2+tw],[r2-2-tw,r2-2]].forEach(([q0,q1])=>slots.push(P([add(mul(u,q0),mul(v,-t/2)),add(mul(u,q1),mul(v,-t/2)),add(mul(u,q1),mul(v,t/2)),add(mul(u,q0),mul(v,t/2))],'hole')));}
+   out.push({name:'Vertex hub + struts',st:th>=170?['warn','Hundreds of parts']:['ok','Convex corners'],sec:[...hub,...face,P(strut,'conn'),axis],flat:[P(poly,'plate'),...slots],
+    read:'Strut shoulder '+f1(al/D2R)+'°; per vertex: 1 hub + '+k+' struts'});
+  }
+ }
+ {
+  if(th>=180){out.push({name:'Angled finger joints',st:['no','Not for valleys'],sec:[],flat:[],read:'Fingers on a valley edge would have to grow inward through the other panel'});}
+  else{
+   const xe=t/Math.tan(a/2), fw=Math.max(2*t,5);
+   let Rg=[[0,0],[xe,0],[xe,t],[0,t]];Rg=clipHalf(clipHalf(Rg,mul(nB,-1),0),nB,t);
+   const gp=Math.max(0,...Rg.map(p=>dB[0]*p[0]+dB[1]*p[1]));
+   const sec=[P(band(dA,nA,-xe,L,t),'plate'),P(band(dB,nB,gp,L,t),'plate'),P(band(dB,nB,-xe,gp,t),'ghost')];
+   const comb=[[0,-12]];let x=0,i=0;while(x<40-1e-9){const x1=Math.min(40,x+fw),lv=i%2?-gp:xe;comb.push([x,lv],[x1,lv]);x=x1;i++;}comb.push([40,-12]);
+   const st=th<75?['warn','Tips stick out']:th<=150?['ok','Best at 75–150°']:th<=170?['warn','Only '+f1(xe)+' mm grip']:['no','Nothing to grip'];
+   out.push({name:'Angled finger joints',st,sec,flat:[P(comb,'plate'),P([[-2,0],[42,0]],'skel')],
+    read:'Fingers reach '+f1(xe)+' mm past the edge; dashed = the other panel’s finger'});
+  }
+ }
+ {
+  if(th>=180){out.push({name:'Tab and slot',st:['no','Not for valleys'],sec:[],flat:[],read:'The tab would have to pass back through its own panel'});}
+  else{
+   const sa=Math.sin(a), ca=Math.cos(a), xs=[0,t*ca/sa,t/sa,t/Math.tan(a/2)], smin=Math.min(...xs), smax=Math.max(...xs), xend=smax+Math.max(t,2), gtip=Math.min(-t/sa,-t*(1+ca)/sa), tw=Math.max(2*t,5);
+   const sec=[P(band(dA,nA,-xend,-smax,t),'plate'),P(band(dA,nA,-smin,L,t),'plate'),P(band(dB,nB,gtip,L,t),'plate')];
+   const rect=(x0,x1,y0,y1)=>[[x0,y0],[x1,y0],[x1,y1],[x0,y1]];
+   const play=smax-smin-t/sa;
+   const r=play/t, st=r<=0.6?['ok',f1(play)+' mm play']:r<=1.2?['warn',f1(play)+' mm play']:['no','Slot too long'];
+   out.push({name:'Tab and slot',st,sec,flat:[P(rect(0,40,-12,xend),'plate'),P(rect(8,8+tw,smin,smax),'hole'),P(rect(32-tw,32,smin,smax),'hole'),P([[-2,0],[42,0]],'skel')],
+    read:'Slot '+f1(smax-smin)+' mm long for a '+f1(t/sa)+' mm tab crossing ('+f1(play)+' mm play); lip '+f1(xend)+' mm past the edge'});
+  }
+ }
+ return out;
+}
+const STY={plate:'fill="#B4B2A9" fill-opacity="0.5" stroke="#888780" stroke-width="0.8"',conn:'fill="#1D9E75" fill-opacity="0.35" stroke="#1D9E75" stroke-width="1"',hole:'fill="none" stroke="#1D9E75" stroke-width="1"',ghost:'fill="none" stroke="#888780" stroke-width="0.8" stroke-dasharray="3 2"',tie:'fill="none" stroke="#D85A30" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"',skel:'fill="none" stroke="#888780" stroke-width="0.7" stroke-dasharray="4 3"'};
+function render(shapes,box){
+ if(!shapes.length)return '<text class="ts" x="'+(box.x+box.w/2)+'" y="'+(box.y+box.h/2)+'" text-anchor="middle" dominant-baseline="central">Not possible at this angle</text>';
+ let xs=[],ys=[];shapes.forEach(s=>s.pts.forEach(p=>{xs.push(p[0]);ys.push(p[1]);}));
+ const mnx=Math.min(...xs),mxx=Math.max(...xs),mny=Math.min(...ys),mxy=Math.max(...ys);
+ const sc=Math.min(box.max,box.w/((mxx-mnx)||1),box.h/((mxy-mny)||1)),cx=(mnx+mxx)/2,cy=(mny+mxy)/2;
+ const T=p=>(box.x+box.w/2+(p[0]-cx)*sc).toFixed(1)+','+(box.y+box.h/2-(p[1]-cy)*sc).toFixed(1);
+ return shapes.map(s=>{const pts=s.pts.map(T).join(' ');return (s.k==='tie'||s.k==='skel')?'<polyline points="'+pts+'" '+STY[s.k]+'/>':'<polygon points="'+pts+'" '+STY[s.k]+'/>';}).join('');
+}
+function draw(){
+ const th=+$('cw-th').value,t=+$('cw-t').value,k=+$('cw-k').value;
+ $('cw-th-out').textContent=f1(th)+'°';$('cw-t-out').textContent=f1(t)+' mm';
+ const cards=build(th,t,k);
+ $('cw-grid').innerHTML=cards.map(c=>{
+  const cls=c.st[0]==='ok'?'cw-ok':c.st[0]==='warn'?'cw-warn':'cw-no';
+  return '<div class="cw-card"><div class="cw-head"><span style="font-size:15px;font-weight:500">'+c.name+'</span><span class="cw-pill '+cls+'">'+c.st[1]+'</span></div>'+
+  '<svg width="100%" viewBox="0 0 320 272" role="img" aria-label="'+c.name+' section and flat parts"><text class="ts" x="4" y="14">Section across the edge</text>'+render(c.sec,{x:8,y:24,w:304,h:150,max:4.5})+
+  '<line x1="4" x2="316" y1="186" y2="186" stroke="var(--border)" stroke-width="0.5"/><text class="ts" x="4" y="202">Flat parts</text>'+render(c.flat,{x:8,y:210,w:304,h:58,max:2.4})+'</svg>'+
+  '<div style="font-size:13px;color:var(--text-secondary);line-height:1.5">'+c.read+'</div></div>';}).join('');
+}
+['cw-th','cw-t'].forEach(id=>$(id).addEventListener('input',draw));$('cw-k').addEventListener('change',draw);
+draw();
+})();
+</script>
+</main>
+</html>

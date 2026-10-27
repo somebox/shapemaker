@@ -66,6 +66,19 @@ node scripts/export-stl.mjs out.stl --wall=2.0 --border=4 --fillet=4.5
 node scripts/export-stl.mjs out.stl --base=dodecahedron --depth=solid --openings=false
 ```
 
+### Sheet (laser) samples
+
+```bash
+node scripts/sheet-samples.mjs                      # samples + test cuts → test/out/sheet/index.html
+node scripts/sheet-samples.mjs --set=tests --ply-clearance=-0.1
+node scripts/sheet-samples.mjs --board=xtool-s1 --sheet=4 --only=clips
+```
+
+`src/sheet/` turns a skeleton into flat parts for Cut (clips, ties, tabs)
+and Fold (nets with flaps, tape or sewing), packs them onto boards and
+writes layered SVG; it is not wired into the app yet. See
+[docs/LASER_RESEARCH.md](docs/LASER_RESEARCH.md).
+
 Cut sides (`openingAxis: "through"`) run on the manifold-3d WebAssembly
 library, which loads on demand. Scripts that call `compile()` on such a state
 `await loadCsg()` from `src/solid/csg.js` first; `export-stl.mjs` does this
@@ -137,10 +150,11 @@ src/
   solid/spike.js    face pyramids / dimples (origin-star-convex)
   export/stl.js     binary STL writer
   export/svg.js     camera-projected SVG
+  sheet/            laser output prototype: panels, cut, fold, layout, svg, assembly
   viewer.js         only module that imports Three.js
 prototype/          Python reference (meshcheck, original generator)
 test/               node --test + fixtures
-scripts/            export-stl.mjs, acceptance.sh
+scripts/            export-stl.mjs, acceptance.sh, sheet-samples.mjs (+ lib/ renderer)
 ```
 
 `solid/shell.js` learns the polyhedron only through `skeleton.js` and
