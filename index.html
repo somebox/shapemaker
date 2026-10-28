@@ -1241,19 +1241,22 @@
     }
     #dimension-strip .err { color: var(--err); }
 
+    /* Narrow: stack view, status bar, then panel. The panel scrolls in
+       its own row so the view stays put. */
     @media (max-width: 899px) {
-      #app { grid-template-columns: 1fr; }
-      #bottombar { grid-column: 1; }
+      #app {
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-rows: auto minmax(180px, 45%) auto minmax(0, 1fr);
+      }
+      #bottombar { grid-column: 1; grid-row: 3; flex-wrap: wrap; row-gap: 8px; }
+      #dimension-strip { flex-basis: 100%; }
+      /* The section HUD spans the bottom edge; lift the callout clear. */
+      .dim-callout { top: 12px; bottom: auto; }
       #panel {
-        position: absolute;
-        top: 0;
-        /* Sit below the header so chrome stays reachable */
-        top: var(--header-offset, 37px);
-        right: 0;
-        bottom: 0;
-        width: min(312px, 100%);
-        z-index: 2;
-        box-shadow: -8px 0 24px rgba(0, 0, 0, 0.35);
+        grid-column: 1;
+        grid-row: 4;
+        border-left: 0;
+        border-top: 1px solid var(--line);
       }
     }
   </style>
