@@ -6,7 +6,8 @@ specified or scheduled; it feeds the "More specialized 2D outputs" item in
 pages sit beside this file; open them in a browser:
 [laser/connectors.html](laser/connectors.html) (the joint options by angle and
 thickness) and [laser/build-modes.html](laser/build-modes.html) (the panel
-mockup).
+rows in each mode). A clickable mockup runs in the app itself: open it with
+`?sheet` in the URL (§8.5).
 
 The idea: instead of a printable shell, the user picks a sheet **thickness**
 and a **board size**. Shapemaker restricts the design to geometry that is
@@ -460,6 +461,43 @@ face counts (globes) will need several nets.
 
 The board's "Define specialized 2D output workflow" story
 (card_0d8fe8fb) is largely answered by this file.
+
+### 8.5 Clickable mockup in the app (2026-10-28)
+
+Adding `?sheet` to the app's URL (`http://localhost:8000/?sheet`) mounts
+`src/sheet/mockup.js` over the real panel. Without the flag the app is
+unchanged. It is a mockup of the interface in §8.1, built on the real
+engine:
+
+- **Build** (Print · Cut · Fold) is the first row of Form. Each mode keeps its
+  own settings (stored in the browser, not in the design or the URL).
+- **Cut:** Sheet and Join (Clips · Ties · Tabs) replace Shell, Wall and
+  Rounding. Advanced holds Kerf and Fit; Sides and the print Advanced rows
+  hide. Make shows Board (the profiles plus Custom) and Labels in place of
+  Quality, Material and Mass.
+- **Fold:** Join (Tape · Flaps · Sew) and Fold lines (Score · Perforate ·
+  Mark). Clicking a face centres the first net on it.
+- **Viewer:** the parts put together (plates, clips, ties, tabs; paper,
+  flaps, tape, stitches) stand in for the printed shell, rebuilt on every
+  edit. Print risk, Split and Section hide.
+- **Flat** joins the viewport toggles. It shows the boards with the cut-file
+  colours on a plywood or paper ground, one tab per board. Hovering a part
+  names it; clicking a panel, clip or net goes back to 3D and lights it up.
+- **Bottom bar:** Export cut file downloads one layered SVG per board, and
+  the status line reports parts, joins and boards. Its first warning uses
+  the app's fix pattern (for clip slots: a wider Border, or closed faces).
+
+What it doesn't do yet: the Section plane doesn't clip the plates, Fold's
+net-centre click also turns the model onto that face (it reuses the
+resting-face pick), nothing is saved with the design, and every edit
+rebuilds the sheet, which is slow on dense shapes.
+
+| | |
+|---|---|
+| ![Cut mode, 3D](laser/images/mockup-cut-3d.jpg) | ![Cut mode, Flat](laser/images/mockup-cut-flat.jpg) |
+| Cut, Clips: the plates and clips in the viewer, the Build switch in Form, a fix on the status line. | Flat: the Falcon A1 board with panels, clips and the fit strip. |
+| ![Fold mode, Flat](laser/images/mockup-fold-flat.jpg) | ![Cube with tabs](laser/images/mockup-cube-tabs.png) |
+| Fold, Flaps: the A4 net with valley folds and glue flaps. | Cut, Tabs on a cube. |
 
 ## 9. Pictures
 

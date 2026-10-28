@@ -119,6 +119,7 @@ export function createViewer(container, opts = {}) {
   let lastExtents = null;
   let splitGroup = null;
   let splitActive = false;
+  let altObj = null;
   const raycaster = new THREE.Raycaster();
   raycaster.params.Line.threshold = 1.8;
   const pointer = new THREE.Vector2();
@@ -172,6 +173,7 @@ export function createViewer(container, opts = {}) {
       disposeObject3D(c);
     }
     meshObj = null;
+    altObj = null;
     focusMesh = null;
     edgePick = null;
     edgeHighlight = null;
@@ -813,8 +815,24 @@ export function createViewer(container, opts = {}) {
   resize();
   frame();
 
+  /**
+   * Show another object in the model's frame in place of the mesh (the
+   * sheet mockup's plates); null shows the mesh again. setMesh drops it.
+   * @param {THREE.Object3D|null} obj
+   */
+  function setAltModel(obj) {
+    if (altObj) {
+      modelGroup.remove(altObj);
+      disposeObject3D(altObj);
+    }
+    altObj = obj;
+    if (obj) modelGroup.add(obj);
+    if (meshObj) meshObj.visible = !obj;
+  }
+
   return {
     setMesh,
+    setAltModel,
     setFocusFaces,
     setPrintRisk,
     setPrintOverlay,

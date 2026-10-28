@@ -90,6 +90,15 @@ describe("sheet fold mode", () => {
       assert.equal(res.stats.folds, res.stats.panels - res.stats.nets, base);
     }
   });
+
+  it("centres the first net on the chosen face", () => {
+    const sk = skeletonOf({ base: "icosidodeca", circumdiameterMm: 120 });
+    for (const rootFace of [0, 7, 20]) {
+      const res = buildSheet(sk, { mode: "fold", join: "tape", board: falcon, rootFace });
+      const net = res.parts.find((p) => p.kind === "net" && p.name === "net 1");
+      assert.ok(res.extracted.panels[net.panels[0]].faces.includes(rootFace), `face ${rootFace}`);
+    }
+  });
 });
 
 describe("sheet layout", () => {

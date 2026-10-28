@@ -76,8 +76,9 @@ node scripts/sheet-samples.mjs --board=xtool-s1 --sheet=4 --only=clips
 
 `src/sheet/` turns a skeleton into flat parts for Cut (clips, ties, tabs)
 and Fold (nets with flaps, tape or sewing), packs them onto boards and
-writes layered SVG; it is not wired into the app yet. See
-[docs/LASER_RESEARCH.md](docs/LASER_RESEARCH.md).
+writes layered SVG. In the app it runs only as a mockup: add `?sheet` to the
+URL to get the Build switch, the Flat view and Export cut file
+(`src/sheet/mockup.js`). See [docs/LASER_RESEARCH.md](docs/LASER_RESEARCH.md) §8.5.
 
 Cut sides (`openingAxis: "through"`) run on the manifold-3d WebAssembly
 library, which loads on demand. Scripts that call `compile()` on such a state
@@ -150,7 +151,7 @@ src/
   solid/spike.js    face pyramids / dimples (origin-star-convex)
   export/stl.js     binary STL writer
   export/svg.js     camera-projected SVG
-  sheet/            laser output prototype: panels, cut, fold, layout, svg, assembly
+  sheet/            laser output prototype: panels, cut, fold, layout, svg, assembly, mockup (?sheet)
   viewer.js         only module that imports Three.js
 prototype/          Python reference (meshcheck, original generator)
 test/               node --test + fixtures

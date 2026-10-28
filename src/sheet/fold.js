@@ -28,7 +28,7 @@ import { pointInPoly } from "./cut.js";
  *   foldStyle?: 'score'|'perforate'|'mark',
  *   board: { w: number, h: number }, marginMm?: number,
  *   flapMm?: number, sewHoleMm?: number, sewPitchMm?: number,
- *   labels?: boolean,
+ *   labels?: boolean, rootFace?: number,
  *   openings?: { generator: object, borderFraction: number, filletMm: number } | null,
  * }} opts
  */
@@ -53,6 +53,9 @@ export function buildFold(extracted, opts) {
   const nets = [];
   const folded = new Set();
   const order = panels.map((p) => p.id).sort((a, b) => polyArea(views[b].outline) - polyArea(views[a].outline));
+  // A chosen face centres the first net; otherwise the largest panel does.
+  const rootPanel = Number.isInteger(opts.rootFace) ? panels.findIndex((p) => p.faces.includes(opts.rootFace)) : -1;
+  if (rootPanel >= 0) order.unshift(...order.splice(order.indexOf(rootPanel), 1));
 
   for (const root of order) {
     if (netOf[root] >= 0) continue;
@@ -193,7 +196,7 @@ export function buildFold(extracted, opts) {
   const oversize = panels.filter((p) => !fits(views[p.id].outline, fitW, fitH)).length;
   if (oversize) warnings.push(`${oversize} faces are larger than the board`);
 
-  const parts = nets.map((net, i) => ({ name: `net ${i + 1}`, kind: "net", paths: netPaths[i] }));
+  const parts = nets.map((net, i) => ({ name: `net ${i + 1}`, kind: "net", panels: net.members, faces: [...net.polys, ...flapPolys[i]], paths: netPaths[i] }));
   const foldCount = joints.filter((j) => folded.has(j.id)).length;
   return {
     parts,
