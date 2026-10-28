@@ -10,7 +10,6 @@
  * flag. Plan: docs/LASER_RESEARCH.md §8.
  */
 
-import * as THREE from "three";
 import { buildSheet, BOARD_PROFILES, boardSvg, LAYERS } from "./index.js";
 import { buildAssembly } from "./assembly.js";
 import { apply } from "./geom2.js";
@@ -86,9 +85,6 @@ export function mountSheetMockup({ viewer, getLast, applyPatch }) {
   let sheet = null;
   let sheetError = "";
   let boardIndex = 0;
-  let pickTimer = null;
-  /** @type {Map<string, THREE.Mesh[]>} */
-  let solidsByKey = new Map();
   let buildTimer = null;
 
   injectStyles();
@@ -303,7 +299,7 @@ export function mountSheetMockup({ viewer, getLast, applyPatch }) {
       });
       sheet.openings = openings;
       sheet.borderFraction = openings?.borderFraction ?? null;
-      viewer.setAltModel(assemblyObject(last.skeleton, sheet, openings));
+      viewer.setAltModel(assemblyModel(last.skeleton, sheet, openings));
     } catch (err) {
       console.error("sheet mockup:", err);
       sheetError = `Couldn't lay this shape out: ${err.message}`;
@@ -466,66 +462,31 @@ export function mountSheetMockup({ viewer, getLast, applyPatch }) {
   }
 
   function highlight(keys) {
-    const meshes = keys.flatMap((k) => solidsByKey.get(k) ?? []);
-    for (const m of meshes) {
-      m.material.emissive?.setHex(0x6a4e00);
-      m.material.color.setHex(COLORS.pick);
-    }
-    clearTimeout(pickTimer);
-    pickTimer = setTimeout(() => {
-      for (const m of meshes) {
-        m.material.emissive?.setHex(0x000000);
-        m.material.color.setHex(m.userData.color);
-      }
-    }, 2400);
+    viewer.highlightAlt(keys, COLORS.pick, 2400);
   }
 
-  // ── 3D: the parts put together ──
-  function assemblyObject(skeleton, res, openings) {
+  // ── 3D: the parts put together, as plain data the viewer draws ──
+  function assemblyModel(skeleton, res, openings) {
     const { solids } = buildAssembly(skeleton, res, { openings });
-    const group = new THREE.Group();
-    solidsByKey = new Map();
     const linePts = [];
-    for (const s of solids) {
-      const pos = new Float32Array(s.tris.length * 9);
+    const parts = solids.map((s) => {
+      const positions = new Float32Array(s.tris.length * 9);
       let o = 0;
       for (const tri of s.tris) for (const p of tri) {
-        pos[o++] = p[0];
-        pos[o++] = p[1];
-        pos[o++] = p[2];
+        positions[o++] = p[0];
+        positions[o++] = p[1];
+        positions[o++] = p[2];
       }
-      const geo = new THREE.BufferGeometry();
-      geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
-      geo.computeVertexNormals();
-      const color = COLORS[s.tag] ?? COLORS.panel;
-      const mesh = new THREE.Mesh(
-        geo,
-        new THREE.MeshStandardMaterial({
-          color,
-          metalness: 0.02,
-          roughness: s.tag === "tape" ? 0.35 : 0.7,
-          side: THREE.DoubleSide,
-          flatShading: true,
-          transparent: s.tag === "tape",
-          opacity: s.tag === "tape" ? 0.8 : 1,
-          polygonOffset: true,
-          polygonOffsetFactor: 1,
-          polygonOffsetUnits: 1,
-        }),
-      );
-      mesh.userData.color = color;
-      group.add(mesh);
-      const key = s.panel != null ? `p${s.panel}` : s.joint != null ? `j${s.joint}` : null;
-      if (key) solidsByKey.set(key, [...(solidsByKey.get(key) ?? []), mesh]);
       // Segments [a, b, tag?]: outlines and engraved marks.
       for (const [a, b] of s.lines ?? []) linePts.push(...a, ...b);
-    }
-    if (linePts.length) {
-      const lg = new THREE.BufferGeometry();
-      lg.setAttribute("position", new THREE.Float32BufferAttribute(linePts, 3));
-      group.add(new THREE.LineSegments(lg, new THREE.LineBasicMaterial({ color: 0x3a2a1a, transparent: true, opacity: 0.6 })));
-    }
-    return group;
+      return {
+        positions,
+        color: COLORS[s.tag] ?? COLORS.panel,
+        opacity: s.tag === "tape" ? 0.8 : 1,
+        key: s.panel != null ? `p${s.panel}` : s.joint != null ? `j${s.joint}` : null,
+      };
+    });
+    return { parts, lines: new Float32Array(linePts), lineColor: 0x3a2a1a };
   }
 
   // ── Export cut file ──

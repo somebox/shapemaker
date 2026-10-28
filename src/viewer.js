@@ -816,23 +816,76 @@ export function createViewer(container, opts = {}) {
   frame();
 
   /**
-   * Show another object in the model's frame in place of the mesh (the
-   * sheet mockup's plates); null shows the mesh again. setMesh drops it.
-   * @param {THREE.Object3D|null} obj
+   * Draw another model in the mesh's frame in place of the mesh (the sheet
+   * mockup's plates and clips); null shows the mesh again. setMesh drops it.
+   * Parts with a key can be lit up with highlightAlt.
+   * @param {{ parts: { positions: Float32Array, color: number, opacity?: number, key?: string|null }[], lines?: Float32Array, lineColor?: number } | null} model
    */
-  function setAltModel(obj) {
+  function setAltModel(model) {
     if (altObj) {
       modelGroup.remove(altObj);
       disposeObject3D(altObj);
     }
-    altObj = obj;
-    if (obj) modelGroup.add(obj);
-    if (meshObj) meshObj.visible = !obj;
+    altObj = null;
+    altByKey = new Map();
+    if (model) {
+      altObj = new THREE.Group();
+      for (const part of model.parts) {
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute("position", new THREE.BufferAttribute(part.positions, 3));
+        geo.computeVertexNormals();
+        const opacity = part.opacity ?? 1;
+        const mesh = new THREE.Mesh(
+          geo,
+          new THREE.MeshStandardMaterial({
+            color: part.color,
+            metalness: 0.02,
+            roughness: opacity < 1 ? 0.35 : 0.7,
+            side: THREE.DoubleSide,
+            flatShading: true,
+            transparent: opacity < 1,
+            opacity,
+            polygonOffset: true,
+            polygonOffsetFactor: 1,
+            polygonOffsetUnits: 1,
+          }),
+        );
+        mesh.userData.color = part.color;
+        altObj.add(mesh);
+        if (part.key) altByKey.set(part.key, [...(altByKey.get(part.key) ?? []), mesh]);
+      }
+      if (model.lines?.length) {
+        const lg = new THREE.BufferGeometry();
+        lg.setAttribute("position", new THREE.BufferAttribute(model.lines, 3));
+        altObj.add(new THREE.LineSegments(lg, new THREE.LineBasicMaterial({ color: model.lineColor ?? 0x000000, transparent: true, opacity: 0.6 })));
+      }
+      modelGroup.add(altObj);
+    }
+    if (meshObj) meshObj.visible = !altObj;
   }
+
+  /** Tint the alt model's parts with these keys for `ms`, then restore them. */
+  function highlightAlt(keys, color, ms) {
+    const meshes = keys.flatMap((k) => altByKey.get(k) ?? []);
+    for (const m of meshes) {
+      m.material.emissive.setHex(0x6a4e00);
+      m.material.color.setHex(color);
+    }
+    clearTimeout(altPickTimer);
+    altPickTimer = setTimeout(() => {
+      for (const m of meshes) {
+        m.material.emissive.setHex(0x000000);
+        m.material.color.setHex(m.userData.color);
+      }
+    }, ms);
+  }
+  let altByKey = new Map();
+  let altPickTimer = null;
 
   return {
     setMesh,
     setAltModel,
+    highlightAlt,
     setFocusFaces,
     setPrintRisk,
     setPrintOverlay,
