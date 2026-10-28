@@ -21,6 +21,7 @@ import { OPENING_GENERATORS } from "../src/solid/shell.js";
 import { buildSheet, boardSvg, BOARD_PROFILES } from "../src/sheet/index.js";
 import { packParts } from "../src/sheet/layout.js";
 import { foldTestStrip } from "../src/sheet/fold.js";
+import { MAX_BORDER } from "../src/sheet/cut.js";
 import { sheetPictures } from "./lib/sheet-pictures.mjs";
 
 const args = Object.fromEntries(
@@ -156,7 +157,7 @@ function buildJob(job, diameter) {
   const need = res.stats.minBorderFraction;
   if (openings && need > openings.borderFraction) {
     const was = openings.borderFraction;
-    openings.borderFraction = Math.min(0.85, Math.ceil(need * 100) / 100);
+    openings.borderFraction = Math.min(MAX_BORDER, Math.ceil(need * 100) / 100);
     res = build();
     res.warnings.unshift(`Border raised from ${Math.round(was * 100)}% to ${Math.round(openings.borderFraction * 100)}% to clear the joints`);
   }

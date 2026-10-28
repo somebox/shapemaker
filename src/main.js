@@ -943,7 +943,13 @@ function fallbackCopy(url) {
 // Cut and Fold mockup over the real panel, only with ?sheet in the URL
 // (docs/LASER_RESEARCH.md §8).
 const sheetMockup = new URLSearchParams(location.search).has("sheet")
-  ? (await import("./sheet/mockup.js")).mountSheetMockup({ viewer, getLast: () => last, applyPatch })
+  ? (await import("./sheet/mockup.js")).mountSheetMockup({
+      viewer,
+      getLast: () => last,
+      applyPatch,
+      exportStem: () => exportStem(last.state),
+      download: downloadBlob,
+    })
   : null;
 
 // Boot: prefer URL hash, else defaults. Seed the URL without a live-edit entry.

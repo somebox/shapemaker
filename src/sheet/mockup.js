@@ -13,6 +13,7 @@
 import { buildSheet, BOARD_PROFILES, boardSvg, LAYERS } from "./index.js";
 import { buildAssembly } from "./assembly.js";
 import { apply } from "./geom2.js";
+import { MAX_BORDER } from "./cut.js";
 import { OPENING_GENERATORS } from "../solid/shell.js";
 import { el } from "../controls.js";
 
@@ -44,21 +45,39 @@ const COLORS = {
   pick: 0xffcc44,
 };
 
+/** Choices each setting may take; anything else falls back to the default. */
+const CHOICES = {
+  build: ["print", "cut", "fold"],
+  join: { cut: ["clips", "ties", "tabs"], fold: ["tape", "flaps", "sew"] },
+  fit: Object.keys(FIT_CLEARANCE),
+  foldStyle: ["score", "perforate", "mark"],
+};
+
 function loadSettings() {
+  const S = structuredClone(DEFAULTS);
+  let saved = null;
   try {
-    const saved = JSON.parse(localStorage.getItem(STORE_KEY) ?? "null");
-    if (saved) {
-      return {
-        ...DEFAULTS,
-        ...saved,
-        cut: { ...DEFAULTS.cut, ...saved.cut },
-        fold: { ...DEFAULTS.fold, ...saved.fold },
-      };
-    }
+    saved = JSON.parse(localStorage.getItem(STORE_KEY) ?? "null");
   } catch {
-    /* private window or blocked storage: defaults */
+    /* private window, blocked storage or bad JSON: defaults */
   }
-  return structuredClone(DEFAULTS);
+  if (!saved || typeof saved !== "object") return S;
+  const ok = (v, list) => list.includes(v);
+  const num = (v, lo, hi) => typeof v === "number" && v >= lo && v <= hi;
+  if (ok(saved.build, CHOICES.build)) S.build = saved.build;
+  S.flat = saved.flat === true && S.build !== "print";
+  for (const m of ["cut", "fold"]) {
+    const from = saved[m] ?? {}, to = S[m];
+    if (ok(from.join, CHOICES.join[m])) to.join = from.join;
+    if (from.board === "custom" || BOARD_PROFILES[from.board]) to.board = from.board;
+    if (num(from.custom?.w, 50, 2000) && num(from.custom?.h, 50, 2000)) to.custom = { w: from.custom.w, h: from.custom.h };
+    if (typeof from.labels === "boolean") to.labels = from.labels;
+  }
+  if (num(saved.cut?.sheetMm, 0.5, 8)) S.cut.sheetMm = saved.cut.sheetMm;
+  if (num(saved.cut?.kerfMm, 0, 0.4)) S.cut.kerfMm = saved.cut.kerfMm;
+  if (ok(saved.cut?.fit, CHOICES.fit)) S.cut.fit = saved.cut.fit;
+  if (ok(saved.fold?.foldStyle, CHOICES.foldStyle)) S.fold.foldStyle = saved.fold.foldStyle;
+  return S;
 }
 
 function saveSettings(s) {
@@ -77,9 +96,11 @@ const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
  *   viewer: ReturnType<import("../viewer.js").createViewer>,
  *   getLast: () => any,
  *   applyPatch: (patch: object, commit: boolean) => void,
+ *   exportStem: () => string,
+ *   download: (data: BlobPart, filename: string, mime: string) => void,
  * }} app
  */
-export function mountSheetMockup({ viewer, getLast, applyPatch }) {
+export function mountSheetMockup({ viewer, getLast, applyPatch, exportStem, download }) {
   const S = loadSettings();
   /** @type {any} */
   let sheet = null;
@@ -91,7 +112,6 @@ export function mountSheetMockup({ viewer, getLast, applyPatch }) {
 
   const panelEl = document.getElementById("panel");
   const canvasHost = document.getElementById("canvas-host");
-  const bottombar = document.getElementById("bottombar");
   const appStrip = document.getElementById("dimension-strip");
   const formBody = panelEl.querySelector('section[data-group="form"] .group-body');
   const makeBody = panelEl.querySelector('section[data-group="make"] .group-body');
@@ -110,10 +130,11 @@ export function mountSheetMockup({ viewer, getLast, applyPatch }) {
   const printOnlyMake = [byKey("edgeDiv"), ...materialRows];
   const faceHint = [...makeBody.querySelectorAll("p.hint")].find((p) => /click a face/i.test(p.textContent));
   const faceHintPrint = faceHint?.textContent ?? "";
-  const riskToggle = hud?.querySelector("[data-risk-toggle]");
-  const splitToggle = hud?.querySelector("[data-split-on]")?.closest("label");
-  const sectionToggle = hud?.querySelector("[data-section-on]")?.closest("label");
-  const sectionRange = hud?.querySelector("[data-section-z]");
+  // Print's viewport overlays don't apply to sheet parts: switched off on
+  // the way out of Print (through their own checkboxes, so the app keeps
+  // its state) and Print risk and Section switched back on the way in.
+  const overlayInputs = ["[data-print-risk]", "[data-section-on]", "[data-split-on]"].map((q) => hud?.querySelector(q)).filter(Boolean);
+  let printOverlays = [];
   const exportStl = document.getElementById("btn-export");
   const exportSvg = document.getElementById("btn-export-svg");
 
@@ -124,8 +145,16 @@ export function mountSheetMockup({ viewer, getLast, applyPatch }) {
 
   // ── Form: Build switch and each mode's rows ──
   const buildRow = segControl("Build", [["print", "Print"], ["cut", "Cut"], ["fold", "Fold"]], () => S.build, (v) => {
+    if (v === S.build) return;
+    if (S.build === "print") {
+      printOverlays = overlayInputs.filter((i) => i.checked);
+      for (const i of printOverlays) i.click();
+    } else if (v === "print") {
+      for (const i of printOverlays) if (!i.checked && !i.matches("[data-split-on]")) i.click();
+      printOverlays = [];
+      S.flat = false;
+    }
     S.build = v;
-    if (v === "print") S.flat = false;
     changed();
   });
   buildRow.root.classList.add("sheet-build");
@@ -239,8 +268,7 @@ export function mountSheetMockup({ viewer, getLast, applyPatch }) {
         : S.build === "fold" ? "Click a face on the model to centre the first net on it."
         : faceHintPrint;
     }
-    for (const n of [riskToggle, splitToggle, sectionToggle, sectionRange]) if (n) n.hidden = sheetMode;
-    flatToggle.hidden = !sheetMode;
+    hud?.classList.toggle("sheet-mode", sheetMode);
     flatInput.checked = S.flat;
     exportStl.hidden = sheetMode;
     exportCut.hidden = !sheetMode;
@@ -332,7 +360,9 @@ export function mountSheetMockup({ viewer, getLast, applyPatch }) {
     let line1, line2;
     if (sheet.mode === "cut") {
       const clips = Object.values(st.clips ?? {}).reduce((a, n) => a + n, 0);
-      const joins = [clips && plural(clips, "clip"), st.ties && plural(st.ties, "tie"), st.tabs && plural(st.tabs, "tab")].filter(Boolean).join(" + ");
+      const joins = [clips && plural(clips, "clip"), st.ties && plural(st.ties, "tie"), st.tabs && plural(st.tabs, "tab"), st.glued && `${st.glued} glued`]
+        .filter(Boolean)
+        .join(" + ");
       line1 = `cut   ${plural(st.panels, "panel")} · ${joins} · ${boards} · sheet ${fmt(S.cut.sheetMm)} mm`;
       const types = Object.keys(st.clips ?? {}).length;
       line2 = `edges ${fmt(st.dihedralDeg[0], 0)}–${fmt(st.dihedralDeg[1], 0)}° · shortest side ${fmt(st.smallestSideMm)} mm${types ? ` · ${plural(types, "clip shape")}` : ""}`;
@@ -351,10 +381,10 @@ export function mountSheetMockup({ viewer, getLast, applyPatch }) {
       const need = sheet.stats.minBorderFraction;
       if (sheet.mode === "cut" && sheet.borderFraction != null && need > sheet.borderFraction) {
         const pct = Math.ceil(need * 100);
-        const fix = pct <= 85
+        const fix = pct <= MAX_BORDER * 100
           ? el("button", { type: "button", className: "control-fix", textContent: `Use ${pct}% border` })
           : el("button", { type: "button", className: "control-fix", textContent: "Close the faces" });
-        fix.addEventListener("click", () => applyPatch(pct <= 85 ? { borderFraction: pct / 100 } : { openings: false }, true));
+        fix.addEventListener("click", () => applyPatch(pct <= MAX_BORDER * 100 ? { borderFraction: pct / 100 } : { openings: false }, true));
         strip.append(" ", fix);
       }
     }
@@ -398,9 +428,9 @@ export function mountSheetMockup({ viewer, getLast, applyPatch }) {
     for (const { part, tf } of board.items) {
       const g = document.createElementNS(svgNS, "g");
       g.setAttribute("class", `sheet-part sheet-part--${part.kind}`);
-      // Closed cut paths make the piece (evenodd leaves the holes open);
-      // it takes the hover fill.
-      // A net's outline is open cut runs, so its faces and flaps stand in.
+      // The piece's area takes the hover fill (evenodd leaves its holes
+      // open). A net's outline is open cut runs, so its faces and flaps
+      // stand in for it.
       const closed = part.faces ? part.faces.map((pts) => ({ pts })) : part.paths.filter((p) => p.closed && p.layer === "cut");
       const ring = (pts) => `M${pts.map((q) => P(tf, q)).join("L")}Z`;
       const body = closed.map((p) => ring(p.pts)).join("");
@@ -441,10 +471,11 @@ export function mountSheetMockup({ viewer, getLast, applyPatch }) {
   }
 
   function partLabel(part) {
-    if (part.kind === "panel") return `${part.name} · panel ${part.panel + 1} · click to see it on the model`;
-    if (part.kind === "clip") return `${part.name} · edge ${part.joint} · click to see it on the model`;
-    if (part.kind === "net") return `${part.name} · ${plural(part.panels.length, "face")} · click to see it on the model`;
-    if (part.kind === "coupon") return `${part.name} · cut this first to check the slot fit`;
+    const see = "click to see it on the model";
+    if (part.kind === "panel") return `Panel ${part.panel + 1} · ${see}`;
+    if (part.kind === "clip") return `Clip ${part.name.replace(/^clip /, "")} · edge ${part.joint} · ${see}`;
+    if (part.kind === "net") return `Net ${part.name.replace(/^net /, "")} · ${plural(part.panels.length, "face")} · ${see}`;
+    if (part.kind === "coupon") return `${part.name[0].toUpperCase()}${part.name.slice(1)} · cut this first to check the slot fit`;
     return part.name;
   }
 
@@ -493,16 +524,11 @@ export function mountSheetMockup({ viewer, getLast, applyPatch }) {
   function downloadBoards() {
     if (!sheet) return;
     const size = boardSize();
-    const name = (document.querySelector(".project-name, [data-project-name]")?.textContent?.trim() || "shapemaker").replace(/[^\w.-]+/g, "-");
+    const m = mode();
+    const stem = `${exportStem()}_${sheet.mode}_${m.join}${sheet.mode === "cut" ? `_${fmt(m.sheetMm)}mm` : ""}`;
     sheet.boards.forEach((board, i) => {
-      const svg = boardSvg(board, size, { title: `${name} ${sheet.mode} board ${i + 1}` });
-      const a = el("a", { href: URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" })), download: `${name}-${sheet.mode}-board-${i + 1}.svg` });
-      document.body.append(a);
-      a.click();
-      setTimeout(() => {
-        URL.revokeObjectURL(a.href);
-        a.remove();
-      }, 1000);
+      const name = sheet.boards.length > 1 ? `${stem}_board${i + 1}` : stem;
+      download(boardSvg(board, size, { title: name }), `${name}.svg`, "image/svg+xml");
     });
   }
 
@@ -593,12 +619,15 @@ export function mountSheetMockup({ viewer, getLast, applyPatch }) {
       mode().board = select.value;
       changed();
     });
+    // Out-of-range or empty sizes snap back into 50–2000 mm.
+    const clampSize = (input, was) => {
+      const v = Number(input.value);
+      return Number.isFinite(v) && input.value !== "" ? Math.min(2000, Math.max(50, Math.round(v))) : was;
+    };
     const onSize = () => {
-      const W = Number(w.value), H = Number(h.value);
-      if (W >= 50 && H >= 50) {
-        mode().custom = { w: W, h: H };
-        changed();
-      }
+      const m = mode();
+      m.custom = { w: clampSize(w, m.custom.w), h: clampSize(h, m.custom.h) };
+      changed();
     };
     w.addEventListener("change", onSize);
     h.addEventListener("change", onSize);
@@ -643,7 +672,8 @@ function injectStyles() {
 ${borrowed.join("\n")}
 #panel .control[hidden], #panel .control-cluster[hidden], #panel .control-row[hidden], #panel p[hidden],
 #sheet-strip[hidden], .sheet-control[hidden], .sheet-custom[hidden], .sheet-flat[hidden], .sheet-flat-tip[hidden],
-.section-hud > [hidden], #dimension-strip[hidden], .btn[hidden], .sheet-material[hidden] { display: none; }
+.section-hud.sheet-mode > :not(.sheet-flat-toggle), .section-hud:not(.sheet-mode) > .sheet-flat-toggle,
+#dimension-strip[hidden], .btn[hidden], .sheet-material[hidden] { display: none; }
 #sheet-strip .sheet-warn { color: var(--warn); }
 #sheet-strip .control-fix { color: var(--warn); font-size: 0.68rem; }
 .sheet-chip {

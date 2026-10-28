@@ -26,6 +26,9 @@ const D2R = Math.PI / 180;
 
 /** Tabs only where a square-cut slot leaves little play (|cot θ| ≤ 0.6). */
 const TAB_PLAY_MAX = 0.6;
+/** Widest Border the app allows (schema borderFraction max), as a fraction. */
+export const MAX_BORDER = 0.9;
+const fmt = (n) => String(Math.round(n * 10) / 10);
 
 /**
  * @typedef {{ layer: 'cut'|'score'|'valley'|'mountain'|'mark', pts: number[][], closed: boolean }} SheetPath
@@ -52,14 +55,21 @@ export function buildCut(extracted, opts) {
   const labels = opts.labels ?? true;
   const web = Math.max(t, 2);
   const w = Math.max(2 * t, 5);
+  // Shorter edges have no room for a slot or hole clear of the corners;
+  // they are glued (the valley inset still applies).
+  const minJoinMm = 2 * w + 2 * t;
   const { panels, joints } = extracted;
   const warnings = [];
 
   // Per-joint plan: the join actually used, offsets and positions.
-  let tabFallbacks = 0, hingingTies = 0;
+  let tabFallbacks = 0, hingingTies = 0, glued = 0;
   const plans = joints.map((j) => {
     const th = j.dihedralDeg * D2R;
     const trim = j.reflex ? -t / Math.tan(th / 2) : 0;
+    if (j.lengthMm < minJoinMm) {
+      glued++;
+      return { joint: j, kind: "glue", th, trim, at: [] };
+    }
     let kind = opts.join;
     if (kind === "tabs" && (j.reflex || Math.abs(1 / Math.tan(th)) > TAB_PLAY_MAX)) {
       kind = "clips";
@@ -173,13 +183,17 @@ export function buildCut(extracted, opts) {
     for (const at of p.at) parts.push({ ...clipPart(p, letter, { t, c, w, web, kerf, labels }), joint: p.joint.id, at });
   }
 
-  if (tabFallbacks) warnings.push(`${tabFallbacks} edges are too far from 90° for tabs and use clips`);
-  if (hingingTies) warnings.push(`${hingingTies} edges are sharper than 130° or deeper than 230°: ties will hinge there, add glue`);
+  // The openings clash comes first: it is the one the app offers a fix for.
   if (openingClashes) {
     warnings.push(
-      `Openings cut into the joints on ${openingClashes} panels: raise Border to ${Math.ceil(needBorder * 100)}% (now ${Math.round(opts.openings.borderFraction * 100)}%)`,
+      needBorder <= MAX_BORDER
+        ? `Openings crowd the edges on ${openingClashes} panels: raise Border to ${Math.ceil(needBorder * 100)}% (now ${Math.round(opts.openings.borderFraction * 100)}%)`
+        : `Openings crowd the edges on ${openingClashes} panels, and no Border clears them: close the faces`,
     );
   }
+  if (tabFallbacks) warnings.push(`${tabFallbacks} edges are too far from 90° for tabs and use clips`);
+  if (hingingTies) warnings.push(`${hingingTies} edges are sharper than 130° or deeper than 230°: ties will hinge there, add glue`);
+  if (glued) warnings.push(`${glued} edges are shorter than ${fmt(minJoinMm)} mm, too short for a joint: glue them`);
   if (labelsSkipped) warnings.push(`${labelsSkipped} edge labels didn't fit on their panels`);
   if (thinPanels) warnings.push(`${thinPanels} panels vanish after the valley insets`);
 
@@ -195,6 +209,7 @@ export function buildCut(extracted, opts) {
       clips: clipCounts,
       ties: plans.filter((p) => p.kind === "ties").reduce((s, p) => s + p.at.length, 0),
       tabs: plans.filter((p) => p.kind === "tabs").reduce((s, p) => s + p.at.length, 0),
+      glued,
       smallestSideMm: smallestSide,
       minBorderFraction: needBorder,
       dihedralDeg: [Math.min(...joints.map((j) => j.dihedralDeg)), Math.max(...joints.map((j) => j.dihedralDeg))],
@@ -236,6 +251,8 @@ function sideFeatures(s, { t, c, w, web, tieD, classOf }) {
       out.busy.push([a - tieD, a + tieD]);
     }
     out.depth = h + tieD / 2;
+  } else if (p.kind === "glue") {
+    // Only the valley inset: nothing cut along the edge.
   } else if (s.role === "a") {
     out.offset = -p.lip;
     for (const a of p.at) {

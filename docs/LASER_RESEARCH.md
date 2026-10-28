@@ -487,10 +487,30 @@ engine:
   the status line reports parts, joins and boards. Its first warning uses
   the app's fix pattern (for clip slots: a wider Border, or closed faces).
 
-What it doesn't do yet: the Section plane doesn't clip the plates, Fold's
-net-centre click also turns the model onto that face (it reuses the
-resting-face pick), nothing is saved with the design, and every edit
-rebuilds the sheet, which is slow on dense shapes.
+Leaving Print switches Print risk, Section and Split off (Split locks the
+panel), and coming back turns Print risk and Section on again. Exports are
+named like the STL (`icosidodeca_100mm_cut_clips_3mm.svg`, with `_board2`
+and so on when there are several).
+
+Interactive testing (2026-10-28) also changed the engine:
+
+- Cut edges shorter than 2·clip width + 2·t (18 mm at 3 mm) are glued rather
+  than given a clip, tie or tab, and the status line counts them.
+- When no Border clears the joints, the warning says to close the faces
+  instead of asking for a Border over 90%.
+- Fold flaps are checked against each other when fitting the board.
+- Fold labels go down to 2 mm, so they fit beside openings.
+
+What it doesn't do yet:
+
+- Section can't cut through the plates, so it's off in Cut and Fold.
+- Fold's net-centre click also turns the model onto that face, because it
+  reuses the resting-face pick.
+- Nothing is saved with the design or the link.
+- Every edit rebuilds the sheet: about 0.3 s for most shapes, 1.4 s for the
+  globe.
+- At phone width the app's panel covers the viewport. That happens without
+  `?sheet` too.
 
 | | |
 |---|---|

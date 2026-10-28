@@ -153,12 +153,15 @@ export function buildFold(extracted, opts) {
       if (flapOn && flapOn.pid === pid) {
         emitFold(net, s.p0, s.p1, j);
         flapPolys[net].push(flapOn.flap);
+        // Later flaps must fit the board together with this one.
+        nets[net].pts.push(...flapOn.flap);
         const f = flapOn.flap;
         netPaths[net].push({ layer: "cut", closed: false, pts: [f[0], f[3], f[2], f[1]] });
       } else {
         netPaths[net].push({ layer: "cut", closed: false, pts: [s.p0, s.p1] });
       }
-      let depth = 1;
+      // Labels sit 0.8 mm inside a plain edge (placeLabel adds the gap).
+      let depth = 0;
       if (opts.join === "sew") {
         const n = Math.max(1, Math.floor((s.L - 2 * sewDepth) / pitch) + 1);
         const start = (s.L - (n - 1) * pitch) / 2;
@@ -192,7 +195,9 @@ export function buildFold(extracted, opts) {
   }
 
   if (flapFallbacks) warnings.push(`${flapFallbacks} open edges had no room for a flap: tape them`);
-  if (labelsSkipped) warnings.push(`${labelsSkipped} edge labels didn't fit on their panels`);
+  if (labelsSkipped) {
+    warnings.push(`${labelsSkipped} edge labels didn't fit${opts.openings ? " beside the openings: raise Border or turn Labels off" : " on their faces"}`);
+  }
   const oversize = panels.filter((p) => !fits(views[p.id].outline, fitW, fitH)).length;
   if (oversize) warnings.push(`${oversize} faces are larger than the board`);
 
@@ -282,8 +287,10 @@ function circle(cen, r, n = 16) {
 }
 
 function placeLabel(s, text, depth0, openings) {
-  for (const h of [4, 3, 2.5]) {
-    const wd = textWidth(text, h), depth = depth0 + 1 + h / 2;
+  // Down to 2 mm: thin stock is read up close, and the border band beside
+  // an opening is often only 3 mm deep.
+  for (const h of [4, 3, 2.5, 2]) {
+    const wd = textWidth(text, h), depth = depth0 + 0.8 + h / 2;
     for (const f of [0.5, 0.35, 0.65]) {
       const a = f * s.L;
       if (a - wd / 2 < depth || a + wd / 2 > s.L - depth) continue;

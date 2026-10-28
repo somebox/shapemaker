@@ -81,6 +81,26 @@ describe("sheet cut mode", () => {
     const res = cut({ base: "icosahedron", spike: 1.5, circumdiameterMm: 220 }, { join: "clips" });
     assert.deepEqual(Object.keys(res.stats.clips).sort(), ["A", "B"]);
   });
+
+  it("glues edges too short for a joint", () => {
+    // 3 mm sheet: joints need 2·6 + 2·3 = 18 mm of edge.
+    const small = cut({ base: "cube", circumdiameterMm: 25 }, { join: "clips" });
+    assert.equal(small.stats.glued, 12);
+    assert.deepEqual(small.stats.clips, {});
+    assert.equal(small.parts.filter((p) => p.kind === "clip").length, 0);
+    assert.match(small.warnings.join(" "), /too short for a joint: glue them/);
+    const big = cut({ base: "cube", circumdiameterMm: 140 }, { join: "clips" });
+    assert.equal(big.stats.glued, 0);
+  });
+
+  it("says so when no Border clears the joints", () => {
+    const res = cut(
+      { base: "icosidodeca", circumdiameterMm: 100 },
+      { join: "clips", openings: { generator: OPENING_GENERATORS.polygon, borderFraction: 0.36, filletMm: 4.5 } },
+    );
+    assert.ok(res.stats.minBorderFraction > 0.9);
+    assert.match(res.warnings[0], /no Border clears them: close the faces/);
+  });
 });
 
 describe("sheet fold mode", () => {
@@ -89,6 +109,15 @@ describe("sheet fold mode", () => {
       const res = buildSheet(skeletonOf({ base, circumdiameterMm: 180 }), { mode: "fold", join: "flaps", board: falcon });
       assert.equal(res.stats.folds, res.stats.panels - res.stats.nets, base);
     }
+  });
+
+  it("fits flaps on the board together, not one at a time", () => {
+    const res = buildSheet(skeletonOf({ base: "icosidodeca", circumdiameterMm: 100 }), {
+      mode: "fold",
+      join: "flaps",
+      board: BOARD_PROFILES.a4,
+    });
+    assert.ok(!res.warnings.some((w) => /larger than the board/.test(w)), res.warnings.join(" | "));
   });
 
   it("centres the first net on the chosen face", () => {
