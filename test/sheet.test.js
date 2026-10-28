@@ -7,6 +7,7 @@ import { extractPanels } from "../src/sheet/panels.js";
 import { buildSheet, boardSvg, BOARD_PROFILES } from "../src/sheet/index.js";
 import { area, apply, convexHull, convexOverlap } from "../src/sheet/geom2.js";
 import { pointInPoly } from "../src/sheet/cut.js";
+import { plateMesh } from "../src/sheet/printclips.js";
 
 const skeletonOf = (state) =>
   compile({ ...DEFAULT_STATE, roundingMm: 0, openings: false, ...state }).skeleton;
@@ -80,6 +81,40 @@ describe("sheet cut mode", () => {
   it("gives valley edges their own clip class", () => {
     const res = cut({ base: "icosahedron", spike: 1.5, circumdiameterMm: 220 }, { join: "clips" });
     assert.deepEqual(Object.keys(res.stats.clips).sort(), ["A", "B"]);
+  });
+
+  it("rounds the clip corners that show through an opening", () => {
+    const res = cut({ base: "icosidodeca", circumdiameterMm: 200 }, { join: "clips" });
+    const outline = res.parts.find((p) => p.kind === "clip").paths[0].pts;
+    // 14 corners before rounding; the arm ends and heel become arcs.
+    assert.ok(outline.length > 20, `${outline.length} points`);
+    for (let i = 0; i < outline.length; i++) {
+      const [a, b] = [outline[i], outline[(i + 1) % outline.length]];
+      assert.ok(Math.hypot(b[0] - a[0], b[1] - a[1]) > 1e-6, "no repeated points");
+    }
+  });
+
+  it("prints clips on their own plates as closed, chamfered solids", () => {
+    const res = cut({ base: "icosahedron", spike: 1.5, circumdiameterMm: 220 }, { join: "clips", clipsBy: "print" });
+    const onBoards = res.boards.flatMap((b) => b.items).filter((it) => it.part.kind === "clip");
+    assert.equal(onBoards.length, 0);
+    assert.deepEqual([...new Set(res.plates.map((p) => p.letter))], ["A", "B"]);
+    assert.equal(res.plates.reduce((n, p) => n + p.items.length, 0), 120);
+    for (const plate of res.plates) {
+      const { positions: P, indices } = plateMesh(plate, 3);
+      const key = (k) => `${P[3 * k]},${P[3 * k + 1]},${P[3 * k + 2]}`;
+      const edges = new Set();
+      for (let t = 0; t < indices.length; t += 3) {
+        for (let j = 0; j < 3; j++) edges.add(`${key(indices[t + j])}|${key(indices[t + ((j + 1) % 3)])}`);
+      }
+      for (const e of edges) {
+        const [a, b] = e.split("|");
+        assert.ok(edges.has(`${b}|${a}`), `plate ${plate.letter}: open edge`);
+      }
+      let minZ = Infinity, maxZ = -Infinity;
+      for (let k = 2; k < P.length; k += 3) [minZ, maxZ] = [Math.min(minZ, P[k]), Math.max(maxZ, P[k])];
+      assert.ok(Math.abs(minZ) < 1e-6 && Math.abs(maxZ - 3) < 1e-5);
+    }
   });
 
   it("glues edges too short for a joint", () => {

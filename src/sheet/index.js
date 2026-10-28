@@ -1,9 +1,10 @@
 /**
- * Sheet output — Cut and Fold modes. Not wired into the app yet; the
- * sample script (scripts/sheet-samples.mjs) drives it headless so the
- * output can be test-cut before any UI exists.
+ * Sheet output — Cut and Fold modes. The sample script
+ * (scripts/sheet-samples.mjs) drives it headless for test cuts, and the
+ * in-app mockup (mockup.js, behind ?sheet) drives it live.
  *
  *   skeleton (mm) → panels + joints → parts (cut | fold) → boards → SVG
+ *                                       └ printed clips → plates → STL
  */
 
 import { extractPanels } from "./panels.js";
@@ -11,8 +12,9 @@ import { buildCut, fitCoupon } from "./cut.js";
 import { buildFold } from "./fold.js";
 import { packParts, BOARD_PROFILES } from "./layout.js";
 import { boardSvg, LAYERS } from "./svg.js";
+import { clipPlates, PRINT_BEDS } from "./printclips.js";
 
-export { BOARD_PROFILES, LAYERS, boardSvg };
+export { BOARD_PROFILES, PRINT_BEDS, LAYERS, boardSvg };
 
 /**
  * @param {{ positions: Float64Array, faces: number[][] }} skeleton  in mm
@@ -20,6 +22,7 @@ export { BOARD_PROFILES, LAYERS, boardSvg };
  *   mode: 'cut'|'fold',
  *   board: { w: number, h: number },
  *   coupon?: boolean,
+ *   printBed?: { w: number, h: number },  for printed clips (clipsBy: 'print')
  *   marginMm?: number, gapMm?: number,
  * } & object} opts  plus the mode's own options (see buildCut / buildFold)
  */
@@ -31,7 +34,10 @@ export function buildSheet(skeleton, opts) {
     ...(opts.mode === "cut" && opts.coupon ? fitCoupon(opts) : []),
     ...(opts.extraParts ?? []),
   ];
-  const { boards, oversize } = packParts(parts, opts.board, { marginMm: opts.marginMm, gapMm: opts.gapMm });
+  // Printed clips go to print plates instead of the boards.
+  const printed = parts.filter((p) => p.print);
+  const { boards, oversize } = packParts(parts.filter((p) => !p.print), opts.board, { marginMm: opts.marginMm, gapMm: opts.gapMm });
+  const plates = printed.length ? clipPlates(printed, opts.printBed ?? PRINT_BEDS["prusa-core-one"]) : [];
   const warnings = [...res.warnings];
   if (oversize.length) warnings.push(`${oversize.length} parts are larger than the board (${oversize.slice(0, 3).join(", ")}…)`);
   return {
@@ -39,9 +45,10 @@ export function buildSheet(skeleton, opts) {
     extracted,
     parts,
     boards,
+    plates,
     joins: res.joins,
     dims: res.dims,
     warnings,
-    stats: { ...res.stats, boards: boards.length },
+    stats: { ...res.stats, boards: boards.length, plates: plates.length },
   };
 }

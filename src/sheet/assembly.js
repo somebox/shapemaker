@@ -14,6 +14,7 @@
 import { triangulate as earcut } from "../../vendor/earcut/earcut.js";
 import { fromFaceFrame } from "../faceframe.js";
 import { panelOpenings } from "./panels.js";
+import { chamferedPrism, chamferOf } from "./printclips.js";
 
 const v = {
   add: (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]],
@@ -74,7 +75,14 @@ export function buildAssembly(skeleton, sheet, opts = {}) {
         const base = v.add(E, v.mul(fr.e, -t / 2));
         const to3 = ([x, y]) => v.add(v.add(base, v.mul(fr.A.into, -x)), v.mul(fr.A.n, y));
         const cut = part.paths.filter((p) => p.layer === "cut").map((p) => p.pts);
-        solids.push({ ...extrude(cut[0], [], to3, fr.e, t, "clip"), joint: j.id, anchor: E });
+        if (part.print) {
+          // Printed: the chamfered solid that goes to the STL, z along the edge.
+          const at3 = ([x, y, z]) => v.add(to3([x, y]), v.mul(fr.e, z));
+          const tris = chamferedPrism(cut[0], t, chamferOf(t)).map((tri) => tri.map(at3));
+          solids.push({ tag: "pclip", tris, lines: [], joint: j.id, anchor: E });
+        } else {
+          solids.push({ ...extrude(cut[0], [], to3, fr.e, t, "clip"), joint: j.id, anchor: E });
+        }
       }
     }
     for (const jn of sheet.joins.filter((x) => x.kind === "ties")) {

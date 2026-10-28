@@ -17,7 +17,7 @@
 
 import {
   add, sub, mul, dot, unit, leftNormal, offsetEdges, offsetPolygon, area,
-  edgeRect, centroid, len,
+  edgeRect, centroid, len, filletCorners,
 } from "./geom2.js";
 import { insideView, panelOpenings } from "./panels.js";
 import { strokeText, textWidth } from "./font.js";
@@ -40,6 +40,7 @@ const fmt = (n) => String(Math.round(n * 10) / 10);
  * @param {{
  *   sheetMm: number,
  *   join: 'clips'|'ties'|'tabs',
+ *   clipsBy?: 'cut'|'print',
  *   clearanceMm?: number,
  *   kerfMm?: number,
  *   tieHoleMm?: number,
@@ -53,6 +54,7 @@ export function buildCut(extracted, opts) {
   const kerf = opts.kerfMm ?? 0;
   const tieD = opts.tieHoleMm ?? 4;
   const labels = opts.labels ?? true;
+  const printed = opts.clipsBy === "print";
   const web = Math.max(t, 2);
   const w = Math.max(2 * t, 5);
   // Shorter edges have no room for a slot or hole clear of the corners;
@@ -180,7 +182,14 @@ export function buildCut(extracted, opts) {
     if (p.kind !== "clips") continue;
     const letter = classOf.get(clipKey(p.joint));
     clipCounts[letter] = (clipCounts[letter] ?? 0) + p.at.length;
-    for (const at of p.at) parts.push({ ...clipPart(p, letter, { t, c, w, web, kerf, labels }), joint: p.joint.id, at });
+    // Printed clips skip the kerf and the engraved letter; they leave the
+    // boards for print plates grouped by letter (printclips.js).
+    for (const at of p.at) {
+      const part = printed
+        ? { ...clipPart(p, letter, { t, c, w, web, kerf: 0, labels: false }), print: true }
+        : clipPart(p, letter, { t, c, w, web, kerf, labels });
+      parts.push({ ...part, joint: p.joint.id, at });
+    }
   }
 
   // The openings clash comes first: it is the one the app offers a fix for.
@@ -362,6 +371,9 @@ function clipPart(plan, letter, { t, c, w, web, kerf, labels }) {
     B(hc), add(B(hc), mul(nB, t)), add(B(hc + w), mul(nB, t)), B(hc + w), B(b),
     add(B(b), mul(nB, -D)), Q, add(A(b), mul(nA, -D)),
   ];
+  // Round what shows through an opening: the arm ends' back corners and
+  // the heel. Corners against the panels and the slot tabs stay square.
+  poly = filletCorners(poly, poly.map((_, i) => (i === 11 || i === 13 ? D : i === 12 ? D / 3 : 0)));
   if (area(poly) < 0) poly = poly.reverse();
   const paths = [{ layer: "cut", closed: true, pts: offsetPolygon(poly, kerf / 2) }];
   if (labels) {

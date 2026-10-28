@@ -10,7 +10,9 @@
  * flag. Plan: docs/LASER_RESEARCH.md §8.
  */
 
-import { buildSheet, BOARD_PROFILES, boardSvg, LAYERS } from "./index.js";
+import { buildSheet, BOARD_PROFILES, PRINT_BEDS, boardSvg, LAYERS } from "./index.js";
+import { plateMesh } from "./printclips.js";
+import { writeBinaryStl } from "../export/stl.js";
 import { buildAssembly } from "./assembly.js";
 import { apply } from "./geom2.js";
 import { MAX_BORDER } from "./cut.js";
@@ -22,7 +24,10 @@ const STORE_KEY = "shapemaker.sheetMockup";
 const DEFAULTS = {
   build: "print",
   flat: false,
-  cut: { sheetMm: 3, join: "clips", kerfMm: 0, fit: "normal", board: "falcon-a1", custom: { w: 300, h: 200 }, labels: true },
+  cut: {
+    sheetMm: 3, join: "clips", clipsBy: "cut", kerfMm: 0, fit: "normal", printBed: "prusa-core-one",
+    board: "falcon-a1", custom: { w: 300, h: 200 }, labels: true,
+  },
   fold: { join: "tape", foldStyle: "score", board: "a4", custom: { w: 300, h: 200 }, labels: true },
 };
 
@@ -31,12 +36,14 @@ const FIT_CLEARANCE = { snug: 0, normal: 0.1, loose: 0.2 };
 
 const MATERIAL = { cut: "Rigid sheet: plywood, acrylic, MDF", fold: "Thin stock: paper, card, felt" };
 
-/** Board fill in the Flat view, by mode. */
-const BOARD_FILL = { cut: "#d8b98c", fold: "#f3f0e8" };
+/** Board fill in the Flat view, by mode; print beds are drawn dark. */
+const BOARD_FILL = { cut: "#d8b98c", fold: "#f3f0e8", plate: "#2b2b31" };
+const PLATE_CLIP = "#e08040";
 
 const COLORS = {
   panel: 0xcfa874,
   clip: 0x9a7448,
+  pclip: 0xe08040,
   tie: 0x2a2a2e,
   paper: 0xf0ece4,
   flap: 0xe2d8c6,
@@ -50,6 +57,7 @@ const CHOICES = {
   build: ["print", "cut", "fold"],
   join: { cut: ["clips", "ties", "tabs"], fold: ["tape", "flaps", "sew"] },
   fit: Object.keys(FIT_CLEARANCE),
+  clipsBy: ["cut", "print"],
   foldStyle: ["score", "perforate", "mark"],
 };
 
@@ -76,6 +84,8 @@ function loadSettings() {
   if (num(saved.cut?.sheetMm, 0.5, 8)) S.cut.sheetMm = saved.cut.sheetMm;
   if (num(saved.cut?.kerfMm, 0, 0.4)) S.cut.kerfMm = saved.cut.kerfMm;
   if (ok(saved.cut?.fit, CHOICES.fit)) S.cut.fit = saved.cut.fit;
+  if (ok(saved.cut?.clipsBy, CHOICES.clipsBy)) S.cut.clipsBy = saved.cut.clipsBy;
+  if (PRINT_BEDS[saved.cut?.printBed]) S.cut.printBed = saved.cut.printBed;
   if (ok(saved.fold?.foldStyle, CHOICES.foldStyle)) S.fold.foldStyle = saved.fold.foldStyle;
   return S;
 }
@@ -105,7 +115,8 @@ export function mountSheetMockup({ viewer, getLast, applyPatch, exportStem, down
   /** @type {any} */
   let sheet = null;
   let sheetError = "";
-  let boardIndex = 0;
+  /** Which tab of the Flat view: boards first, then print plates. */
+  let viewIndex = 0;
   let buildTimer = null;
 
   injectStyles();
@@ -174,6 +185,13 @@ export function mountSheetMockup({ viewer, getLast, applyPatch, exportStem, down
     ties: "Pairs of holes along each edge for zip ties or wire",
     tabs: "Tabs on one panel through slots in the next; near-90° edges only, others get clips",
   });
+  const clipsRow = segControl("Clips", [["cut", "Cut"], ["print", "Print"]], () => S.cut.clipsBy, (v) => {
+    S.cut.clipsBy = v;
+    changed();
+  }, {
+    cut: "Cut from the sheet with the panels",
+    print: "3D-printed with chamfered edges, one STL per clip shape",
+  });
   const foldJoin = segControl("Join", [["tape", "Tape"], ["flaps", "Flaps"], ["sew", "Sew"]], () => S.fold.join, (v) => {
     S.fold.join = v;
     changed();
@@ -198,8 +216,14 @@ export function mountSheetMockup({ viewer, getLast, applyPatch, exportStem, down
     S.cut.fit = v;
     changed();
   });
-  const cutAdvanced = cluster("Advanced", [kerfRow.root, fitRow.root], () => `kerf ${fmt(S.cut.kerfMm, 2)} · ${S.cut.fit}`);
-  const cutRows = [sheetRow.root, cutJoin.root];
+  const bedRow = selectControl("Print bed", Object.entries(PRINT_BEDS).map(([id, b]) => [id, `${b.label} · ${b.w}×${b.h}`]), () => S.cut.printBed, (v) => {
+    S.cut.printBed = v;
+    changed();
+  });
+  const cutAdvanced = cluster("Advanced", [kerfRow.root, fitRow.root, bedRow.root], () =>
+    `kerf ${fmt(S.cut.kerfMm, 2)} · ${S.cut.fit}${S.cut.clipsBy === "print" && S.cut.join !== "ties" ? ` · ${PRINT_BEDS[S.cut.printBed].label.split(" /")[0]}` : ""}`,
+  );
+  const cutRows = [sheetRow.root, cutJoin.root, clipsRow.root];
   const foldRows = [foldJoin.root, foldLines.root];
   buildRow.root.after(...cutRows, ...foldRows);
   formBody.querySelector('[data-cluster="form-advanced"]')?.after(cutAdvanced.root);
@@ -256,6 +280,10 @@ export function mountSheetMockup({ viewer, getLast, applyPatch, exportStem, down
     const sheetMode = S.build !== "print";
     for (const n of [...printOnlyForm, ...printOnlyMake]) if (n) n.hidden = sheetMode;
     for (const n of cutRows) n.hidden = S.build !== "cut";
+    // Ties have no clips; tabs fall back to clips away from 90°.
+    const clipsUsed = S.build === "cut" && S.cut.join !== "ties";
+    clipsRow.root.hidden = !clipsUsed;
+    bedRow.root.hidden = !(clipsUsed && S.cut.clipsBy === "print");
     for (const n of foldRows) n.hidden = S.build !== "fold";
     cutAdvanced.root.hidden = S.build !== "cut";
     boardRow.root.hidden = !sheetMode;
@@ -274,7 +302,7 @@ export function mountSheetMockup({ viewer, getLast, applyPatch, exportStem, down
     exportCut.hidden = !sheetMode;
     appStrip.hidden = sheetMode;
     strip.hidden = !sheetMode;
-    for (const c of [buildRow, sheetRow, cutJoin, foldJoin, foldLines, kerfRow, fitRow, labelsRow]) c.sync();
+    for (const c of [buildRow, sheetRow, cutJoin, clipsRow, foldJoin, foldLines, kerfRow, fitRow, bedRow, labelsRow]) c.sync();
     boardRow.sync();
     cutAdvanced.sync();
   }
@@ -322,7 +350,10 @@ export function mountSheetMockup({ viewer, getLast, applyPatch, exportStem, down
         labels: m.labels,
         openings,
         ...(S.build === "cut"
-          ? { join: m.join, sheetMm: m.sheetMm, kerfMm: m.kerfMm, clearanceMm: FIT_CLEARANCE[m.fit], coupon: true }
+          ? {
+              join: m.join, clipsBy: m.clipsBy, printBed: PRINT_BEDS[m.printBed],
+              sheetMm: m.sheetMm, kerfMm: m.kerfMm, clearanceMm: FIT_CLEARANCE[m.fit], coupon: true,
+            }
           : { join: m.join, foldStyle: m.foldStyle, rootFace: state.faceIndex }),
       });
       sheet.openings = openings;
@@ -333,7 +364,7 @@ export function mountSheetMockup({ viewer, getLast, applyPatch, exportStem, down
       sheetError = `Couldn't lay this shape out: ${err.message}`;
       viewer.setAltModel(null);
     }
-    boardIndex = Math.min(boardIndex, Math.max(0, (sheet?.boards.length ?? 1) - 1));
+    viewIndex = Math.min(viewIndex, Math.max(0, flatViews().length - 1));
     render();
   }
 
@@ -360,7 +391,8 @@ export function mountSheetMockup({ viewer, getLast, applyPatch, exportStem, down
     let line1, line2;
     if (sheet.mode === "cut") {
       const clips = Object.values(st.clips ?? {}).reduce((a, n) => a + n, 0);
-      const joins = [clips && plural(clips, "clip"), st.ties && plural(st.ties, "tie"), st.tabs && plural(st.tabs, "tab"), st.glued && `${st.glued} glued`]
+      const clipText = clips && (st.plates ? `${clips} printed clips (${plural(st.plates, "plate")})` : plural(clips, "clip"));
+      const joins = [clipText, st.ties && plural(st.ties, "tie"), st.tabs && plural(st.tabs, "tab"), st.glued && `${st.glued} glued`]
         .filter(Boolean)
         .join(" + ");
       line1 = `cut   ${plural(st.panels, "panel")} · ${joins} · ${boards} · sheet ${fmt(S.cut.sheetMm)} mm`;
@@ -391,43 +423,67 @@ export function mountSheetMockup({ viewer, getLast, applyPatch, exportStem, down
   }
 
   // ── Flat view ──
+  /** Tabs of the Flat view: each laser board, then each print plate. */
+  function flatViews() {
+    if (!sheet) return [];
+    const boards = sheet.boards.map((b, i) => ({ label: `Board ${i + 1}`, items: b.items, size: boardSize(), fill: BOARD_FILL[sheet.mode] }));
+    const count = new Map();
+    for (const p of sheet.plates) count.set(p.letter, (count.get(p.letter) ?? 0) + 1);
+    const seen = new Map();
+    const plates = sheet.plates.map((p) => {
+      const k = (seen.get(p.letter) ?? 0) + 1;
+      seen.set(p.letter, k);
+      return {
+        label: `Print ${p.letter}${count.get(p.letter) > 1 ? k : ""}`,
+        items: p.items,
+        size: PRINT_BEDS[S.cut.printBed],
+        fill: BOARD_FILL.plate,
+        plate: true,
+      };
+    });
+    return [...boards, ...plates];
+  }
+
   function paintFlat() {
-    const size = boardSize();
+    const views = flatViews();
+    const view = views[viewIndex] ?? views[0];
+    const size = view.size;
     flatTip.hidden = true;
     flatTabs.replaceChildren(
-      ...sheet.boards.map((_, i) =>
-        Object.assign(el("button", { type: "button", className: "sheet-tab", textContent: `Board ${i + 1}`, "aria-pressed": String(i === boardIndex) }), {
+      ...views.map((v, i) =>
+        Object.assign(el("button", { type: "button", className: `sheet-tab${v.plate ? " sheet-tab--plate" : ""}`, textContent: v.label, "aria-pressed": String(v === view) }), {
           onclick: () => {
-            boardIndex = i;
+            viewIndex = i;
             paintFlat();
           },
         }),
       ),
     );
-    const used = new Set(sheet.boards.flatMap((b) => b.items.flatMap((it) => it.part.paths.map((p) => p.layer))));
+    const used = new Set(view.items.flatMap((it) => it.part.paths.map((p) => p.layer)));
     flatLegend.replaceChildren(
-      ...Object.entries(LAYERS)
-        .filter(([k]) => used.has(k))
-        .map(([k, { color }]) =>
-          el("span", { className: "sheet-legend-item", style: `--c:${color}`, textContent: { cut: "cut", mark: "engrave", valley: "valley fold", mountain: "mountain fold", score: "score" }[k] }),
-        ),
+      ...(view.plate
+        ? [el("span", { className: "sheet-legend-item", style: `--c:${PLATE_CLIP}`, textContent: `printed clips · ${size.label}` })]
+        : Object.entries(LAYERS)
+            .filter(([k]) => used.has(k))
+            .map(([k, { color }]) =>
+              el("span", { className: "sheet-legend-item", style: `--c:${color}`, textContent: { cut: "cut", mark: "engrave", valley: "valley fold", mountain: "mountain fold", score: "score" }[k] }),
+            )),
     );
 
-    const board = sheet.boards[boardIndex];
     const svgNS = "http://www.w3.org/2000/svg";
     const svg = document.createElementNS(svgNS, "svg");
     svg.setAttribute("viewBox", `-4 -4 ${size.w + 8} ${size.h + 8}`);
     svg.setAttribute("class", "sheet-board");
     const bg = document.createElementNS(svgNS, "rect");
-    Object.entries({ x: 0, y: 0, width: size.w, height: size.h, rx: 1.5, fill: BOARD_FILL[sheet.mode], class: "sheet-board-bg" }).forEach(([k, v]) => bg.setAttribute(k, String(v)));
+    Object.entries({ x: 0, y: 0, width: size.w, height: size.h, rx: 1.5, fill: view.fill, class: "sheet-board-bg" }).forEach(([k, v]) => bg.setAttribute(k, String(v)));
     svg.append(bg);
     const P = (tf, q) => {
       const [x, y] = apply(tf, q);
       return `${fmt(x, 2)},${fmt(size.h - y, 2)}`;
     };
-    for (const { part, tf } of board.items) {
+    for (const { part, tf } of view.items) {
       const g = document.createElementNS(svgNS, "g");
-      g.setAttribute("class", `sheet-part sheet-part--${part.kind}`);
+      g.setAttribute("class", `sheet-part sheet-part--${part.kind}${view.plate ? " sheet-part--printed" : ""}`);
       // The piece's area takes the hover fill (evenodd leaves its holes
       // open). A net's outline is open cut runs, so its faces and flaps
       // stand in for it.
@@ -473,7 +529,7 @@ export function mountSheetMockup({ viewer, getLast, applyPatch, exportStem, down
   function partLabel(part) {
     const see = "click to see it on the model";
     if (part.kind === "panel") return `Panel ${part.panel + 1} · ${see}`;
-    if (part.kind === "clip") return `Clip ${part.name.replace(/^clip /, "")} · edge ${part.joint} · ${see}`;
+    if (part.kind === "clip") return `Clip ${part.name.replace(/^clip /, "")} · edge ${part.joint}${part.print ? " · printed" : ""} · ${see}`;
     if (part.kind === "net") return `Net ${part.name.replace(/^net /, "")} · ${plural(part.panels.length, "face")} · ${see}`;
     if (part.kind === "coupon") return `${part.name[0].toUpperCase()}${part.name.slice(1)} · cut this first to check the slot fit`;
     return part.name;
@@ -523,13 +579,21 @@ export function mountSheetMockup({ viewer, getLast, applyPatch, exportStem, down
   // ── Export cut file ──
   function downloadBoards() {
     if (!sheet) return;
-    const size = boardSize();
     const m = mode();
     const stem = `${exportStem()}_${sheet.mode}_${m.join}${sheet.mode === "cut" ? `_${fmt(m.sheetMm)}mm` : ""}`;
+    const size = boardSize();
     sheet.boards.forEach((board, i) => {
       const name = sheet.boards.length > 1 ? `${stem}_board${i + 1}` : stem;
       download(boardSvg(board, size, { title: name }), `${name}.svg`, "image/svg+xml");
     });
+    // One STL per print plate, named by clip shape: …_clipsA.stl, …_clipsA2.stl
+    const seen = new Map();
+    for (const plate of sheet.plates) {
+      const k = (seen.get(plate.letter) ?? 0) + 1;
+      seen.set(plate.letter, k);
+      const name = `${stem}_clips${plate.letter}${k > 1 ? k : ""}`;
+      download(writeBinaryStl(plateMesh(plate, sheet.dims.t), { header: name }), `${name}.stl`, "model/stl");
+    }
   }
 
   // ── Controls in the app's markup ──
@@ -550,6 +614,22 @@ export function mountSheetMockup({ viewer, getLast, applyPatch, exportStem, down
       sync() {
         const v = get();
         for (const [value, b] of buttons) b.setAttribute("aria-pressed", String(value === v));
+      },
+    };
+  }
+
+  function selectControl(label, options, get, set) {
+    const root = el("div", { className: "control sheet-control" });
+    const row = el("div", { className: "control-row control-row--material" });
+    const select = el("select", { className: "material-select", "aria-label": label });
+    for (const [value, text] of options) select.append(el("option", { value, textContent: text }));
+    select.addEventListener("change", () => set(select.value));
+    row.append(el("label", { textContent: label }), select);
+    root.append(row);
+    return {
+      root,
+      sync() {
+        select.value = get();
       },
     };
   }
@@ -713,6 +793,9 @@ ${borrowed.join("\n")}
 .sheet-line { pointer-events: none; }
 .sheet-part:hover .sheet-part-fill { fill: color-mix(in srgb, #ffcc44 45%, transparent); }
 .sheet-part--coupon { cursor: help; }
+.sheet-part--printed .sheet-part-fill { fill: ${PLATE_CLIP}; }
+.sheet-part--printed .sheet-line--cut { stroke: #8a4a20; }
+.sheet-part--printed:hover .sheet-part-fill { fill: #ffcc44; }
 .sheet-line { fill: none; stroke-width: 0.45; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
 .sheet-line--cut { stroke-width: 1.2; }
 .sheet-line--mark { stroke-width: 0.8; opacity: 0.75; }

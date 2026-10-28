@@ -519,6 +519,31 @@ What it doesn't do yet:
 | ![Fold mode, Flat](laser/images/mockup-fold-flat.jpg) | ![Cube with tabs](laser/images/mockup-cube-tabs.png) |
 | Fold, Flaps: the A4 net with valley folds and glue flaps. | Cut, Tabs on a cube. |
 
+### 8.6 Clip finish and printed clips (2026-10-29)
+
+With open faces, the clips show through the openings: the arms lie along
+each panel's inside face, and their square ends and sharp heel catch the
+eye. (Tabs don't have this problem: they stay inside the joint.)
+
+- **Rounded clips (laser).** Each arm end's back corner becomes a quarter
+  round as deep as the arm, and the heel gets a small cove. The corners that
+  bear on the panels and the slot tabs stay square, so the clip still seats
+  and fits the same way. A laser cuts curves at no extra cost.
+- **Printed clips.** Clips: Cut · Print (under Join) takes the clips off
+  the laser boards and makes them on a 3D printer. They come out as thick as
+  the sheet, from the same outline with no kerf, with a 45° chamfer round
+  both faces (0.6 mm at 3 mm sheet, 0.2·t below that). The chamfer also takes
+  up the squashed first layer. Printed clips carry no letter, so each clip
+  shape gets its own plates and STL: `…_clipsA.stl`, `…_clipsB.stl`, and
+  `…_clipsA2.stl` when one shape needs a second plate. The print bed
+  (Prusa Core One by default) is under Advanced. In Flat, each plate is a
+  tab after the boards. The plates are checked as closed solids, one body
+  per clip.
+- Fit still comes from the slots (Advanced → Fit). Print one clip of each
+  shape and try it in the coupon's slots before printing the plates.
+
+![Laser clip with rounded ends (left) and printed clip with chamfers (right), seated and pulled apart](laser/images/clip-cut-vs-printed.png)
+
 ## 9. Pictures
 
 These are rendered by `scripts/sheet-samples.mjs` (with `scripts/lib/render3d.mjs`)

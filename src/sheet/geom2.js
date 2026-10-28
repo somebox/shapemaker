@@ -150,3 +150,52 @@ export function edgeRect(a, b, s0, s1, d0, d1) {
   const at = (s, d) => add(add(a, mul(u, s)), mul(m, d));
   return [at(s0, d0), at(s1, d0), at(s1, d1), at(s0, d1)];
 }
+
+/**
+ * Round the corners of a polygon: radii[i] is the fillet radius at vertex
+ * i (0 keeps it sharp). Each fillet shrinks until its tangent points fit
+ * on the two edges; an edge between two fillets is shared in proportion
+ * to what each asks for. Arcs are split into steps of at most `stepDeg`.
+ */
+export function filletCorners(poly, radii, stepDeg = 12) {
+  const n = poly.length;
+  const at = (i) => poly[(i + n) % n];
+  const rOf = (i) => radii[(i + n) % n] ?? 0;
+  // Half the turn at each vertex, and the tangent length its radius asks for.
+  const half = poly.map((P, i) => {
+    const u1 = unit(sub(at(i - 1), P)), u2 = unit(sub(at(i + 1), P));
+    return Math.acos(Math.max(-1, Math.min(1, dot(u1, u2)))) / 2;
+  });
+  const usable = (i) => rOf(i) > 0 && half[(i + n) % n] > 1e-3 && half[(i + n) % n] < Math.PI / 2 - 1e-3;
+  const want = (i) => (usable(i) ? rOf(i) / Math.tan(half[(i + n) % n]) : 0);
+  // Share of the edge from i to j that vertex i may use.
+  // A fillet may run right up to a sharp neighbour: a stub shorter than a
+  // later inset would turn inside out.
+  const share = (i, j) => (usable(j) ? want(i) / (want(i) + want(j)) : 1);
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const P = poly[i];
+    if (!usable(i)) {
+      out.push(P);
+      continue;
+    }
+    const prev = at(i - 1), next = at(i + 1);
+    const u1 = unit(sub(prev, P)), u2 = unit(sub(next, P));
+    const tLen = Math.min(want(i), len(sub(prev, P)) * share(i, i - 1), len(sub(next, P)) * share(i, i + 1));
+    const r = tLen * Math.tan(half[i]);
+    const C = add(P, mul(unit(add(u1, u2)), r / Math.sin(half[i])));
+    const T1 = add(P, mul(u1, tLen)), T2 = add(P, mul(u2, tLen));
+    const a1 = Math.atan2(T1[1] - C[1], T1[0] - C[0]);
+    let sweep = Math.atan2(T2[1] - C[1], T2[0] - C[0]) - a1;
+    // The arc turns the short way round, through the side away from P.
+    if (sweep > Math.PI) sweep -= 2 * Math.PI;
+    if (sweep < -Math.PI) sweep += 2 * Math.PI;
+    const steps = Math.max(1, Math.ceil(Math.abs(sweep) / ((stepDeg * Math.PI) / 180)));
+    for (let k = 0; k <= steps; k++) {
+      const a = a1 + (sweep * k) / steps;
+      out.push([C[0] + r * Math.cos(a), C[1] + r * Math.sin(a)]);
+    }
+  }
+  // Two fillets that meet mid-edge share a tangent point: keep one.
+  return out.filter((p, i) => len(sub(p, out[(i + 1) % out.length])) > 1e-6);
+}
