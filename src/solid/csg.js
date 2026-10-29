@@ -102,27 +102,28 @@ export function subtractAll(base, tools, { keepLargest = false } = {}) {
         droppedVolume = vols.reduce((s, v) => s + v, 0) - vols[best];
       }
     }
-    const mesh = out.getMesh();
-    // getMesh() rounds to float32, which can land two intersection points
-    // on one position; an identity warp hands over the double positions
-    // in the same vertex order.
-    let pos64 = null;
-    const warped = out.warpBatch((verts, count) => {
-      pos64 = Float64Array.from(verts.subarray(0, count * 3));
-    });
-    owned.push(warped);
-    if (!pos64 || pos64.length !== mesh.vertProperties.length) {
-      throw new Error("boolean output vertex count mismatch");
-    }
-    return {
-      ...collapseCoincident(pos64, mesh.triVerts, mesh.faceID),
-      genus: out.genus(),
-      dropped,
-      droppedVolume,
-    };
+    return { ...meshOf(out, owned), genus: out.genus(), dropped, droppedVolume };
   } finally {
     for (const m of owned) m.delete();
   }
+}
+
+/**
+ * A manifold's mesh at double precision. getMesh() rounds to float32, which
+ * can land two intersection points on one position; an identity warp hands
+ * over the double positions in the same vertex order.
+ */
+function meshOf(out, owned) {
+  const mesh = out.getMesh();
+  let pos64 = null;
+  const warped = out.warpBatch((verts, count) => {
+    pos64 = Float64Array.from(verts.subarray(0, count * 3));
+  });
+  owned.push(warped);
+  if (!pos64 || pos64.length !== mesh.vertProperties.length) {
+    throw new Error("boolean output vertex count mismatch");
+  }
+  return collapseCoincident(pos64, mesh.triVerts, mesh.faceID);
 }
 
 /**
@@ -428,4 +429,66 @@ function fixFlat(P, nV, tris, faces, tol) {
     outF.push(faces[t]);
   }
   return { tris: outT, faces: outF, fixed };
+}
+
+/**
+ * Weld solids that touch: pairs that overlap join one group, and each group
+ * of two or more is unioned into one closed mesh. Solids are triangle soups
+ * ([[x, y, z] × 3] per triangle) that are closed once equal corners merge.
+ *
+ * @param {number[][][][]} solids
+ * @returns {{ members: number[], positions: Float64Array, indices: Uint32Array }[]}
+ */
+export function weldTouching(solids) {
+  if (!wasm) throw new Error("mesh boolean library not loaded — await loadCsg() first");
+  const { Manifold } = wasm;
+  const owned = [];
+  try {
+    const ms = solids.map((tris) => {
+      const m = toManifold(indexSoup(tris));
+      owned.push(m);
+      return m;
+    });
+    const parent = ms.map((_, i) => i);
+    const find = (i) => (parent[i] === i ? i : (parent[i] = find(parent[i])));
+    for (let i = 0; i < ms.length; i++) {
+      for (let j = i + 1; j < ms.length; j++) {
+        const x = ms[i].intersect(ms[j]);
+        owned.push(x);
+        if (x.volume() > 1e-3) parent[find(i)] = find(j);
+      }
+    }
+    const groups = new Map();
+    ms.forEach((_, i) => groups.set(find(i), [...(groups.get(find(i)) ?? []), i]));
+    const out = [];
+    for (const members of groups.values()) {
+      if (members.length < 2) continue;
+      const u = Manifold.union(members.map((i) => ms[i]));
+      owned.push(u);
+      if (u.status() !== "NoError") throw new Error(`weld failed: ${u.status()}`);
+      const { positions, indices } = meshOf(u, owned);
+      out.push({ members, positions, indices });
+    }
+    return out;
+  } finally {
+    for (const m of owned) m.delete();
+  }
+}
+
+/** Index a triangle soup, merging corners at equal positions. */
+function indexSoup(tris) {
+  const index = new Map(), positions = [], indices = [];
+  for (const tri of tris) {
+    for (const p of tri) {
+      const key = `${p[0]},${p[1]},${p[2]}`;
+      let k = index.get(key);
+      if (k === undefined) {
+        k = positions.length / 3;
+        index.set(key, k);
+        positions.push(p[0], p[1], p[2]);
+      }
+      indices.push(k);
+    }
+  }
+  return { positions, indices, faceIds: new Uint32Array(indices.length / 3) };
 }

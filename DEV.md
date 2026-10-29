@@ -74,10 +74,10 @@ node scripts/sheet-samples.mjs --set=tests --ply-clearance=-0.1
 node scripts/sheet-samples.mjs --board=xtool-s1 --sheet=4 --only=clips
 ```
 
-`src/sheet/` turns a skeleton into flat parts for Cut (clips, ties, tabs)
+`src/sheet/` turns a skeleton into flat parts for Cut (clips, ties, fingers)
 and Fold (nets with flaps, tape or sewing), packs them onto boards and
 writes layered SVG. In the app it runs only as a mockup: add `?sheet` to the
-URL to get the Build switch, the Flat view and Export cut file
+URL to get the Build switch, the Flat view and the Export dialog
 (`src/sheet/mockup.js`). See [docs/LASER_RESEARCH.md](docs/LASER_RESEARCH.md) §8.5.
 
 Cut sides (`openingAxis: "through"`) run on the manifold-3d WebAssembly

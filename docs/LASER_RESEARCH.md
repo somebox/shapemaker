@@ -376,9 +376,9 @@ add this without making the panel harder to take in.
   Switching modes keeps each mode's own settings.
 - **Cut mode (rigid sheet):**
   - Sheet thickness takes Wall's place.
-  - Join: Clips · Ties · Tabs. One choice per design; edges a join can't
-    serve (tabs away from 90°, ties on sharp edges) fall back to clips and
-    are counted in the status line.
+  - Join: Clips · Ties · Fingers (first planned as Tabs; see §8.7). One
+    choice per design; edges a join can't serve (fingers away from 90°, ties
+    on sharp edges) fall back to clips and are counted in the status line.
   - Openings stay. Kerf and fit go under Advanced.
   - Make holds the Board (presets plus custom) and edge labels.
   - Hidden: Shell, Wall, Rounding, Sides, Inner wall, Break out, Quality
@@ -394,7 +394,8 @@ add this without making the panel harder to take in.
     the boards or nets laid out. Clicking a panel highlights it on the model.
   - Print risk and Split hide outside Print.
 - **Bottom bar:** in Cut and Fold, Export STL becomes **Export cut file**
-  (layered SVG). Export SVG (the line drawing) stays.
+  (layered SVG). Export SVG (the line drawing) stays. (Since replaced by
+  one Export button and a dialog, §8.7.)
 - **Status line:** parts, boards and the smallest web or panel. Warnings
   use the same "fix" pattern the print warnings use.
 - **Project file:** new keys (`build`, `sheetMm`, `join`, `foldStyle`,
@@ -420,7 +421,7 @@ and the boards. The work divides like this:
 |---|---|---|
 | Panels | one per face (coplanar faces merged), inner-surface convention, reflex edges inset | faces grouped into nets by unfolding |
 | Edges inside a net | — | fold lines (mountain or valley from the angle sign) |
-| Edges between parts | clips, tie holes or tabs | tape, glue flaps or sewing holes |
+| Edges between parts | clips, tie holes or finger joints | tape, glue flaps or sewing holes |
 | Openings | the existing 2D generators | same |
 | Checks | web ≥ t, hole ≥ 1.5·t, panel fits the board | flap fits, nets don't overlap, net fits the board |
 | Layout | shelf packing of min-area rectangles | one net per board where possible, otherwise split |
@@ -456,7 +457,8 @@ face counts (globes) will need several nets.
    - the Flat view, cut-file export and status warnings.
 2. **Fold mode:** nets, the fold-line layer, tape, flaps and sewing holes,
    and the net-centre click.
-3. **Tabs:** near-90° edges only, falling back to clips elsewhere.
+3. **Fingers** (planned as tab and slot): near-90° edges only, falling back
+   to clips elsewhere.
 4. **Later:** vertex hubs, DXF, SVGnest nesting and kerf calibration.
 
 The board's "Define specialized 2D output workflow" story
@@ -471,21 +473,22 @@ engine:
 
 - **Build** (Print · Cut · Fold) is the first row of Form. Each mode keeps its
   own settings (stored in the browser, not in the design or the URL).
-- **Cut:** Sheet and Join (Clips · Ties · Tabs) replace Shell, Wall and
+- **Cut:** Sheet and Join (Clips · Ties · Fingers) replace Shell, Wall and
   Rounding. Advanced holds Kerf and Fit; Sides and the print Advanced rows
   hide. Make shows Board (the profiles plus Custom) and Labels in place of
   Quality, Material and Mass.
 - **Fold:** Join (Tape · Flaps · Sew) and Fold lines (Score · Perforate ·
   Mark). Clicking a face centres the first net on it.
-- **Viewer:** the parts put together (plates, clips, ties, tabs; paper,
+- **Viewer:** the parts put together (plates, clips, ties, fingers; paper,
   flaps, tape, stitches) stand in for the printed shell, rebuilt on every
   edit. Print risk, Split and Section hide.
 - **Flat** joins the viewport toggles. It shows the boards with the cut-file
   colours on a plywood or paper ground, one tab per board. Hovering a part
   names it; clicking a panel, clip or net goes back to 3D and lights it up.
-- **Bottom bar:** Export cut file downloads one layered SVG per board, and
-  the status line reports parts, joins and boards. Its first warning uses
-  the app's fix pattern (for clip slots: a wider Border, or closed faces).
+- **Bottom bar:** one Export button opens a dialog with every file the mode
+  makes (§8.7), and the status line reports parts, joins and boards. Its
+  first warning uses the app's fix pattern (a Border that opens the faces
+  the joints closed).
 
 Leaving Print switches Print risk, Section and Split off (Split locks the
 panel), and coming back turns Print risk and Section on again. Exports are
@@ -516,20 +519,20 @@ What it doesn't do yet:
 |---|---|
 | ![Cut mode, 3D](laser/images/mockup-cut-3d.jpg) | ![Cut mode, Flat](laser/images/mockup-cut-flat.jpg) |
 | Cut, Clips: the plates and clips in the viewer, the Build switch in Form, a fix on the status line. | Flat: the Falcon A1 board with panels, clips and the fit strip. |
-| ![Fold mode, Flat](laser/images/mockup-fold-flat.jpg) | ![Cube with tabs](laser/images/mockup-cube-tabs.png) |
-| Fold, Flaps: the A4 net with valley folds and glue flaps. | Cut, Tabs on a cube. |
+| ![Fold mode, Flat](laser/images/mockup-fold-flat.jpg) | ![Cube with finger joints](laser/images/mockup-cube-fingers.png) |
+| Fold, Flaps: the A4 net with valley folds and glue flaps. | Cut, Fingers on a cube with openings. |
 
 ### 8.6 Clip finish and printed clips (2026-10-29)
 
 With open faces, the clips show through the openings: the arms lie along
 each panel's inside face, and their square ends and sharp heel catch the
-eye. (Tabs don't have this problem: they stay inside the joint.)
+eye.
 
 - **Rounded clips (laser).** Each arm end's back corner becomes a quarter
   round as deep as the arm, and the heel gets a small cove. The corners that
   bear on the panels and the slot tabs stay square, so the clip still seats
   and fits the same way. A laser cuts curves at no extra cost.
-- **Printed clips.** Clips: Cut · Print (under Join) takes the clips off
+- **Printed clips.** Made by: Laser · Print (in the Clips group) takes the clips off
   the laser boards and makes them on a 3D printer. They come out as thick as
   the sheet, from the same outline with no kerf, with a 45° chamfer round
   both faces (0.6 mm at 3 mm sheet, 0.2·t below that). The chamfer also takes
@@ -537,12 +540,75 @@ eye. (Tabs don't have this problem: they stay inside the joint.)
   shape gets its own plates and STL: `…_clipsA.stl`, `…_clipsB.stl`, and
   `…_clipsA2.stl` when one shape needs a second plate. The print bed
   (Prusa Core One by default) is under Advanced. In Flat, each plate is a
-  tab after the boards. The plates are checked as closed solids, one body
+  tab after the boards. §8.7 makes their width free. The plates are checked as closed solids, one body
   per clip.
 - Fit still comes from the slots (Advanced → Fit). Print one clip of each
   shape and try it in the coupon's slots before printing the plates.
 
 ![Laser clip with rounded ends (left) and printed clip with chamfers (right), seated and pulled apart](laser/images/clip-cut-vs-printed.png)
+
+### 8.7 Joints, openings and export (2026-10-29, second round)
+
+Feedback: clips still showed through some openings and not others; clips
+and tabs looked alike, and tabs distorted complex shapes; there was no
+control over clip size, count or placement; printed clips needn't match the
+sheet; printed clips that meet could be welded; and export needed room for
+cut and print files together.
+
+- **Why clips showed through.** The check that kept openings clear of the
+  joints measured only to the slot, but a clip's arm runs further along the
+  panel's inside face. Whether an opening reached the arm depended on the
+  face's size, hence the inconsistency.
+- **One rule for joints and openings.** Every joint now has a footprint on
+  its panels: the slot and the clip arm, a tie hole, or the edge band of a
+  finger joint or glued edge, plus a bridge of sheet (max(1, t/2) mm). A face
+  whose opening would cross any footprint is cut closed, whole, never
+  partly. The status line counts closed faces and offers the Border that
+  would open them, found by the same test (bisection, to 1%), so the fix
+  always works.
+- **Clip size, count and place** (the Clips group, under Join): Size Auto ·
+  S · M · L, where Auto takes the largest clip that clears the openings
+  and, if none does, the one needing the narrowest Border; Per edge Auto ·
+  1 · 2 · 3; Place Middle · Corners. Corner clips sit just far enough from
+  each corner that the next side's slots stay apart (laser clips also keep
+  their arms apart). Edges too short for two get one in the middle.
+- **Tabs became finger joints.** The old tabs were tab-and-slot with a
+  lip: one panel grew 2·t past the edge to carry slots for the other's
+  tabs. Faces came out 20–70% larger than the face, and on sharp corners
+  (star tips) the lip's mitred corners turned into long spikes. Fingers
+  (Join: Fingers) are the flush joint for near-90° edges: the two edges
+  interlock in alternating fingers that fill the outer corner, each
+  t·cot(θ/2) long, with an odd count so both panels agree; no lip, no
+  slots, and faces keep their size (tested within +12%). They need glue.
+  Corners keep a small notch, where neither panel has a finger.
+- **Printed clip width.** Width (printed only) sets how thick a printed clip
+  is along its edge, from the sheet's thickness up to 12 mm; the slots
+  follow, and the fit strip's slots test that width.
+- **Welding.** With printed clips at the corners, Weld (on by default)
+  joins the clips at each corner that actually touch into one piece, using
+  the vendored manifold library (loaded on demand). Each piece is turned to
+  print with the least overhang: it is tried resting on each of its larger
+  flat faces. Welded pieces go on their own plates (`…_corners.stl`) and may
+  need supports. Whether clips touch depends on size, width and angle: an
+  icosidodecahedron's large clips weld in pairs, a spiked octahedron's eight
+  valley clips weld into a ring, and a cube's or dodecahedron's corner
+  clips don't meet, which the status line says. Every tab of a welded piece
+  still points along its own panel's normal, so a panel drops straight on.
+- **Export dialog.** Share and one Export button replace Export STL, Export
+  SVG and Export cut file, in every mode. The dialog lists each file with a
+  thumbnail and what's in it, grouped as Laser cut and 3D print (Print mode:
+  the STL and the line drawing, through the app's own exports), with
+  Download per file and Download all, and a reminder to cut the fit strip
+  first.
+
+| | |
+|---|---|
+| ![Corner clips: laser (left) and printed, 5 mm wide (right)](laser/images/clips-at-corners.png) | ![Welded corner pieces](laser/images/weld-corner-pieces.png) |
+| Place: Corners. Laser clips keep their arms apart; printed ones meet. | Welded: a ring of eight valley clips (spiked octahedron) and a pair (icosidodecahedron), in their print poses. |
+| ![Cube with finger joints](laser/images/cube-fingers-assembled.png) | ![Finger joint pulled apart](laser/images/finger-joint-pulled-apart.png) |
+| Finger joints on a cube: flush faces, a small notch at each corner. | One panel drawn back to show the fingers. |
+
+![The Export dialog in Cut mode: three laser boards and two plates of welded corner pieces](laser/images/mockup-export.jpg)
 
 ## 9. Pictures
 
@@ -563,10 +629,10 @@ writes the full set, with every board, to `test/out/sheet/index.html`.
 | The clip lies in the plane square to the edge, so its outline holds the 116.6° angle exactly. | Pulled out of its slots: one tab per panel. |
 | ![Star cutaway](laser/images/star-cutaway-clips.png) | ![Valley clip, 250.5°](laser/images/clip-valley-250-pulled-apart.png) |
 | Stella octangula: tip edges and valley edges each get their own clip class. | A valley clip (250.5°) sits in the valley between two points. |
-| ![Tip clip, 70.5°](laser/images/clip-tip-70-pulled-apart.png) | ![Cube with tabs](laser/images/cube-tabs-assembled.png) |
-| A tip clip (70.5°) at a sharp edge. | Cube with tab-and-slot joints: tabs only near 90° (§3). |
-| ![Tab and slot pulled apart](laser/images/tab-and-slot-pulled-apart.png) | ![Icosidodecahedron with zip ties](laser/images/icosidodeca-cutaway-ties.png) |
-| One panel drawn back: its tabs, and the slots in the other panel's lip. | Icosidodecahedron held by zip ties, with openings. |
+| ![Tip clip, 70.5°](laser/images/clip-tip-70-pulled-apart.png) | ![Cube with finger joints](laser/images/cube-fingers-assembled.png) |
+| A tip clip (70.5°) at a sharp edge. | Cube with finger joints: near 90° only (§8.7). |
+| ![Finger joint pulled apart](laser/images/finger-joint-pulled-apart.png) | ![Icosidodecahedron with zip ties](laser/images/icosidodeca-cutaway-ties.png) |
+| One panel drawn back: the two edges' fingers. | Icosidodecahedron held by zip ties, with openings. |
 | ![Zip tie close-up](laser/images/zip-tie-inside.png) | |
 | A tie through a hole in each panel, looped over the edge. | |
 

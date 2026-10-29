@@ -11,7 +11,8 @@
  */
 
 import { buildSheet, BOARD_PROFILES, PRINT_BEDS, boardSvg, LAYERS } from "./index.js";
-import { plateMesh } from "./printclips.js";
+import { plateMesh, weldPlates } from "./printclips.js";
+import { loadCsg, weldTouching } from "../solid/csg.js";
 import { writeBinaryStl } from "../export/stl.js";
 import { buildAssembly } from "./assembly.js";
 import { apply } from "./geom2.js";
@@ -25,7 +26,9 @@ const DEFAULTS = {
   build: "print",
   flat: false,
   cut: {
-    sheetMm: 3, join: "clips", clipsBy: "cut", kerfMm: 0, fit: "normal", printBed: "prusa-core-one",
+    sheetMm: 3, join: "clips", kerfMm: 0, fit: "normal",
+    clipSize: "auto", clipsPerEdge: "auto", clipPlace: "middle",
+    clipsBy: "cut", clipWidthMm: 3, weld: true, printBed: "prusa-core-one",
     board: "falcon-a1", custom: { w: 300, h: 200 }, labels: true,
   },
   fold: { join: "tape", foldStyle: "score", board: "a4", custom: { w: 300, h: 200 }, labels: true },
@@ -39,6 +42,9 @@ const MATERIAL = { cut: "Rigid sheet: plywood, acrylic, MDF", fold: "Thin stock:
 /** Board fill in the Flat view, by mode; print beds are drawn dark. */
 const BOARD_FILL = { cut: "#d8b98c", fold: "#f3f0e8", plate: "#2b2b31" };
 const PLATE_CLIP = "#e08040";
+
+/** What each cut-file layer does, in words. */
+const LAYER_NAMES = { cut: "cut", mark: "engrave", valley: "valley fold", mountain: "mountain fold", score: "score" };
 
 const COLORS = {
   panel: 0xcfa874,
@@ -55,8 +61,11 @@ const COLORS = {
 /** Choices each setting may take; anything else falls back to the default. */
 const CHOICES = {
   build: ["print", "cut", "fold"],
-  join: { cut: ["clips", "ties", "tabs"], fold: ["tape", "flaps", "sew"] },
+  join: { cut: ["clips", "ties", "fingers"], fold: ["tape", "flaps", "sew"] },
   fit: Object.keys(FIT_CLEARANCE),
+  clipSize: ["auto", "small", "medium", "large"],
+  clipsPerEdge: ["auto", 1, 2, 3],
+  clipPlace: ["middle", "corners"],
   clipsBy: ["cut", "print"],
   foldStyle: ["score", "perforate", "mark"],
 };
@@ -76,6 +85,8 @@ function loadSettings() {
   S.flat = saved.flat === true && S.build !== "print";
   for (const m of ["cut", "fold"]) {
     const from = saved[m] ?? {}, to = S[m];
+    // Tab-and-slot became finger joints.
+    if (from.join === "tabs") from.join = "fingers";
     if (ok(from.join, CHOICES.join[m])) to.join = from.join;
     if (from.board === "custom" || BOARD_PROFILES[from.board]) to.board = from.board;
     if (num(from.custom?.w, 50, 2000) && num(from.custom?.h, 50, 2000)) to.custom = { w: from.custom.w, h: from.custom.h };
@@ -84,7 +95,9 @@ function loadSettings() {
   if (num(saved.cut?.sheetMm, 0.5, 8)) S.cut.sheetMm = saved.cut.sheetMm;
   if (num(saved.cut?.kerfMm, 0, 0.4)) S.cut.kerfMm = saved.cut.kerfMm;
   if (ok(saved.cut?.fit, CHOICES.fit)) S.cut.fit = saved.cut.fit;
-  if (ok(saved.cut?.clipsBy, CHOICES.clipsBy)) S.cut.clipsBy = saved.cut.clipsBy;
+  for (const k of ["clipSize", "clipsPerEdge", "clipPlace", "clipsBy"]) if (ok(saved.cut?.[k], CHOICES[k])) S.cut[k] = saved.cut[k];
+  if (num(saved.cut?.clipWidthMm, 1, 12)) S.cut.clipWidthMm = saved.cut.clipWidthMm;
+  if (typeof saved.cut?.weld === "boolean") S.cut.weld = saved.cut.weld;
   if (PRINT_BEDS[saved.cut?.printBed]) S.cut.printBed = saved.cut.printBed;
   if (ok(saved.fold?.foldStyle, CHOICES.foldStyle)) S.fold.foldStyle = saved.fold.foldStyle;
   return S;
@@ -177,21 +190,44 @@ export function mountSheetMockup({ viewer, getLast, applyPatch, exportStem, down
     S.cut.sheetMm = v;
     changed();
   });
-  const cutJoin = segControl("Join", [["clips", "Clips"], ["ties", "Ties"], ["tabs", "Tabs"]], () => S.cut.join, (v) => {
+  const cutJoin = segControl("Join", [["clips", "Clips"], ["ties", "Ties"], ["fingers", "Fingers"]], () => S.cut.join, (v) => {
     S.cut.join = v;
     changed();
   }, {
-    clips: "A small clip cut in the plane square to each edge; holds any angle",
+    clips: "A small clip in the plane square to each edge, through a slot in each panel; holds any angle",
     ties: "Pairs of holes along each edge for zip ties or wire",
-    tabs: "Tabs on one panel through slots in the next; near-90° edges only, others get clips",
+    fingers: "Finger joints: the two edges interlock, flush, glued; near-90° edges only, others get clips",
   });
-  const clipsRow = segControl("Clips", [["cut", "Cut"], ["print", "Print"]], () => S.cut.clipsBy, (v) => {
-    S.cut.clipsBy = v;
+  // Clip options, in their own cluster so the panel stays short.
+  const setCut = (key) => (v) => {
+    S.cut[key] = v;
     changed();
-  }, {
+  };
+  const sizeRow = segControl("Size", [["auto", "Auto"], ["small", "S"], ["medium", "M"], ["large", "L"]], () => S.cut.clipSize, setCut("clipSize"), {
+    auto: "The largest clip whose arms stay clear of the openings",
+  });
+  const perEdgeRow = segControl("Per edge", [["auto", "Auto"], [1, "1"], [2, "2"], [3, "3"]], () => S.cut.clipsPerEdge, setCut("clipsPerEdge"), {
+    auto: "One, or two on edges of 70 mm and more",
+  });
+  const placeRow = segControl("Place", [["middle", "Middle"], ["corners", "Corners"]], () => S.cut.clipPlace, setCut("clipPlace"), {
+    middle: "Spread along each edge",
+    corners: "Near each end of the edge, just clear of the next side's clips",
+  });
+  const clipsRow = segControl("Made by", [["cut", "Laser"], ["print", "Print"]], () => S.cut.clipsBy, setCut("clipsBy"), {
     cut: "Cut from the sheet with the panels",
     print: "3D-printed with chamfered edges, one STL per clip shape",
   });
+  const widthRow = rangeControl("Width", 1, 12, 0.5, "mm", () => Math.max(S.cut.clipWidthMm, S.cut.sheetMm), setCut("clipWidthMm"));
+  const weldRow = segControl("Weld", [[true, "On"], [false, "Off"]], () => S.cut.weld, setCut("weld"), {
+    true: "Printed corner clips that touch become one piece",
+  });
+  const clipCluster = cluster("Clips", [sizeRow.root, perEdgeRow.root, placeRow.root, clipsRow.root, widthRow.root, weldRow.root], () =>
+    [
+      S.cut.clipSize === "auto" && sheet?.stats?.clipSize ? `auto (${sheet.stats.clipSize})` : S.cut.clipSize,
+      S.cut.clipPlace,
+      S.cut.clipsBy === "print" ? `printed ${fmt(Math.max(S.cut.clipWidthMm, S.cut.sheetMm))} mm` : "laser",
+    ].join(" · "),
+  );
   const foldJoin = segControl("Join", [["tape", "Tape"], ["flaps", "Flaps"], ["sew", "Sew"]], () => S.fold.join, (v) => {
     S.fold.join = v;
     changed();
@@ -223,7 +259,7 @@ export function mountSheetMockup({ viewer, getLast, applyPatch, exportStem, down
   const cutAdvanced = cluster("Advanced", [kerfRow.root, fitRow.root, bedRow.root], () =>
     `kerf ${fmt(S.cut.kerfMm, 2)} · ${S.cut.fit}${S.cut.clipsBy === "print" && S.cut.join !== "ties" ? ` · ${PRINT_BEDS[S.cut.printBed].label.split(" /")[0]}` : ""}`,
   );
-  const cutRows = [sheetRow.root, cutJoin.root, clipsRow.root];
+  const cutRows = [sheetRow.root, cutJoin.root, clipCluster.root];
   const foldRows = [foldJoin.root, foldLines.root];
   buildRow.root.after(...cutRows, ...foldRows);
   formBody.querySelector('[data-cluster="form-advanced"]')?.after(cutAdvanced.root);
@@ -258,9 +294,12 @@ export function mountSheetMockup({ viewer, getLast, applyPatch, exportStem, down
   canvasHost.append(flatView);
 
   // ── Bottom bar ──
-  const exportCut = el("button", { type: "button", className: "btn btn-accent", textContent: "Export cut file", hidden: true });
-  exportCut.addEventListener("click", downloadBoards);
-  exportSvg?.before(exportCut);
+  // One Export button opens a dialog with every file this mode makes.
+  const exportBtn = el("button", { type: "button", className: "btn btn-accent", textContent: "Export" });
+  exportBtn.addEventListener("click", openExport);
+  exportStl?.before(exportBtn);
+  const exportDialog = el("dialog", { className: "onboarding sheet-export", "aria-label": "Export" });
+  document.body.append(exportDialog);
   const strip = el("div", { id: "sheet-strip", "aria-live": "polite", hidden: true });
   appStrip.after(strip);
 
@@ -282,8 +321,11 @@ export function mountSheetMockup({ viewer, getLast, applyPatch, exportStem, down
     for (const n of cutRows) n.hidden = S.build !== "cut";
     // Ties have no clips; tabs fall back to clips away from 90°.
     const clipsUsed = S.build === "cut" && S.cut.join !== "ties";
-    clipsRow.root.hidden = !clipsUsed;
-    bedRow.root.hidden = !(clipsUsed && S.cut.clipsBy === "print");
+    const printing = clipsUsed && S.cut.clipsBy === "print";
+    clipCluster.root.hidden = !clipsUsed;
+    widthRow.root.hidden = !printing;
+    weldRow.root.hidden = !(printing && S.cut.clipPlace === "corners");
+    bedRow.root.hidden = !printing;
     for (const n of foldRows) n.hidden = S.build !== "fold";
     cutAdvanced.root.hidden = S.build !== "cut";
     boardRow.root.hidden = !sheetMode;
@@ -298,13 +340,16 @@ export function mountSheetMockup({ viewer, getLast, applyPatch, exportStem, down
     }
     hud?.classList.toggle("sheet-mode", sheetMode);
     flatInput.checked = S.flat;
-    exportStl.hidden = sheetMode;
-    exportCut.hidden = !sheetMode;
+    if (exportStl) exportStl.hidden = true;
+    if (exportSvg) exportSvg.hidden = true;
     appStrip.hidden = sheetMode;
     strip.hidden = !sheetMode;
-    for (const c of [buildRow, sheetRow, cutJoin, clipsRow, foldJoin, foldLines, kerfRow, fitRow, bedRow, labelsRow]) c.sync();
+    for (const c of [buildRow, sheetRow, cutJoin, sizeRow, perEdgeRow, placeRow, clipsRow, widthRow, weldRow, foldJoin, foldLines, kerfRow, fitRow, bedRow, labelsRow]) {
+      c.sync();
+    }
     boardRow.sync();
     cutAdvanced.sync();
+    clipCluster.sync();
   }
 
   function scheduleBuild() {
@@ -352,6 +397,7 @@ export function mountSheetMockup({ viewer, getLast, applyPatch, exportStem, down
         ...(S.build === "cut"
           ? {
               join: m.join, clipsBy: m.clipsBy, printBed: PRINT_BEDS[m.printBed],
+              clipSize: m.clipSize, clipsPerEdge: m.clipsPerEdge, clipPlace: m.clipPlace, clipWidthMm: m.clipWidthMm,
               sheetMm: m.sheetMm, kerfMm: m.kerfMm, clearanceMm: FIT_CLEARANCE[m.fit], coupon: true,
             }
           : { join: m.join, foldStyle: m.foldStyle, rootFace: state.faceIndex }),
@@ -359,6 +405,9 @@ export function mountSheetMockup({ viewer, getLast, applyPatch, exportStem, down
       sheet.openings = openings;
       sheet.borderFraction = openings?.borderFraction ?? null;
       viewer.setAltModel(assemblyModel(last.skeleton, sheet, openings));
+      if (S.build === "cut" && m.clipsBy === "print" && m.clipPlace === "corners" && m.weld && sheet.plates.length) {
+        weldLater(sheet, last.skeleton);
+      }
     } catch (err) {
       console.error("sheet mockup:", err);
       sheetError = `Couldn't lay this shape out: ${err.message}`;
@@ -366,6 +415,29 @@ export function mountSheetMockup({ viewer, getLast, applyPatch, exportStem, down
     }
     viewIndex = Math.min(viewIndex, Math.max(0, flatViews().length - 1));
     render();
+  }
+
+  /** Weld printed corner clips once the mesh library is in; a newer build wins. */
+  function weldLater(forSheet, skeleton) {
+    forSheet.welding = true;
+    loadCsg()
+      .then(() => {
+        if (sheet !== forSheet) return;
+        const res = weldPlates(forSheet, skeleton, weldTouching, PRINT_BEDS[S.cut.printBed]);
+        forSheet.plates = res.plates;
+        forSheet.stats.plates = res.plates.length;
+        forSheet.weld = { pieces: res.welded, clips: res.weldedClips };
+      })
+      .catch((err) => {
+        console.error("sheet mockup weld:", err);
+        if (sheet === forSheet) forSheet.weld = { error: err.message };
+      })
+      .finally(() => {
+        if (sheet !== forSheet) return;
+        forSheet.welding = false;
+        viewIndex = Math.min(viewIndex, Math.max(0, flatViews().length - 1));
+        render();
+      });
   }
 
   function render() {
@@ -391,13 +463,19 @@ export function mountSheetMockup({ viewer, getLast, applyPatch, exportStem, down
     let line1, line2;
     if (sheet.mode === "cut") {
       const clips = Object.values(st.clips ?? {}).reduce((a, n) => a + n, 0);
-      const clipText = clips && (st.plates ? `${clips} printed clips (${plural(st.plates, "plate")})` : plural(clips, "clip"));
-      const joins = [clipText, st.ties && plural(st.ties, "tie"), st.tabs && plural(st.tabs, "tab"), st.glued && `${st.glued} glued`]
+      const size = S.cut.clipSize === "auto" ? `${st.clipSize}, auto` : st.clipSize;
+      const clipText = clips && (st.plates ? `${clips} printed clips (${size}, ${plural(st.plates, "plate")})` : `${plural(clips, "clip")} (${size})`);
+      const joins = [clipText, st.ties && plural(st.ties, "tie"), st.fingers && plural(st.fingers, "finger joint"), st.glued && `${st.glued} glued`]
         .filter(Boolean)
         .join(" + ");
       line1 = `cut   ${plural(st.panels, "panel")} · ${joins} · ${boards} · sheet ${fmt(S.cut.sheetMm)} mm`;
       const types = Object.keys(st.clips ?? {}).length;
-      line2 = `edges ${fmt(st.dihedralDeg[0], 0)}–${fmt(st.dihedralDeg[1], 0)}° · shortest side ${fmt(st.smallestSideMm)} mm${types ? ` · ${plural(types, "clip shape")}` : ""}`;
+      const w = sheet.weld;
+      const weld = sheet.welding ? " · welding corners…"
+        : w?.error ? " · weld failed"
+        : w ? (w.pieces ? ` · ${w.clips} clips weld into ${plural(w.pieces, "corner piece")}` : " · no corner clips touch (try L or wider clips)")
+        : "";
+      line2 = `edges ${fmt(st.dihedralDeg[0], 0)}–${fmt(st.dihedralDeg[1], 0)}° · shortest side ${fmt(st.smallestSideMm)} mm${types ? ` · ${plural(types, "clip shape")}` : ""}${weld}`;
     } else {
       line1 = `fold  ${plural(st.nets, "net")} · ${plural(st.panels, "face")} · ${plural(st.folds, "fold")} · ${plural(st.openEdges, S.fold.join === "tape" ? "taped edge" : S.fold.join === "flaps" ? "flap" : "sewn edge")} · ${boards}`;
       line2 = `largest net ${plural(st.largestNet, "face")} · fold lines ${S.fold.foldStyle}`;
@@ -408,15 +486,12 @@ export function mountSheetMockup({ viewer, getLast, applyPatch, exportStem, down
       const w = el("span", { className: "sheet-warn", textContent: `\n▲ ${warn}${sheet.warnings.length > 1 ? ` (+${sheet.warnings.length - 1})` : ""}` });
       w.title = sheet.warnings.join("\n");
       strip.append(w);
-      // Same "fix" pattern as the print warnings: a wider border, or
-      // closed faces when no border is wide enough.
-      const need = sheet.stats.minBorderFraction;
-      if (sheet.mode === "cut" && sheet.borderFraction != null && need > sheet.borderFraction) {
-        const pct = Math.ceil(need * 100);
-        const fix = pct <= MAX_BORDER * 100
-          ? el("button", { type: "button", className: "control-fix", textContent: `Use ${pct}% border` })
-          : el("button", { type: "button", className: "control-fix", textContent: "Close the faces" });
-        fix.addEventListener("click", () => applyPatch(pct <= MAX_BORDER * 100 ? { borderFraction: pct / 100 } : { openings: false }, true));
+      // Same "fix" pattern as the print warnings: the Border that opens
+      // the faces the rule closed, when the app allows one that wide.
+      const need = Math.ceil(sheet.stats.minBorderFraction * 100);
+      if (sheet.mode === "cut" && sheet.stats.filledPanels && need <= MAX_BORDER * 100) {
+        const fix = el("button", { type: "button", className: "control-fix", textContent: `Use ${need}% border` });
+        fix.addEventListener("click", () => applyPatch({ borderFraction: need / 100 }, true));
         strip.append(" ", fix);
       }
     }
@@ -434,7 +509,7 @@ export function mountSheetMockup({ viewer, getLast, applyPatch, exportStem, down
       const k = (seen.get(p.letter) ?? 0) + 1;
       seen.set(p.letter, k);
       return {
-        label: `Print ${p.letter}${count.get(p.letter) > 1 ? k : ""}`,
+        label: `Print ${p.letter === "corners" ? "corners" : p.letter}${count.get(p.letter) > 1 ? k : ""}`,
         items: p.items,
         size: PRINT_BEDS[S.cut.printBed],
         fill: BOARD_FILL.plate,
@@ -466,7 +541,7 @@ export function mountSheetMockup({ viewer, getLast, applyPatch, exportStem, down
         : Object.entries(LAYERS)
             .filter(([k]) => used.has(k))
             .map(([k, { color }]) =>
-              el("span", { className: "sheet-legend-item", style: `--c:${color}`, textContent: { cut: "cut", mark: "engrave", valley: "valley fold", mountain: "mountain fold", score: "score" }[k] }),
+              el("span", { className: "sheet-legend-item", style: `--c:${color}`, textContent: LAYER_NAMES[k] }),
             )),
     );
 
@@ -531,6 +606,7 @@ export function mountSheetMockup({ viewer, getLast, applyPatch, exportStem, down
     if (part.kind === "panel") return `Panel ${part.panel + 1} · ${see}`;
     if (part.kind === "clip") return `Clip ${part.name.replace(/^clip /, "")} · edge ${part.joint}${part.print ? " · printed" : ""} · ${see}`;
     if (part.kind === "net") return `Net ${part.name.replace(/^net /, "")} · ${plural(part.panels.length, "face")} · ${see}`;
+    if (part.kind === "weld") return `Corner piece · ${part.clips.length} clips welded · ${see}`;
     if (part.kind === "coupon") return `${part.name[0].toUpperCase()}${part.name.slice(1)} · cut this first to check the slot fit`;
     return part.name;
   }
@@ -541,6 +617,7 @@ export function mountSheetMockup({ viewer, getLast, applyPatch, exportStem, down
       part.kind === "panel" ? [`p${part.panel}`]
       : part.kind === "clip" ? [`j${part.joint}`]
       : part.kind === "net" ? part.panels.map((p) => `p${p}`)
+      : part.kind === "weld" ? part.clips.map((c) => `j${c.joint}`)
       : [];
     if (!keys.length) return;
     S.flat = false;
@@ -576,24 +653,117 @@ export function mountSheetMockup({ viewer, getLast, applyPatch, exportStem, down
     return { parts, lines: new Float32Array(linePts), lineColor: 0x3a2a1a };
   }
 
-  // ── Export cut file ──
-  function downloadBoards() {
-    if (!sheet) return;
+  // ── Export dialog ──
+  /**
+   * Every file this mode makes, grouped: what it is, a thumbnail where one
+   * helps, and how to make it.
+   */
+  function exportFiles() {
+    const stem0 = exportStem();
+    if (S.build === "print") {
+      return [
+        { group: "3D print", name: `${stem0}.stl`, detail: "The shell as shown (two halves when Split is on)", run: () => exportStl?.click() },
+        { group: "Drawing", name: `${stem0}.svg`, detail: "Line drawing of the model from the current view", run: () => exportSvg?.click() },
+      ];
+    }
+    if (!sheet) return [];
     const m = mode();
-    const stem = `${exportStem()}_${sheet.mode}_${m.join}${sheet.mode === "cut" ? `_${fmt(m.sheetMm)}mm` : ""}`;
+    const stem = `${stem0}_${sheet.mode}_${m.join}${sheet.mode === "cut" ? `_${fmt(m.sheetMm)}mm` : ""}`;
     const size = boardSize();
-    sheet.boards.forEach((board, i) => {
+    const files = sheet.boards.map((board, i) => {
       const name = sheet.boards.length > 1 ? `${stem}_board${i + 1}` : stem;
-      download(boardSvg(board, size, { title: name }), `${name}.svg`, "image/svg+xml");
+      const used = new Set(board.items.flatMap((it) => it.part.paths.map((p) => p.layer)));
+      const layers = Object.keys(LAYERS).filter((k) => used.has(k)).reverse().map((k) => LAYER_NAMES[k]);
+      return {
+        group: sheet.mode === "cut" ? "Laser cut" : "Laser or cutter",
+        name: `${name}.svg`,
+        detail: `${plural(board.items.length, "part")} on ${fmt(size.w)} × ${fmt(size.h)} mm · ${layers.join(", ")}`,
+        thumb: thumbSvg(board.items, size, BOARD_FILL[sheet.mode], "#c0392b"),
+        run: () => download(boardSvg(board, size, { title: name }), `${name}.svg`, "image/svg+xml"),
+      };
     });
-    // One STL per print plate, named by clip shape: …_clipsA.stl, …_clipsA2.stl
+    // One STL per print plate: …_clipsA.stl, …_clipsA2.stl, …_corners.stl
+    const bed = PRINT_BEDS[S.cut.printBed];
     const seen = new Map();
-    for (const plate of sheet.plates) {
+    for (const plate of sheet.plates ?? []) {
       const k = (seen.get(plate.letter) ?? 0) + 1;
       seen.set(plate.letter, k);
-      const name = `${stem}_clips${plate.letter}${k > 1 ? k : ""}`;
-      download(writeBinaryStl(plateMesh(plate, sheet.dims.t), { header: name }), `${name}.stl`, "model/stl");
+      const corners = plate.letter === "corners";
+      const name = `${stem}_${corners ? "corners" : `clips${plate.letter}`}${k > 1 ? k : ""}`;
+      const n = plate.items.reduce((a, it) => a + (it.part.clips?.length ?? 1), 0);
+      files.push({
+        group: "3D print",
+        name: `${name}.stl`,
+        detail: corners
+          ? `${plural(plate.items.length, "welded corner piece")} (${n} clips) · may need supports · ${bed.label}`
+          : `${plural(n, "clip")} ${plate.letter}, flat, ${fmt(plate.items[0].part.thick ?? sheet.dims.t)} mm thick · ${bed.label}`,
+        thumb: thumbSvg(plate.items, bed, BOARD_FILL.plate, PLATE_CLIP, true),
+        run: () => download(writeBinaryStl(plateMesh(plate, sheet.dims.t), { header: name }), `${name}.stl`, "model/stl"),
+      });
     }
+    return files;
+  }
+
+  function openExport() {
+    const files = exportFiles();
+    const body = el("form", { method: "dialog", className: "onboarding-body sheet-export-body" });
+    const head = el("div", { className: "sheet-export-head" });
+    head.append(
+      el("h2", { textContent: "Export" }),
+      el("button", { type: "submit", className: "btn-quiet sheet-export-close", "aria-label": "Close", textContent: "×" }),
+    );
+    const what =
+      S.build === "print" ? "Print: the shell for a 3D printer, and a line drawing."
+      : S.build === "cut" ? `Cut: ${fmt(S.cut.sheetMm)} mm sheet on ${boardSize().label}.${sheet?.plates?.length ? ` Clips print on ${PRINT_BEDS[S.cut.printBed].label}.` : ""}`
+      : `Fold: thin stock on ${boardSize().label}.`;
+    body.append(head, el("p", { className: "onboarding-note", textContent: what }));
+    if (sheet?.welding) body.append(el("p", { className: "onboarding-note", textContent: "Welding corner pieces… the print files follow in a moment." }));
+    let group = null, list = null;
+    for (const f of files) {
+      if (f.group !== group) {
+        group = f.group;
+        list = el("div", { className: "sheet-export-list" });
+        body.append(el("div", { className: "group-subheader", textContent: group }), list);
+      }
+      const row = el("div", { className: "sheet-export-row" });
+      const thumb = el("div", { className: "sheet-export-thumb" });
+      if (f.thumb) thumb.innerHTML = f.thumb;
+      const text = el("div", { className: "sheet-export-text" });
+      text.append(el("div", { className: "sheet-export-name", textContent: f.name }), el("div", { className: "sheet-export-detail", textContent: f.detail }));
+      const btn = el("button", { type: "button", className: "btn", textContent: "Download" });
+      btn.addEventListener("click", () => f.run());
+      row.append(thumb, text, btn);
+      list.append(row);
+    }
+    if (S.build === "cut") {
+      body.append(el("p", {
+        className: "onboarding-note",
+        textContent: "Cut the fit strip first and push the key (or a printed clip's tab) into its slots; change Fit under Advanced if the middle slot is loose or tight.",
+      }));
+    }
+    const foot = el("div", { className: "sheet-export-foot" });
+    const all = el("button", { type: "button", className: "btn btn-accent", textContent: files.length > 1 ? `Download all (${files.length})` : "Download" });
+    all.disabled = !files.length;
+    all.addEventListener("click", () => {
+      for (const f of files) f.run();
+      exportDialog.close();
+    });
+    foot.append(all);
+    body.append(foot);
+    exportDialog.replaceChildren(body);
+    if (!exportDialog.open) exportDialog.showModal();
+  }
+
+  /** A small SVG of parts on a board or bed, for the export list. */
+  function thumbSvg(items, size, fill, stroke, solid = false) {
+    const d = items
+      .map(({ part, tf }) => part.paths
+        .filter((p) => p.layer === "cut" && p.closed)
+        .map((p) => `M${p.pts.map((q) => apply(tf, q)).map(([x, y]) => `${fmt(x, 1)},${fmt(size.h - y, 1)}`).join("L")}Z`)
+        .join(""))
+      .join("");
+    const look = solid ? `fill="${stroke}" stroke="none"` : `fill="none" stroke="${stroke}" stroke-width="${fmt(Math.max(size.w, size.h) / 160, 2)}"`;
+    return `<svg viewBox="0 0 ${fmt(size.w)} ${fmt(size.h)}" xmlns="http://www.w3.org/2000/svg"><rect width="100%" height="100%" fill="${fill}"/><path d="${d}" fill-rule="evenodd" ${look}/></svg>`;
   }
 
   // ── Controls in the app's markup ──
@@ -802,6 +972,20 @@ ${borrowed.join("\n")}
 .sheet-line--valley, .sheet-line--mountain, .sheet-line--score { stroke-width: 1.1; }
 .sheet-line--mountain { stroke-dasharray: 6 3; }
 .sheet-line--valley { stroke-dasharray: 6 2 1.5 2; }
+.sheet-export { width: min(640px, calc(100vw - 32px)); max-width: none; }
+.sheet-export-body { gap: 10px; max-height: min(80vh, 760px); overflow: auto; }
+.sheet-export-head { display: flex; align-items: center; justify-content: space-between; }
+.sheet-export-close { font-size: 1.2rem; line-height: 1; padding: 2px 8px; }
+.sheet-export-list { display: flex; flex-direction: column; gap: 6px; }
+.sheet-export-row {
+  display: grid; grid-template-columns: 72px 1fr auto; gap: 12px; align-items: center;
+  padding: 6px 8px; border: 1px solid var(--line); border-radius: 3px; background: var(--panel-inset);
+}
+.sheet-export-thumb svg { display: block; width: 72px; height: 54px; border-radius: 2px; }
+.sheet-export-text { min-width: 0; }
+.sheet-export-name { font: 500 0.75rem var(--font-mono); color: var(--text); overflow-wrap: anywhere; }
+.sheet-export-detail { font-size: 0.72rem; color: var(--text-dim); line-height: 1.35; margin-top: 2px; }
+.sheet-export-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
 .sheet-flat-tip {
   position: absolute; left: 12px; bottom: 12px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 3px;
   background: color-mix(in srgb, var(--panel) 92%, transparent); font: 500 0.72rem var(--font-mono); color: var(--accent);

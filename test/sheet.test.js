@@ -7,7 +7,8 @@ import { extractPanels } from "../src/sheet/panels.js";
 import { buildSheet, boardSvg, BOARD_PROFILES } from "../src/sheet/index.js";
 import { area, apply, convexHull, convexOverlap } from "../src/sheet/geom2.js";
 import { pointInPoly } from "../src/sheet/cut.js";
-import { plateMesh } from "../src/sheet/printclips.js";
+import { plateMesh, weldPlates, PRINT_BEDS } from "../src/sheet/printclips.js";
+import { loadCsg, weldTouching } from "../src/solid/csg.js";
 
 const skeletonOf = (state) =>
   compile({ ...DEFAULT_STATE, roundingMm: 0, openings: false, ...state }).skeleton;
@@ -69,13 +70,26 @@ describe("sheet cut mode", () => {
     assert.match(res.warnings.join(" "), /raise Border/);
   });
 
-  it("uses tabs near 90° and falls back to clips elsewhere", () => {
-    const cube = cut({ base: "cube", circumdiameterMm: 140 }, { join: "tabs" });
-    assert.equal(cube.stats.tabs, 24);
+  it("uses finger joints near 90° and falls back to clips elsewhere", () => {
+    const cube = cut({ base: "cube", circumdiameterMm: 140 }, { join: "fingers" });
+    assert.equal(cube.stats.fingers, 12);
     assert.deepEqual(cube.stats.clips, {});
-    const ico = cut({ base: "icosahedron", circumdiameterMm: 160 }, { join: "tabs" });
-    assert.equal(ico.stats.tabs, 0);
-    assert.match(ico.warnings.join(" "), /too far from 90° for tabs/);
+    const ico = cut({ base: "icosahedron", circumdiameterMm: 160 }, { join: "fingers" });
+    assert.equal(ico.stats.fingers, 0);
+    assert.match(ico.warnings.join(" "), /too far from 90° for fingers/);
+  });
+
+  it("keeps finger-joint faces their own size: no lips, no slots", () => {
+    for (const base of ["cube", "octahedron", "dodecahedron"]) {
+      const res = cut({ base, circumdiameterMm: 160 }, { join: "fingers" });
+      for (const part of res.parts.filter((p) => p.kind === "panel")) {
+        const face = Math.abs(area(res.extracted.panels[part.panel].outline));
+        const ratio = Math.abs(area(part.paths[0].pts)) / face;
+        // Fingers only add thin strips along the edges.
+        assert.ok(ratio > 0.99 && ratio < 1.12, `${base} ${part.name} area ×${ratio.toFixed(2)}`);
+        assert.equal(part.paths.filter((p) => p.layer === "cut").length, 1, `${base} ${part.name} has no slots`);
+      }
+    }
   });
 
   it("gives valley edges their own clip class", () => {
@@ -117,6 +131,70 @@ describe("sheet cut mode", () => {
     }
   });
 
+  it("sizes Auto clips to clear the openings, and closes whole faces otherwise", () => {
+    const openings = (b) => ({ generator: OPENING_GENERATORS.polygon, borderFraction: b, filletMm: 4.5 });
+    const state = { base: "icosidodeca", circumdiameterMm: 220 };
+    const auto = cut(state, { join: "clips", openings: openings(0.54) });
+    assert.equal(auto.stats.clipSize, "small");
+    assert.equal(auto.stats.filledPanels, 0);
+    const large = cut(state, { join: "clips", clipSize: "large", openings: openings(0.54) });
+    assert.equal(large.stats.filledPanels, 20);
+    // A closed face loses every opening, never part of one.
+    for (const part of large.parts.filter((p) => p.kind === "panel")) {
+      const holes = part.paths.filter((p) => p.layer === "cut").length - 1;
+      const slots = part.paths.filter((p) => p.layer === "cut" && p.pts.length === 4).length;
+      assert.equal(part.filled, holes === slots, part.name);
+    }
+  });
+
+  it("places corner clips symmetrically with every slot apart", () => {
+    const res = cut({ base: "dodecahedron", circumdiameterMm: 200 }, { join: "clips", clipPlace: "corners" });
+    for (const jn of res.joins.filter((j) => j.kind === "clips")) {
+      assert.equal(jn.at.length, 2);
+      assert.ok(Math.abs(jn.at[0] + jn.at[1] - jn.joint.lengthMm) < 1e-9, "symmetric about the midpoint");
+    }
+    for (const part of res.parts.filter((p) => p.kind === "panel")) {
+      const slots = part.paths.filter((p) => p.layer === "cut").slice(1).filter((p) => p.pts.length === 4).map((p) => p.pts);
+      assert.equal(slots.length, 10);
+      for (let i = 0; i < slots.length; i++) {
+        for (let j = i + 1; j < slots.length; j++) assert.ok(!convexOverlap(slots[i], slots[j], 0), `${part.name} slots ${i}, ${j}`);
+      }
+    }
+  });
+
+  it("cuts slots as wide as a printed clip", () => {
+    const res = cut({ base: "cube", circumdiameterMm: 160 }, { join: "clips", clipsBy: "print", clipWidthMm: 6, clearanceMm: 0.1 });
+    // The first cut path is the panel's outline; the slots follow.
+    const slot = res.parts.find((p) => p.kind === "panel").paths.filter((p) => p.layer === "cut").slice(1).find((p) => p.pts.length === 4).pts;
+    const sides = slot.map((q, i) => Math.hypot(...[0, 1].map((k) => slot[(i + 1) % 4][k] - q[k])));
+    assert.ok(Math.abs(Math.min(...sides) - 6.1) < 1e-6, sides.join(", "));
+    assert.ok(res.parts.filter((p) => p.kind === "clip").every((c) => c.thick === 6));
+  });
+
+  it("welds printed corner clips that touch into closed pieces", async () => {
+    await loadCsg();
+    const res = cut({ base: "icosidodeca", circumdiameterMm: 220 }, { join: "clips", clipsBy: "print", clipPlace: "corners", clipSize: "large", clipWidthMm: 6 });
+    const sk = skeletonOf({ base: "icosidodeca", circumdiameterMm: 220 });
+    const sheet = { ...res, extracted: res.extracted };
+    const { plates, welded, weldedClips } = weldPlates(sheet, sk, weldTouching, PRINT_BEDS["prusa-core-one"]);
+    assert.equal(weldedClips, 120);
+    assert.equal(welded, 60);
+    for (const plate of plates) {
+      const { positions: P, indices } = plateMesh(plate, 3);
+      const key = (k) => `${P[3 * k]},${P[3 * k + 1]},${P[3 * k + 2]}`;
+      const edges = new Set();
+      for (let t = 0; t < indices.length; t += 3) {
+        for (let j = 0; j < 3; j++) edges.add(`${key(indices[t + j])}|${key(indices[t + ((j + 1) % 3)])}`);
+      }
+      let open = 0;
+      for (const e of edges) {
+        const [a, b] = e.split("|");
+        if (!edges.has(`${b}|${a}`)) open++;
+      }
+      assert.equal(open, 0, `plate ${plate.letter} has open edges`);
+    }
+  });
+
   it("glues edges too short for a joint", () => {
     // 3 mm sheet: joints need 2·6 + 2·3 = 18 mm of edge.
     const small = cut({ base: "cube", circumdiameterMm: 25 }, { join: "clips" });
@@ -128,13 +206,14 @@ describe("sheet cut mode", () => {
     assert.equal(big.stats.glued, 0);
   });
 
-  it("says so when no Border clears the joints", () => {
+  it("closes whole faces when no Border clears the joints", () => {
     const res = cut(
       { base: "icosidodeca", circumdiameterMm: 100 },
       { join: "clips", openings: { generator: OPENING_GENERATORS.polygon, borderFraction: 0.36, filletMm: 4.5 } },
     );
     assert.ok(res.stats.minBorderFraction > 0.9);
-    assert.match(res.warnings[0], /no Border clears them: close the faces/);
+    assert.equal(res.stats.filledPanels, 32);
+    assert.match(res.warnings[0], /32 faces are cut closed so their openings stay clear of the joints$/);
   });
 });
 
@@ -168,7 +247,7 @@ describe("sheet fold mode", () => {
 describe("sheet layout", () => {
   it("keeps parts on the board and apart", () => {
     const res = buildSheet(skeletonOf({ base: "octahedron", circumdiameterMm: 160 }), {
-      mode: "cut", join: "tabs", sheetMm: 3, board: falcon, coupon: true,
+      mode: "cut", join: "fingers", sheetMm: 3, board: falcon, coupon: true,
     });
     for (const b of res.boards) {
       const hulls = b.items.map(({ part, tf }) => convexHull(part.paths.flatMap((p) => p.pts).map((q) => apply(tf, q))));

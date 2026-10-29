@@ -62,7 +62,7 @@ export function sheetPictures(skeleton, sheet, opts = {}) {
     png: renderPng(scene([...kept, ...keptFast]), fitCamera(all.center, all.radius, VIEW), { width: 760, height: 570 }),
   });
 
-  // One close-up per kind of joint (clip class, ties, tabs, flap, tape, sewing).
+  // One close-up per kind of joint (clip class, ties, fingers, flap, tape, sewing).
   for (const jn of pickJoints(sheet)) {
     const j = jn.joint;
     const pa = plates.find((s) => s.panel === j.a), pb = plates.find((s) => s.panel === j.b);
@@ -78,13 +78,13 @@ export function sheetPictures(skeleton, sheet, opts = {}) {
     const inside = add(mul(inward, 0.55), along), outside = add(mul(inward, -1), mul(along, 0.7));
     pics.push({ label: `${title}, inside`, png: renderPng(sc, fitCamera(target, r, inside, { up }), size) });
     pics.push({ label: `${title}, outside`, png: renderPng(sc, fitCamera(target, r, outside, { up }), size) });
-    // Exploded: clips pulled inward out of their slots; a tab panel drawn
-    // back along its own plane so the tabs show.
+    // Exploded: clips pulled inward out of their slots; for fingers, one
+    // panel drawn back along its own plane so the fingers show.
     const t = sheet.dims?.t ?? 1;
     if (jn.kind === "clips") {
       const moved = mine.map((m) => shift(m, mul(inward, 2.5 * t)));
       pics.push({ label: `${title}, pulled apart`, png: renderPng(scene([pa, b2, ...moved]), fitCamera(add(target, mul(inward, 1.2 * t)), r, inside, { up }), size) });
-    } else if (jn.kind === "tabs") {
+    } else if (jn.kind === "fingers") {
       const intoB = intoPanel(sheet, j.b, along, vert(skeleton, j.v0));
       pics.push({ label: `${title}, pulled apart`, png: renderPng(scene([pa, shift(b2, mul(intoB, 3 * t))]), fitCamera(target, r * 1.2, add(outside, mul(inward, 0.6)), { up }), size) });
     }
@@ -125,7 +125,7 @@ function pickJoints(sheet) {
     let key, title;
     if (sheet.mode === "cut") {
       key = jn.kind === "clips" ? `clip ${Math.round(jn.joint.dihedralDeg * 2) / 2}` : jn.kind;
-      title = jn.kind === "clips" ? `Clip at ${jn.joint.dihedralDeg.toFixed(1)}°` : jn.kind === "ties" ? "Zip tie" : "Tab and slot";
+      title = jn.kind === "clips" ? `Clip at ${jn.joint.dihedralDeg.toFixed(1)}°` : jn.kind === "ties" ? "Zip tie" : "Finger joint";
     } else {
       if (jn.folded) continue;
       const join = sheet.dims.join;

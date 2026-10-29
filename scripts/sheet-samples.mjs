@@ -61,8 +61,8 @@ const SAMPLES = [
   { slug: "icosidodeca-clips", state: { base: "icosidodeca", circumdiameterMm: 200 }, mode: "cut", join: "clips" },
   { slug: "icosidodeca-ties", state: { base: "icosidodeca", circumdiameterMm: 200 }, mode: "cut", join: "ties" },
   { slug: "dodecahedron-clips", state: { base: "dodecahedron", circumdiameterMm: 160, ...closed }, mode: "cut", join: "clips" },
-  { slug: "cube-tabs", state: { base: "cube", circumdiameterMm: 140, ...closed }, mode: "cut", join: "tabs" },
-  { slug: "octahedron-tabs", state: { base: "octahedron", circumdiameterMm: 160, ...closed }, mode: "cut", join: "tabs" },
+  { slug: "cube-fingers", state: { base: "cube", circumdiameterMm: 140, ...closed }, mode: "cut", join: "fingers" },
+  { slug: "octahedron-fingers", state: { base: "octahedron", circumdiameterMm: 160, ...closed }, mode: "cut", join: "fingers" },
   { slug: "rhombic-triaconta-clips", state: { base: "rhombictriaconta", circumdiameterMm: 200, openingStyle: "ellipse", borderFraction: 0.3 }, mode: "cut", join: "clips" },
   { slug: "stella-octangula-clips", state: { ...preset("stella-octangula"), circumdiameterMm: 200, ...closed }, mode: "cut", join: "clips" },
   { slug: "spiked-icosa-clips", state: { base: "icosahedron", spike: 1.5, circumdiameterMm: 220, ...closed }, mode: "cut", join: "clips" },
@@ -106,11 +106,11 @@ const TESTS = [
     gapMm: 1.5,
   },
   {
-    slug: "test-ply-octahedron-tabs",
-    note: "Alternative for the same plywood piece: an octahedron with tab-and-slot joints (109.5°, about 0.7 mm of play at 2 mm). Same fit-strip procedure.",
+    slug: "test-ply-octahedron-fingers",
+    note: "Alternative for the same plywood piece: an octahedron with finger joints (109.5°, about 0.7 mm of play at 2 mm); glue them. Same fit-strip procedure.",
     state: { base: "octahedron", ...closed },
     mode: "cut",
-    join: "tabs",
+    join: "fingers",
     board: ply,
     sheetMm: 2,
     kerfMm: 0,
@@ -225,7 +225,7 @@ for (const job of jobs) {
   console.log(
     `${job.slug.padEnd(30)} ${job.mode} ${job.join.padEnd(6)} ⌀${state.circumdiameterMm} mm  boards ${res.stats.boards}  ` +
       (job.mode === "cut"
-        ? `panels ${res.stats.panels} clips ${JSON.stringify(res.stats.clips)} ties ${res.stats.ties} tabs ${res.stats.tabs}`
+        ? `panels ${res.stats.panels} clips ${JSON.stringify(res.stats.clips)} ties ${res.stats.ties} fingers ${res.stats.fingers}`
         : `nets ${res.stats.nets} folds ${res.stats.folds} open ${res.stats.openEdges}`) +
       (res.warnings.length ? `\n    ! ${res.warnings.join("\n    ! ")}` : ""),
   );
@@ -235,7 +235,7 @@ const esc = (x) => String(x).replace(/&/g, "&amp;").replace(/</g, "&lt;");
 const b64 = (buf) => Buffer.from(buf).toString("base64");
 const summary = (r) =>
   r.mode === "cut"
-    ? `${r.stats.panels} panels · ${Object.entries(r.stats.clips).map(([k, n]) => `${n} clips ${k}`).join(", ") || ""}${r.stats.ties ? `${r.stats.ties} ties` : ""}${r.stats.tabs ? `${r.stats.tabs} tabs` : ""} · ${r.stats.boards} board(s) · edges ${r.stats.dihedralDeg.map((d) => d.toFixed(1)).join("–")}°`
+    ? `${r.stats.panels} panels · ${Object.entries(r.stats.clips).map(([k, n]) => `${n} clips ${k}`).join(", ") || ""}${r.stats.ties ? `${r.stats.ties} ties` : ""}${r.stats.fingers ? `${r.stats.fingers} finger joints` : ""} · ${r.stats.boards} board(s) · edges ${r.stats.dihedralDeg.map((d) => d.toFixed(1)).join("–")}°`
     : `${r.stats.panels} faces · ${r.stats.nets} net(s) · ${r.stats.folds} folds · ${r.stats.openEdges} open edges · ${r.stats.boards} sheet(s)`;
 const section = (r) =>
   r.error

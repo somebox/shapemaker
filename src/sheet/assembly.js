@@ -1,7 +1,7 @@
 /**
  * The cut parts put back together in 3D, for pictures of how a joint works.
  *
- * Cut mode extrudes each panel's real cut outline (slots, tabs, openings
+ * Cut mode extrudes each panel's real cut outline (slots, fingers, openings
  * included) outward from its face plane by the sheet thickness, stands each
  * clip in the plane square to its edge, and loops a tie through each pair
  * of tie holes. Fold mode shows the faces as thin paper with the open edges'
@@ -35,22 +35,9 @@ const PAPER_MM = 0.35;
  * @returns {{ solids: { tag: string, tris: number[][][], lines: number[][][], panel?: number, joint?: number, anchor: number[] }[] }}
  */
 export function buildAssembly(skeleton, sheet, opts = {}) {
-  const P = (i) => [skeleton.positions[3 * i], skeleton.positions[3 * i + 1], skeleton.positions[3 * i + 2]];
   const { panels, joints } = sheet.extracted;
   const solids = [];
-
-  // Edge frame for a joint: unit edge direction, and for each panel the
-  // in-plane direction into it and its outward normal.
-  const edgeFrame = (j) => {
-    const p0 = P(j.v0), e = v.unit(v.sub(P(j.v1), p0));
-    const side = (pid) => {
-      const f = panels[pid].frame;
-      let into = v.unit(v.cross(f.normal, e));
-      if (v.dot(into, v.sub(f.origin, p0)) < 0) into = v.mul(into, -1);
-      return { into, n: f.normal };
-    };
-    return { p0, e, A: side(j.a), B: side(j.b) };
-  };
+  const edgeFrame = (j) => edgeFrameOf(skeleton, panels, j);
   // Interior bisector across the edge: A's in-plane direction turned θ/2
   // toward the inside.
   const bisectorIn = (fr, th) => v.unit(v.add(v.mul(fr.A.into, Math.cos(th / 2)), v.mul(fr.A.n, -Math.sin(th / 2))));
@@ -71,17 +58,12 @@ export function buildAssembly(skeleton, sheet, opts = {}) {
         solids.push({ ...solid, panel: part.panel, anchor: f.origin });
       } else if (part.kind === "clip") {
         const j = joints[part.joint - 1];
-        const fr = edgeFrame(j), E = v.add(fr.p0, v.mul(fr.e, part.at));
-        const base = v.add(E, v.mul(fr.e, -t / 2));
-        const to3 = ([x, y]) => v.add(v.add(base, v.mul(fr.A.into, -x)), v.mul(fr.A.n, y));
+        const { to3, e, E, tw } = clipFrame(skeleton, panels, j, part, t);
         const cut = part.paths.filter((p) => p.layer === "cut").map((p) => p.pts);
         if (part.print) {
-          // Printed: the chamfered solid that goes to the STL, z along the edge.
-          const at3 = ([x, y, z]) => v.add(to3([x, y]), v.mul(fr.e, z));
-          const tris = chamferedPrism(cut[0], t, chamferOf(t)).map((tri) => tri.map(at3));
-          solids.push({ tag: "pclip", tris, lines: [], joint: j.id, anchor: E });
+          solids.push({ tag: "pclip", tris: printedClipSolid(skeleton, sheet.extracted, part, t), lines: [], joint: j.id, anchor: E });
         } else {
-          solids.push({ ...extrude(cut[0], [], to3, fr.e, t, "clip"), joint: j.id, anchor: E });
+          solids.push({ ...extrude(cut[0], [], to3, e, tw, "clip"), joint: j.id, anchor: E });
         }
       }
     }
@@ -144,6 +126,46 @@ export function buildAssembly(skeleton, sheet, opts = {}) {
     }
   }
   return { solids };
+}
+
+/**
+ * Edge frame for a joint: unit edge direction, and for each panel the
+ * in-plane direction into it and its outward normal.
+ */
+export function edgeFrameOf(skeleton, panels, j) {
+  const P = (i) => [skeleton.positions[3 * i], skeleton.positions[3 * i + 1], skeleton.positions[3 * i + 2]];
+  const p0 = P(j.v0), e = v.unit(v.sub(P(j.v1), p0));
+  const side = (pid) => {
+    const f = panels[pid].frame;
+    let into = v.unit(v.cross(f.normal, e));
+    if (v.dot(into, v.sub(f.origin, p0)) < 0) into = v.mul(into, -1);
+    return { into, n: f.normal };
+  };
+  return { p0, e, A: side(j.a), B: side(j.b) };
+}
+
+/** Where a clip part sits: its 2D outline's frame in the plane square to the edge. */
+function clipFrame(skeleton, panels, j, part, t) {
+  const fr = edgeFrameOf(skeleton, panels, j), E = v.add(fr.p0, v.mul(fr.e, part.at));
+  const tw = part.thick ?? t;
+  const base = v.add(E, v.mul(fr.e, -tw / 2));
+  const to3 = ([x, y]) => v.add(v.add(base, v.mul(fr.A.into, -x)), v.mul(fr.A.n, y));
+  return { to3, e: fr.e, E, tw };
+}
+
+/**
+ * A printed clip in place: the chamfered solid that goes to the STL, its
+ * thickness along the edge. Triangles in model coordinates.
+ */
+export function printedClipSolid(skeleton, extracted, part, t) {
+  const { to3, e, tw } = clipFrame(skeleton, extracted.panels, extracted.joints[part.joint - 1], part, t);
+  const at3 = ([x, y, z]) => v.add(to3([x, y]), v.mul(e, z));
+  // The frame mirrors x (the clip is drawn seen from the other side), so
+  // keep the triangles facing outward by flipping them when it does.
+  const o = to3([0, 0]), X = v.sub(to3([1, 0]), o), Y = v.sub(to3([0, 1]), o);
+  const mirrored = v.dot(v.cross(X, Y), e) < 0;
+  const outline = part.paths.find((p) => p.layer === "cut" && p.closed).pts;
+  return chamferedPrism(outline, tw, chamferOf(tw)).map((tri) => (mirrored ? [tri[0], tri[2], tri[1]] : tri).map(at3));
 }
 
 /** Prism over a 2D outline with holes, placed by to3 and pushed along n by t. */
