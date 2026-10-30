@@ -46,6 +46,10 @@ Potential outputs include per-face templates, tabs, kerf allowances, or PCB
 outline helpers. These are not equivalent to the current camera-projected SVG
 and require a defined assembly workflow before implementation.
 
+Laser cutting and folded thin stock are researched, with a headless
+prototype (`src/sheet/`, `scripts/sheet-samples.mjs`), in
+[LASER_RESEARCH.md](LASER_RESEARCH.md).
+
 ## Later — shape vocabulary
 
 Shipped in 0.7.0: cuboctahedron, rhombic dodecahedron, rhombic triacontahedron,

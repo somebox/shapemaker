@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Build modes mockup</title>
+<style>
+:root{--surface-2:#fff;--border:rgba(0,0,0,.12);--border-strong:rgba(0,0,0,.25);--border-accent:#378ADD;--bg-accent:#E6F1FB;--text-accent:#0C447C;
+--bg-success:#EAF3DE;--text-success:#27500A;--bg-warning:#FAEEDA;--text-warning:#633806;--bg-danger:#FCEBEB;--text-danger:#791F1F;
+--text-primary:#1d1d1b;--text-secondary:#5F5E5A;--text-muted:#888780;--radius:8px;--font-mono:ui-monospace,Menlo,monospace;--page:#faf9f5}
+@media (prefers-color-scheme: dark){:root{--surface-2:#262624;--border:rgba(255,255,255,.12);--border-strong:rgba(255,255,255,.25);--bg-accent:#0C447C;--text-accent:#B5D4F4;
+--bg-success:#27500A;--text-success:#C0DD97;--bg-warning:#633806;--text-warning:#FAC775;--bg-danger:#791F1F;--text-danger:#F7C1C1;
+--text-primary:#f1efe8;--text-secondary:#B4B2A9;--text-muted:#888780;--page:#1c1c1a}}
+body{margin:0;padding:24px 16px;background:var(--page);color:var(--text-primary);font:16px/1.6 system-ui,sans-serif}
+main{max-width:720px;margin:0 auto} h1{font-size:22px;font-weight:500;margin:0 0 4px} p.lede{color:var(--text-secondary);margin:0 0 16px;font-size:14px}
+.sr-only{position:absolute;left:-9999px} .ts{font-size:12px;fill:var(--text-secondary)}
+button{font:inherit;background:transparent;color:var(--text-primary);border:0.5px solid var(--border-strong);border-radius:var(--radius);padding:4px 10px;cursor:pointer}
+select{font:inherit;padding:2px 6px} input[type=range]{accent-color:#378ADD}
+a{color:var(--text-accent)}
+</style>
+<main>
+<h1>Build modes: Print, Cut, Fold</h1>
+<p class="lede">A mockup of the planned panel: one Build switch, with the rest of the panel adapting. Rows marked new or changes differ from today; hidden rows drop out in that mode. Plan: <a href="../LASER_RESEARCH.md">LASER_RESEARCH.md</a> §8.</p>
+<h2 class="sr-only">Mockup of Shapemaker's panel with one new Build switch: Print, Cut and Fold, showing which rows stay, change, appear or hide in each mode.</h2>
+<style>
+.bm-seg{display:inline-flex;border:0.5px solid var(--border-strong);border-radius:var(--radius);overflow:hidden}
+.bm-seg button{border:0;border-radius:0;padding:6px 16px;font-size:14px}
+.bm-seg button[aria-pressed="true"]{background:var(--bg-accent);color:var(--text-accent)}
+.bm-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px;margin-top:14px}
+.bm-card{background:var(--surface-2);border:0.5px solid var(--border);border-radius:12px;padding:12px 14px}
+.bm-g{font-size:12px;color:var(--text-muted);margin:12px 0 4px;letter-spacing:.02em}
+.bm-row{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:5px 0;border-top:0.5px solid var(--border);font-size:14px}
+.bm-v{color:var(--text-secondary);font-size:13px;text-align:right}
+.bm-tag{font-size:11px;padding:1px 7px;border-radius:var(--radius);margin-left:6px}
+.bm-new{background:var(--bg-accent);color:var(--text-accent)}
+.bm-chg{background:var(--bg-warning);color:var(--text-warning)}
+.bm-btn{display:inline-block;border:0.5px solid var(--border-strong);border-radius:var(--radius);padding:4px 10px;font-size:13px;margin:0 6px 6px 0}
+</style>
+<div style="padding:0.5rem 0 0">
+<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap"><span style="font-size:14px;color:var(--text-secondary)">Build</span><div class="bm-seg" role="group" aria-label="Build mode"><button id="bm-print" aria-pressed="true">Print</button><button id="bm-cut" aria-pressed="false">Cut</button><button id="bm-fold" aria-pressed="false">Fold</button></div><span id="bm-sub" style="font-size:13px;color:var(--text-secondary)"></span></div>
+<div class="bm-grid"><div class="bm-card"><div style="font-size:15px;font-weight:500">Panel</div><div id="bm-panel"></div></div><div class="bm-card"><div style="font-size:15px;font-weight:500">Viewport and export</div><div id="bm-view"></div></div></div>
+</div>
+<script>
+(function(){
+const M={
+print:{sub:'Today’s app, plus the Build switch',
+ panel:[['Start from',[['Icosidodecahedron','strip']]],['Shape',[['Size, Edge, Jitter, Dual…','unchanged']]],
+ ['Form',[['Build','Print · Cut · Fold','new'],['Shell','Hollow / Solid'],['Wall','1.4 mm'],['Rounding','0 mm'],['Openings','Faces, Outline, Border, Fillet'],['Sides','Tapered / Straight / Cut'],['Advanced','Inner wall, Break out']]],
+ ['Make',[['Quality','Normal'],['Resting face','click the model'],['Material','PLA · mass est.'],['JSON model file','Export / Load']]]],
+ hidden:[],
+ hud:['Section','Print risk','Split'],bar:['Share','Export STL','Export SVG'],
+ status:'95 × 100 × 85 mm · wall 1.4 · watertight'},
+cut:{sub:'Rigid sheet: plywood, acrylic, MDF',
+ panel:[['Start from',[['Icosidodecahedron','strip']]],['Shape',[['Size, Edge, Jitter, Dual…','unchanged']]],
+ ['Form',[['Build','Cut'],['Sheet','3 mm','chg'],['Join','Clips · Ties · Fingers','new'],['Openings','Faces, Outline, Border, Fillet'],['Advanced','Kerf 0.15 mm · Fit snug / loose','chg']]],
+ ['Make',[['Board','Glowforge 495 × 279','new'],['Labels','Edge numbers on','new'],['Faces','click: find its panel','chg'],['JSON model file','Export / Load']]]],
+ hidden:['Shell','Wall','Rounding','Sides','Inner wall','Break out','Quality','Mass'],
+ hud:['Section','Flat ✦'],bar:['Share','Export cut file ✦','Export SVG'],
+ status:'32 panels · 60 clips · 2 boards · smallest web 4.1 mm'},
+fold:{sub:'Thin stock: paper, card, felt',
+ panel:[['Start from',[['Icosidodecahedron','strip']]],['Shape',[['Size, Edge, Jitter, Dual…','unchanged']]],
+ ['Form',[['Build','Fold'],['Join','Tape · Flaps · Sew (seams)','new'],['Fold lines','Score · Perforate · Mark','new'],['Openings','Faces, Outline, Border, Fillet']]],
+ ['Make',[['Board','A3 297 × 420','new'],['Net centre','click a face','chg'],['Labels','Edge numbers on','new'],['JSON model file','Export / Load']]]],
+ hidden:['Shell','Wall','Rounding','Sides','Advanced','Quality','Mass'],
+ hud:['Flat ✦'],bar:['Share','Export cut file ✦','Export SVG'],
+ status:'2 nets · 1 sheet · 58 folds · 32 taped edges'}};
+const $=id=>document.getElementById(id);
+function tag(t){return t==='new'?'<span class="bm-tag bm-new">new</span>':t==='chg'?'<span class="bm-tag bm-chg">changes</span>':'';}
+function show(m){
+ ['print','cut','fold'].forEach(k=>$('bm-'+k).setAttribute('aria-pressed',k===m?'true':'false'));
+ const d=M[m];$('bm-sub').textContent=d.sub;
+ $('bm-panel').innerHTML=d.panel.map(([g,rows])=>'<div class="bm-g">'+g+'</div>'+rows.map(r=>'<div class="bm-row"><span>'+r[0]+tag(r[2])+'</span><span class="bm-v">'+r[1]+'</span></div>').join('')).join('')+
+  (d.hidden.length?'<div class="bm-g">Hidden in this mode</div><div style="font-size:13px;color:var(--text-muted);line-height:1.6">'+d.hidden.join(' · ')+'</div>':'');
+ $('bm-view').innerHTML='<div class="bm-g">Viewport toggles</div>'+d.hud.map(h=>'<span class="bm-btn">'+h+'</span>').join('')+
+  '<div class="bm-g">Bottom bar</div>'+d.bar.map((b,i)=>'<span class="bm-btn" style="'+(i===1?'border-color:var(--border-accent);color:var(--text-accent)':'')+'">'+b+'</span>').join('')+
+  '<div class="bm-g">Status line</div><div style="font-size:13px;color:var(--text-secondary);font-family:var(--font-mono)">'+d.status+'</div>'+
+  (m==='print'?'':'<div class="bm-g">Flat view</div><div style="font-size:13px;color:var(--text-secondary);line-height:1.6">'+(m==='cut'?'Boards with panels and clips laid out, cut lines in red, labels in grey. Click a panel to see it on the model.':'Nets laid out on the sheet: cut lines red, mountain folds blue dashed, valley folds blue dot-dash, tape or flap edges marked.')+'</div>');
+}
+['print','cut','fold'].forEach(k=>$('bm-'+k).onclick=()=>show(k));
+show('cut');
+})();
+</script>
+</main>
+</html>
