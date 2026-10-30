@@ -384,7 +384,7 @@ add this without making the panel harder to take in.
   - Hidden: Shell, Wall, Rounding, Sides, Inner wall, Break out, Quality
     and Mass.
 - **Fold mode (thin stock):**
-  - Join: Tape · Flaps · Sew.
+  - Join: Tape · Flaps · Sew (seams with an allowance, §8.8).
   - Fold lines: Score · Perforate · Mark.
   - Openings stay. Make holds the Board.
   - Clicking a face picks the centre of the net, which reuses today's
@@ -421,7 +421,7 @@ and the boards. The work divides like this:
 |---|---|---|
 | Panels | one per face (coplanar faces merged), inner-surface convention, reflex edges inset | faces grouped into nets by unfolding |
 | Edges inside a net | — | fold lines (mountain or valley from the angle sign) |
-| Edges between parts | clips, tie holes or finger joints | tape, glue flaps or sewing holes |
+| Edges between parts | clips, tie holes or finger joints | tape, glue flaps or seams |
 | Openings | the existing 2D generators | same |
 | Checks | web ≥ t, hole ≥ 1.5·t, panel fits the board | flap fits, nets don't overlap, net fits the board |
 | Layout | shelf packing of min-area rectangles | one net per board where possible, otherwise split |
@@ -610,12 +610,73 @@ cut and print files together.
 
 ![The Export dialog in Cut mode: three laser boards and two plates of welded corner pieces](laser/images/mockup-export.jpg)
 
+### 8.8 Seams for sewn felt (2026-10-30)
+
+The user's direction: a model that is cut and sewn should have seams that
+fold in and are sewn from behind, as in clothing. Sew used to punch whip-stitch
+holes beside each open edge, which leaves the stitches on the outside.
+
+- **Seam allowance on both pieces.** Each open edge gets a strip past the
+  edge on both of its faces, 6 mm by default (Allowance, 3–15 mm). The edge
+  itself becomes the stitch line, a dashed engrave line on the inside face.
+  The two allowances go face to face (the model's outsides together), are
+  stitched along that line from the inside, and stay inside as a fin along
+  the angle's bisector. The number goes on the allowance, so the face stays
+  clean.
+- **Ends cut at half the corner's angle** (at most 45°), the same on both
+  layers. At a corner where seams meet, the allowances then don't pile up.
+  In the flat net, the notch between two petals then fits both allowances
+  exactly when the shape allows: 90° on a cube, 60° on an icosahedron.
+- **Darts** where a notch is too narrow for two allowances: the dodecahedron
+  (36° notches), a geodesic's nearly flat corners, a globe's gores lying a
+  slit apart. The gap stays in the net, cut only across its open end. Folded
+  in half and stitched along both edges, it is the allowance, like a dart in
+  a garment. Wedges up to 90° and slits up to two allowances wide qualify.
+- **Valleys are always seams**, so a star comes apart into one cone per
+  point, as it would be patterned in cloth. Folding across valleys put more
+  than 360° of faces round each concave corner, with the neighbours where the
+  allowances needed to go: the small stellated dodecahedron had 19 of 33
+  edges fall back to holes. With valley seams it is 12 cones and 42 seams,
+  none whip-stitched.
+- **Nearly closed loops stay whole.** Where a net closes round a nearly flat
+  corner, the two sides of an edge lie within a millimetre or so (2% of the
+  edge). Felt takes that up, so in Sew the edge stays a fold.
+- Allowances that would overlap the next face get steeper ends, then a
+  narrower strip (the status line counts them). An edge with no room at all
+  falls back to whip-stitch holes. Nets are laid out with room for the
+  allowances, so the board doesn't push them out.
+- **Holes: On** punches holes on the stitch line instead of the dashed line,
+  symmetric about each edge's midpoint so the two layers match. This is for
+  leather or thick felt.
+- **Order of work:** sew each seam face to face from the inside, leaving the
+  last one or two open. Turn the model right side out through the gap, then
+  close it with a ladder stitch from the outside. With openings, the last
+  seams can be reached through them.
+
+Measured on Falcon A1 nets at 160 mm:
+
+| Shape | Seams | Darts | Whip-stitched |
+|---|---|---|---|
+| Cube, octahedron, icosahedron | 8, 6, 14 (all) | 0 | 0 |
+| Dodecahedron | 13 | 7 | 0 |
+| 80-face geodesic | 22 | 3 | 0 |
+| Globe | 145 | 112 | 3 |
+| Stella octangula (8 cones) | 20 | 0 | 0 |
+| Small and great stellated dodecahedron (12 and 20 cones, 200 mm) | 42 and 50 | 0 | 0 |
+
+| | |
+|---|---|
+| ![A seam from inside](laser/images/seam-inside.png) | ![A dart from inside](laser/images/dart-inside.png) |
+| A seam: both allowances stand inward together, stitched along the edge. | A dart on the dodecahedron: the 36° notch, folded in half. |
+
+![Dodecahedron net in felt, with seam allowances and darts](laser/images/board-felt-dodecahedron-seams.svg)
+
 ## 9. Pictures
 
 These are rendered by `scripts/sheet-samples.mjs` (with `scripts/lib/render3d.mjs`)
 from the same cut outlines that go to the laser: panels are the real cut
 parts extruded by the sheet thickness, and clips, ties, flaps, tape and
-stitches sit where the cut file puts their slots and holes. The cutaways drop
+seams sit where the cut file puts their slots, holes and allowances. The cutaways drop
 the near half of the model to show the joints inside. Running the script
 writes the full set, with every board, to `test/out/sheet/index.html`.
 
@@ -642,10 +703,10 @@ writes the full set, with every board, to `test/out/sheet/index.html`.
 |---|---|
 | ![Paper dodecahedron cutaway](laser/images/paper-dodecahedron-cutaway-flaps.png) | ![Glue flap](laser/images/glue-flap-inside.png) |
 | Paper dodecahedron: one net, glue flaps folded under the neighbours. | A flap hangs off one face and is glued under the next. |
-| ![Tape](laser/images/tape-inside.png) | ![Whip stitch](laser/images/whip-stitch-inside.png) |
-| Tape across the inside of an open edge. | Felt: whip stitches through matching holes. |
-| ![Felt geodesic](laser/images/felt-geodesic-cutaway-stitches.png) | |
-| An 80-face geodesic in felt, stitched along its open edges. | |
+| ![Tape](laser/images/tape-inside.png) | ![Seam](laser/images/seam-inside.png) |
+| Tape across the inside of an open edge. | Felt: a seam, both allowances stitched together and folded in (§8.8). |
+| ![Felt geodesic](laser/images/felt-geodesic-cutaway-seams.png) | ![Dart](laser/images/dart-inside.png) |
+| An 80-face geodesic in felt: seams and darts inside. | A dart where a notch is too narrow for two allowances. |
 
 ### Boards
 

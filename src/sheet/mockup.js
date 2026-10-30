@@ -31,7 +31,7 @@ const DEFAULTS = {
     clipsBy: "cut", clipWidthMm: 3, weld: true, printBed: "prusa-core-one",
     board: "falcon-a1", custom: { w: 300, h: 200 }, labels: true,
   },
-  fold: { join: "tape", foldStyle: "score", board: "a4", custom: { w: 300, h: 200 }, labels: true },
+  fold: { join: "tape", foldStyle: "score", seamMm: 6, sewHoles: false, board: "a4", custom: { w: 300, h: 200 }, labels: true },
 };
 
 /** Slot clearance per fit, mm. */
@@ -55,6 +55,10 @@ const COLORS = {
   flap: 0xe2d8c6,
   tape: 0x8fb6c9,
   thread: 0xc0503c,
+  felt: 0x688c9e,
+  feltB: 0x4e7082,
+  seam: 0x96b8c6,
+  seamB: 0x80a4b4,
   pick: 0xffcc44,
 };
 
@@ -100,6 +104,8 @@ function loadSettings() {
   if (typeof saved.cut?.weld === "boolean") S.cut.weld = saved.cut.weld;
   if (PRINT_BEDS[saved.cut?.printBed]) S.cut.printBed = saved.cut.printBed;
   if (ok(saved.fold?.foldStyle, CHOICES.foldStyle)) S.fold.foldStyle = saved.fold.foldStyle;
+  if (num(saved.fold?.seamMm, 3, 15)) S.fold.seamMm = saved.fold.seamMm;
+  if (typeof saved.fold?.sewHoles === "boolean") S.fold.sewHoles = saved.fold.sewHoles;
   return S;
 }
 
@@ -234,7 +240,18 @@ export function mountSheetMockup({ viewer, getLast, applyPatch, exportStem, down
   }, {
     tape: "Plain open edges; tape them inside",
     flaps: "Glue flaps on one side of each open edge",
-    sew: "Stitch holes along both sides of each open edge",
+    sew: "Seams: an allowance on both pieces, sewn face to face from the inside. Leave the last seam open to turn it right side out",
+  });
+  const seamRow = rangeControl("Allowance", 3, 15, 0.5, "mm", () => S.fold.seamMm, (v) => {
+    S.fold.seamMm = v;
+    changed();
+  });
+  const holesRow = segControl("Holes", [[false, "Off"], [true, "On"]], () => S.fold.sewHoles, (v) => {
+    S.fold.sewHoles = v;
+    changed();
+  }, {
+    false: "Dashed stitch line, for a needle through felt or cloth",
+    true: "Holes along the stitch line, for leather or thick felt",
   });
   const foldLines = segControl("Fold lines", [["score", "Score"], ["perforate", "Perforate"], ["mark", "Mark"]], () => S.fold.foldStyle, (v) => {
     S.fold.foldStyle = v;
@@ -260,7 +277,7 @@ export function mountSheetMockup({ viewer, getLast, applyPatch, exportStem, down
     `kerf ${fmt(S.cut.kerfMm, 2)} · ${S.cut.fit}${S.cut.clipsBy === "print" && S.cut.join !== "ties" ? ` · ${PRINT_BEDS[S.cut.printBed].label.split(" /")[0]}` : ""}`,
   );
   const cutRows = [sheetRow.root, cutJoin.root, clipCluster.root];
-  const foldRows = [foldJoin.root, foldLines.root];
+  const foldRows = [foldJoin.root, seamRow.root, holesRow.root, foldLines.root];
   buildRow.root.after(...cutRows, ...foldRows);
   formBody.querySelector('[data-cluster="form-advanced"]')?.after(cutAdvanced.root);
   if (!cutAdvanced.root.isConnected) formBody.append(cutAdvanced.root);
@@ -327,6 +344,7 @@ export function mountSheetMockup({ viewer, getLast, applyPatch, exportStem, down
     weldRow.root.hidden = !(printing && S.cut.clipPlace === "corners");
     bedRow.root.hidden = !printing;
     for (const n of foldRows) n.hidden = S.build !== "fold";
+    seamRow.root.hidden = holesRow.root.hidden = S.build !== "fold" || S.fold.join !== "sew";
     cutAdvanced.root.hidden = S.build !== "cut";
     boardRow.root.hidden = !sheetMode;
     labelsRow.root.hidden = !sheetMode;
@@ -344,7 +362,7 @@ export function mountSheetMockup({ viewer, getLast, applyPatch, exportStem, down
     if (exportSvg) exportSvg.hidden = true;
     appStrip.hidden = sheetMode;
     strip.hidden = !sheetMode;
-    for (const c of [buildRow, sheetRow, cutJoin, sizeRow, perEdgeRow, placeRow, clipsRow, widthRow, weldRow, foldJoin, foldLines, kerfRow, fitRow, bedRow, labelsRow]) {
+    for (const c of [buildRow, sheetRow, cutJoin, sizeRow, perEdgeRow, placeRow, clipsRow, widthRow, weldRow, foldJoin, seamRow, holesRow, foldLines, kerfRow, fitRow, bedRow, labelsRow]) {
       c.sync();
     }
     boardRow.sync();
@@ -400,7 +418,7 @@ export function mountSheetMockup({ viewer, getLast, applyPatch, exportStem, down
               clipSize: m.clipSize, clipsPerEdge: m.clipsPerEdge, clipPlace: m.clipPlace, clipWidthMm: m.clipWidthMm,
               sheetMm: m.sheetMm, kerfMm: m.kerfMm, clearanceMm: FIT_CLEARANCE[m.fit], coupon: true,
             }
-          : { join: m.join, foldStyle: m.foldStyle, rootFace: state.faceIndex }),
+          : { join: m.join, foldStyle: m.foldStyle, seamMm: m.seamMm, sewHoles: m.sewHoles, rootFace: state.faceIndex }),
       });
       sheet.openings = openings;
       sheet.borderFraction = openings?.borderFraction ?? null;
@@ -477,8 +495,9 @@ export function mountSheetMockup({ viewer, getLast, applyPatch, exportStem, down
         : "";
       line2 = `edges ${fmt(st.dihedralDeg[0], 0)}–${fmt(st.dihedralDeg[1], 0)}° · shortest side ${fmt(st.smallestSideMm)} mm${types ? ` · ${plural(types, "clip shape")}` : ""}${weld}`;
     } else {
-      line1 = `fold  ${plural(st.nets, "net")} · ${plural(st.panels, "face")} · ${plural(st.folds, "fold")} · ${plural(st.openEdges, S.fold.join === "tape" ? "taped edge" : S.fold.join === "flaps" ? "flap" : "sewn edge")} · ${boards}`;
-      line2 = `largest net ${plural(st.largestNet, "face")} · fold lines ${S.fold.foldStyle}`;
+      const sewn = [st.seams && plural(st.seams, "seam"), st.darts && plural(st.darts, "dart"), st.whipStitched && `${st.whipStitched} whip-stitched`].filter(Boolean).join(" + ");
+      line1 = `fold  ${plural(st.nets, "net")} · ${plural(st.panels, "face")} · ${plural(st.folds, "fold")} · ${S.fold.join === "sew" ? sewn || "no seams" : plural(st.openEdges, S.fold.join === "tape" ? "taped edge" : "flap")} · ${boards}`;
+      line2 = `largest net ${plural(st.largestNet, "face")} · fold lines ${S.fold.foldStyle}${S.fold.join === "sew" ? ` · allowance ${fmt(S.fold.seamMm)} mm, sewn face to face` : ""}`;
     }
     strip.append(document.createTextNode(`${line1}\n${line2}`));
     const warn = sheet.warnings[0];

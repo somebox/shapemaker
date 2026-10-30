@@ -234,6 +234,59 @@ describe("sheet fold mode", () => {
     assert.ok(!res.warnings.some((w) => /larger than the board/.test(w)), res.warnings.join(" | "));
   });
 
+  it("sews open edges as seams or darts whose allowances clear every face", () => {
+    const cases = [
+      ["cube", { base: "cube" }],
+      ["icosahedron", { base: "icosahedron" }],
+      ["dodecahedron", { base: "dodecahedron" }],
+      ["geodesic", { base: "icosahedron", subdiv: 1, soften: 1 }],
+    ];
+    for (const [name, state] of cases) {
+      const res = buildSheet(skeletonOf({ ...state, circumdiameterMm: 160 }), { mode: "fold", join: "sew", foldStyle: "mark", board: falcon });
+      const st = res.stats;
+      assert.equal(st.whipStitched, 0, `${name}: ${res.warnings.join(" | ")}`);
+      assert.equal(st.seams + st.darts, st.openEdges, name);
+      for (const net of res.parts.filter((p) => p.kind === "net")) {
+        // Faces, allowances and darts: none overlaps another.
+        const polys = net.faces;
+        for (let i = 0; i < polys.length; i++) {
+          for (let k = i + 1; k < polys.length; k++) assert.ok(!convexOverlap(polys[i], polys[k], 1e-3), `${name}: ${i} × ${k}`);
+        }
+      }
+      for (const jn of res.joins.filter((x) => x.seam)) {
+        const depth = Math.max(...jn.seam.profile.map((p) => p[1]));
+        if (!jn.seam.dart) assert.ok(depth <= 6 + 1e-9 && depth >= 2, `${name}: allowance ${depth}`);
+      }
+    }
+    // Stars: valleys are seams, one cone per point, and every edge gets an
+    // allowance (folding across valleys left no room at the concave corners).
+    const star = buildSheet(skeletonOf({ base: "dodecahedron", spike: 1, circumdiameterMm: 200 }), { mode: "fold", join: "sew", board: falcon });
+    assert.equal(star.stats.whipStitched, 0, star.warnings.join(" | "));
+    assert.ok(star.joins.filter((x) => x.joint.reflex).every((x) => !x.folded));
+    // The dodecahedron's 36° notches between petals are too narrow for two
+    // allowances: they stay as darts.
+    const dodeca = buildSheet(skeletonOf({ base: "dodecahedron", circumdiameterMm: 160 }), { mode: "fold", join: "sew", board: falcon });
+    assert.ok(dodeca.stats.darts > 0);
+  });
+
+  it("puts sewing holes on the stitch line, matching on both sides", () => {
+    const res = buildSheet(skeletonOf({ base: "cube", circumdiameterMm: 160 }), { mode: "fold", join: "sew", sewHoles: true, board: falcon });
+    const holes = res.parts.flatMap((p) => p.paths.filter((x) => x.closed && x.layer === "cut"));
+    const perEdge = res.joins.filter((x) => x.seam).map((x) => Math.floor((x.joint.lengthMm - 4) / 5) + 1);
+    assert.equal(holes.length, 2 * perEdge.reduce((a, b) => a + b, 0));
+    assert.ok(!res.parts.some((p) => p.paths.some((x) => x.layer === "mark" && x.pts.length === 2 && Math.hypot(x.pts[1][0] - x.pts[0][0], x.pts[1][1] - x.pts[0][1]) === 2)));
+  });
+
+  it("numbers a seam on its allowance, off the face", () => {
+    const res = buildSheet(skeletonOf({ base: "cube", circumdiameterMm: 160 }), { mode: "fold", join: "sew", board: falcon });
+    for (const net of res.parts.filter((p) => p.kind === "net")) {
+      const faces = net.faces.slice(0, net.panels.length);
+      const strokes = net.paths.filter((x) => x.layer === "mark" && x.pts.length > 2);
+      assert.ok(strokes.length > 0);
+      for (const s of strokes) assert.ok(!s.pts.every((q) => faces.some((f) => pointInPoly(q, f))), "label on a face");
+    }
+  });
+
   it("centres the first net on the chosen face", () => {
     const sk = skeletonOf({ base: "icosidodeca", circumdiameterMm: 120 });
     for (const rootFace of [0, 7, 20]) {

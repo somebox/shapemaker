@@ -5,7 +5,9 @@
  * included) outward from its face plane by the sheet thickness, stands each
  * clip in the plane square to its edge, and loops a tie through each pair
  * of tie holes. Fold mode shows the faces as thin paper with the open edges'
- * flaps folded under the neighbour, tape across the inside, or stitches.
+ * flaps folded under the neighbour, tape across the inside, or (felt) seams:
+ * the two allowances stand inward together as a fin along the bisector, with
+ * the stitch line at its root; whip stitches where a seam had no room.
  *
  * Output is plain triangles and feature lines, tagged by material; any
  * renderer can draw it.
@@ -25,8 +27,9 @@ const v = {
   unit: (a) => { const l = Math.hypot(...a); return [a[0] / l, a[1] / l, a[2] / l]; },
 };
 
-/** Paper is drawn this thick, mm. */
+/** Paper is drawn this thick, mm; felt (sewn) thicker. */
 const PAPER_MM = 0.35;
+const FELT_MM = 1.5;
 
 /**
  * @param {{ positions: Float64Array }} skeleton
@@ -87,15 +90,16 @@ export function buildAssembly(skeleton, sheet, opts = {}) {
   }
 
   // Fold mode: thin faces, then whatever holds each open edge.
+  const d = sheet.dims;
+  const skin = d.join === "sew" ? FELT_MM : PAPER_MM;
   for (const panel of panels) {
     const f = panel.frame;
     const to3 = ([x, y]) => fromFaceFrame(f, x, y);
     const holes = opts.openings
       ? panelOpenings(panel, opts.openings.generator, opts.openings.borderFraction, opts.openings.filletMm)
       : [];
-    solids.push({ ...extrude(panel.outline, holes, to3, f.normal, PAPER_MM, "paper"), panel: panel.id, anchor: f.origin });
+    solids.push({ ...extrude(panel.outline, holes, to3, f.normal, skin, d.join === "sew" ? "felt" : "paper"), panel: panel.id, anchor: f.origin });
   }
-  const d = sheet.dims;
   for (const jn of sheet.joins.filter((x) => !x.folded)) {
     const j = jn.joint, fr = edgeFrame(j), L = j.lengthMm, mid = v.add(fr.p0, v.mul(fr.e, L / 2));
     if (d.join === "flaps" && jn.flapPanel != null) {
@@ -111,6 +115,20 @@ export function buildAssembly(skeleton, sheet, opts = {}) {
         const at = (x, depth) => v.add(v.add(v.add(fr.p0, v.mul(fr.e, x)), v.mul(s.into, depth)), v.mul(s.n, -0.1));
         solids.push({ ...flat([at(e0, 0), at(L - e0, 0), at(L - e0, w / 2), at(e0, w / 2)], s.n, 0.1, "tape"), joint: j.id, anchor: mid });
       }
+    } else if (d.join === "sew" && jn.seam) {
+      // Allowances (or a dart's two halves) face to face, standing inward
+      // along the bisector; each lies on its own panel's side of it.
+      const bis = bisectorIn(fr, (j.dihedralDeg * Math.PI) / 180);
+      let c = v.unit(v.cross(fr.e, bis));
+      if (v.dot(c, fr.A.into) < 0) c = v.mul(c, -1);
+      const at = ([s, dd]) => v.add(v.add(fr.p0, v.mul(fr.e, s)), v.mul(bis, dd));
+      const poly = jn.seam.profile.map(at);
+      solids.push({ ...flat(poly, v.mul(c, -1), skin, "seam"), joint: j.id, anchor: mid });
+      solids.push({ ...flat(poly, c, skin, "seamB"), joint: j.id, anchor: mid });
+      // Running stitch along the root, through both layers.
+      const stitch = [];
+      for (let s = 2; s + 2 <= L; s += 4) stitch.push([v.add(at([s, 0.8]), v.mul(c, skin + 0.3)), v.add(at([s + 2, 0.8]), v.mul(c, skin + 0.3))], [v.add(at([s, 0.8]), v.mul(c, -skin - 0.3)), v.add(at([s + 2, 0.8]), v.mul(c, -skin - 0.3))]);
+      for (const [a, b] of stitch) solids.push({ ...ribbon([a, b], c, 0.5, 0.5, "thread"), joint: j.id, anchor: mid });
     } else if (d.join === "sew") {
       const n = Math.max(1, Math.floor((L - 2 * d.sewDepth) / d.pitch) + 1);
       const start = (L - (n - 1) * d.pitch) / 2;
@@ -202,11 +220,16 @@ function extrude(outline, holes, to3, n, t, tag) {
   return { tag, tris, lines };
 }
 
-/** Thin plate over a convex 3D quad, pushed along n by t. */
-function flat(quad, n, t, tag) {
-  const top = quad.map((p) => v.add(p, v.mul(n, -t)));
-  const tris = [[quad[0], quad[1], quad[2]], [quad[0], quad[2], quad[3]], [top[0], top[2], top[1]], [top[0], top[3], top[2]]];
-  const lines = quad.map((p, i) => [p, quad[(i + 1) % 4]]);
+/** Thin plate over a convex 3D polygon, pushed along -n by t. */
+function flat(poly, n, t, tag) {
+  const top = poly.map((p) => v.add(p, v.mul(n, -t)));
+  const tris = [];
+  for (let i = 1; i + 1 < poly.length; i++) tris.push([poly[0], poly[i], poly[i + 1]], [top[0], top[i + 1], top[i]]);
+  for (let i = 0; i < poly.length; i++) {
+    const k = (i + 1) % poly.length;
+    tris.push([poly[i], top[i], top[k]], [poly[i], top[k], poly[k]]);
+  }
+  const lines = poly.flatMap((p, i) => [[p, poly[(i + 1) % poly.length]], [top[i], top[(i + 1) % poly.length]]]);
   return { tag, tris, lines };
 }
 

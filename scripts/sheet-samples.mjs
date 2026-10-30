@@ -73,6 +73,7 @@ const SAMPLES = [
   { slug: "icosidodeca-net-flaps", state: { base: "icosidodeca", circumdiameterMm: 200 }, mode: "fold", join: "flaps" },
   { slug: "dodecahedron-net-tape", state: { base: "dodecahedron", circumdiameterMm: 160, ...closed }, mode: "fold", join: "tape" },
   { slug: "spiked-icosa-net-flaps", state: { base: "icosahedron", spike: 1.5, circumdiameterMm: 200, ...closed }, mode: "fold", join: "flaps" },
+  { slug: "dodecahedron-felt-seams", state: { base: "dodecahedron", circumdiameterMm: 160, ...closed }, mode: "fold", join: "sew", foldStyle: "mark" },
   { slug: "geodesic-80-felt-sew", state: { base: "icosahedron", subdiv: 1, soften: 1, circumdiameterMm: 220, ...closed }, mode: "fold", join: "sew", foldStyle: "mark" },
   { slug: "globe-net-tape", state: { base: "globe", circumdiameterMm: 200, ...closed }, mode: "fold", join: "tape" },
 ].map((s) => ({ ...s, board: sampleBoard, ...common, coupon: s.mode === "cut" }));
@@ -226,7 +227,7 @@ for (const job of jobs) {
     `${job.slug.padEnd(30)} ${job.mode} ${job.join.padEnd(6)} ⌀${state.circumdiameterMm} mm  boards ${res.stats.boards}  ` +
       (job.mode === "cut"
         ? `panels ${res.stats.panels} clips ${JSON.stringify(res.stats.clips)} ties ${res.stats.ties} fingers ${res.stats.fingers}`
-        : `nets ${res.stats.nets} folds ${res.stats.folds} open ${res.stats.openEdges}`) +
+        : `nets ${res.stats.nets} folds ${res.stats.folds} open ${res.stats.openEdges}${job.join === "sew" ? ` seams ${res.stats.seams} darts ${res.stats.darts} whip ${res.stats.whipStitched}` : ""}`) +
       (res.warnings.length ? `\n    ! ${res.warnings.join("\n    ! ")}` : ""),
   );
 }
@@ -236,7 +237,7 @@ const b64 = (buf) => Buffer.from(buf).toString("base64");
 const summary = (r) =>
   r.mode === "cut"
     ? `${r.stats.panels} panels · ${Object.entries(r.stats.clips).map(([k, n]) => `${n} clips ${k}`).join(", ") || ""}${r.stats.ties ? `${r.stats.ties} ties` : ""}${r.stats.fingers ? `${r.stats.fingers} finger joints` : ""} · ${r.stats.boards} board(s) · edges ${r.stats.dihedralDeg.map((d) => d.toFixed(1)).join("–")}°`
-    : `${r.stats.panels} faces · ${r.stats.nets} net(s) · ${r.stats.folds} folds · ${r.stats.openEdges} open edges · ${r.stats.boards} sheet(s)`;
+    : `${r.stats.panels} faces · ${r.stats.nets} net(s) · ${r.stats.folds} folds · ${r.stats.openEdges} open edges${r.join === "sew" ? ` (${r.stats.seams} seams, ${r.stats.darts} darts, ${r.stats.whipStitched} whip-stitched)` : ""} · ${r.stats.boards} sheet(s)`;
 const section = (r) =>
   r.error
     ? `<h2>${esc(r.slug)}</h2><p class="warn">Did not build: ${esc(r.error)}</p>`

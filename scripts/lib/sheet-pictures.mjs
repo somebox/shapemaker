@@ -16,14 +16,19 @@ const COLORS = {
   flap: [238, 214, 150],
   tape: [236, 196, 70],
   thread: [196, 62, 52],
+  felt: [104, 140, 158],
+  feltB: [78, 112, 130],
+  seam: [150, 184, 198],
+  seamB: [128, 164, 180],
 };
-const LINE = { panel: [92, 72, 50], panelB: [80, 60, 40], clip: [22, 92, 72], pclip: [120, 60, 24], paper: [120, 116, 108], flap: [140, 110, 50], tape: [150, 120, 30], mark: [30, 30, 30] };
+const LINE = { felt: [44, 70, 84], feltB: [40, 62, 76], seam: [52, 84, 100], seamB: [52, 84, 100], panel: [92, 72, 50], panelB: [80, 60, 40], clip: [22, 92, 72], pclip: [120, 60, 24], paper: [120, 116, 108], flap: [140, 110, 50], tape: [150, 120, 30], mark: [30, 30, 30] };
 
 const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
 const add = (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
 const mul = (a, s) => [a[0] * s, a[1] * s, a[2] * s];
 const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 const unit = (a) => mul(a, 1 / Math.hypot(...a));
+const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
 
 const VIEW = unit([1, -1.7, 0.95]);
 
@@ -62,7 +67,7 @@ export function sheetPictures(skeleton, sheet, opts = {}) {
     png: renderPng(scene([...kept, ...keptFast]), fitCamera(all.center, all.radius, VIEW), { width: 760, height: 570 }),
   });
 
-  // One close-up per kind of joint (clip class, ties, fingers, flap, tape, sewing).
+  // One close-up per kind of joint (clip class, ties, fingers, flap, tape, seam, dart).
   for (const jn of pickJoints(sheet)) {
     const j = jn.joint;
     const pa = plates.find((s) => s.panel === j.a), pb = plates.find((s) => s.panel === j.b);
@@ -72,10 +77,13 @@ export function sheetPictures(skeleton, sheet, opts = {}) {
     const inward = unit(mul(add(nA, nB), -1));
     const along = unit(sub(vert(skeleton, j.v1), vert(skeleton, j.v0)));
     const r = Math.max(14, Math.min(45, 0.35 * j.lengthMm));
-    const b2 = { ...pb, tag: pb.tag === "panel" ? "panelB" : pb.tag };
+    const b2 = { ...pb, tag: pb.tag === "panel" ? "panelB" : pb.tag === "felt" ? "feltB" : pb.tag };
     const sc = scene([pa, b2, ...mine]);
     const title = jn.title, size = { width: 520, height: 390 }, up = inwardUp(inward, along);
-    const inside = add(mul(inward, 0.55), along), outside = add(mul(inward, -1), mul(along, 0.7));
+    let inside = add(mul(inward, 0.55), along);
+    const outside = add(mul(inward, -1), mul(along, 0.7));
+    // A seam's fin stands inward: look at its face, not along its edge.
+    if (jn.seam) inside = add(add(mul(inward, 0.7), mul(cross(along, inward), 0.9)), mul(along, 0.35));
     pics.push({ label: `${title}, inside`, png: renderPng(sc, fitCamera(target, r, inside, { up }), size) });
     pics.push({ label: `${title}, outside`, png: renderPng(sc, fitCamera(target, r, outside, { up }), size) });
     // Exploded: clips pulled inward out of their slots; for fingers, one
@@ -130,8 +138,9 @@ function pickJoints(sheet) {
       if (jn.folded) continue;
       const join = sheet.dims.join;
       if (join === "flaps" && jn.flapPanel == null) continue;
-      key = join;
-      title = join === "flaps" ? "Glue flap" : join === "tape" ? "Tape" : "Whip stitch";
+      const sewn = join === "sew" ? (jn.seam ? (jn.seam.dart ? "dart" : "seam") : "whip") : null;
+      key = sewn ?? join;
+      title = join === "flaps" ? "Glue flap" : join === "tape" ? "Tape" : { seam: "Seam", dart: "Dart", whip: "Whip stitch" }[sewn];
     }
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push({ ...jn, title });
