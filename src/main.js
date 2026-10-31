@@ -7,6 +7,7 @@ import { compile, limitsForState } from "./compile.js";
 import { createViewer } from "./viewer.js";
 import { writeBinaryStl } from "./export/stl.js";
 import { exportSvg } from "./export/svg.js";
+import { designStem } from "./production/names.js";
 import { createPanel, normalizePatch } from "./ui.js";
 import { serializeProjectV1, parseProject } from "./project-format.js";
 import { normalizeState, statesEqual } from "./schema.js";
@@ -87,6 +88,8 @@ let presets = [];
 let sessionPushDepth = 0;
 /** Session-only split preview (never in STATE_KEYS / URL). */
 let splitActive = false;
+/** A project's production block, kept so saving it again doesn't lose it. */
+let openedProduction = null;
 /** Re-entry guard for the two-download split export stagger. */
 let splitExportPending = false;
 /** @type {{ a: object, b: object, planeZ: number, gapMm: number } | null} */
@@ -190,7 +193,11 @@ ui = createPanel(panelEl, {
   },
   onSave() {
     if (!canSaveProject({ draftValid, last })) return;
-    const text = serializeProjectV1({ name: projectName, state: last.state });
+    const text = serializeProjectV1({
+      name: projectName,
+      state: last.state,
+      production: sheetMockup?.job() ?? openedProduction,
+    });
     downloadText(text, `${safeName(projectName)}.shapemaker.json`);
     cleanState = normalizeState(last.state);
     cleanName = projectName;
@@ -237,20 +244,6 @@ ui = createPanel(panelEl, {
   },
 });
 
-function exportStem(state) {
-  const { base, circumdiameterMm: size, seed, jitter, points } = state;
-  // Seed and point count go in the filename whenever the shape depends on
-  // them — the reproducibility story survives outside the URL (spec rule),
-  // and two exports of different densities don't overwrite each other.
-  const parts = [];
-  if (BASES[base]?.seeded || jitter > 0) parts.push(`s${seed}`);
-  if (BASES[base]?.parametric) parts.push(`p${points}`);
-  if (state.truncate > 0) parts.push(`t${state.truncate}`);
-  if (state.spike > 0) parts.push(`k${Number(state.spike.toFixed(2))}`);
-  const tag = parts.length ? `_${parts.join("_")}` : "";
-  return `${base}_${size}mm${tag}`;
-}
-
 /**
  * Shared blob → download path for Save / STL / SVG.
  * @param {BlobPart} data
@@ -284,7 +277,7 @@ function exportResult() {
 function exportStl() {
   const result = exportResult();
   if (!result) return;
-  const stem = exportStem(result.state);
+  const stem = designStem(result.state);
   if (splitActive && splitData) {
     if (splitExportPending) return; // second click inside the stagger window
     splitExportPending = true;
@@ -317,7 +310,7 @@ function exportStl() {
 function exportSvgFile() {
   const result = exportResult();
   if (!result) return;
-  const stem = exportStem(result.state);
+  const stem = designStem(result.state);
   const cam = viewer.camera;
   const tgt = viewer.controls.target;
   const svg = exportSvg({
@@ -469,6 +462,8 @@ function openParsed(parsed) {
   const prevCleanName = cleanName;
 
   projectName = parsed.project.name || "Untitled";
+  openedProduction = parsed.project.production ?? null;
+  sheetMockup?.setJob(openedProduction);
   draft = normalizeState(parsed.state);
   regenerate({ forceFrame: true, commit: true });
   if (
@@ -941,13 +936,12 @@ function fallbackCopy(url) {
 }
 
 // Cut and Fold mockup over the real panel, only with ?sheet in the URL
-// (docs/LASER_RESEARCH.md §8).
+// (docs/PRODUCTION.md).
 const sheetMockup = new URLSearchParams(location.search).has("sheet")
-  ? (await import("./sheet/mockup.js")).mountSheetMockup({
+  ? (await import("./sheet-mockup.js")).mountSheetMockup({
       viewer,
       getLast: () => last,
       applyPatch,
-      exportStem: () => exportStem(last.state),
       download: downloadBlob,
     })
   : null;

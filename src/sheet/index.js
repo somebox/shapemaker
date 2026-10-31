@@ -1,7 +1,6 @@
 /**
- * Sheet output — Cut and Fold modes. The sample script
- * (scripts/sheet-samples.mjs) drives it headless for test cuts, and the
- * in-app mockup (mockup.js, behind ?sheet) drives it live.
+ * Sheet engine behind the Cut and Fold processes. Callers go through
+ * src/production/, which turns a job into these options.
  *
  *   skeleton (mm) → panels + joints → parts (cut | fold) → boards → SVG
  *                                       └ printed clips → plates → STL
@@ -29,11 +28,8 @@ export { BOARD_PROFILES, PRINT_BEDS, LAYERS, boardSvg };
 export function buildSheet(skeleton, opts) {
   const extracted = extractPanels(skeleton);
   const res = opts.mode === "cut" ? buildCut(extracted, opts) : buildFold(extracted, opts);
-  const parts = [
-    ...res.parts,
-    ...(opts.mode === "cut" && opts.coupon ? fitCoupon({ ...opts, slotMm: opts.clipsBy === "print" ? Math.max(opts.sheetMm, opts.clipWidthMm ?? opts.sheetMm) : opts.sheetMm }) : []),
-    ...(opts.extraParts ?? []),
-  ];
+  const slotMm = opts.clipsBy === "print" ? Math.max(opts.sheetMm, opts.clipWidthMm ?? opts.sheetMm) : opts.sheetMm;
+  const parts = [...res.parts, ...(opts.mode === "cut" && opts.coupon ? fitCoupon({ ...opts, slotMm }) : [])];
   // Printed clips go to print plates instead of the boards.
   const printed = parts.filter((p) => p.print);
   const { boards, oversize } = packParts(parts.filter((p) => !p.print), opts.board, { marginMm: opts.marginMm, gapMm: opts.gapMm });

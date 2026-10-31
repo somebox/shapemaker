@@ -1,0 +1,328 @@
+import { describe, it } from "node:test";
+import assert from "node:assert/strict";
+import { execFileSync, spawnSync } from "node:child_process";
+import { mkdtempSync, readFileSync, readdirSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { compile, compileShape } from "../src/compile.js";
+import { DEFAULT_STATE, PRINT_KEYS } from "../src/schema.js";
+import { parseProject, serializeProjectV1 } from "../src/project-format.js";
+import { boardSvg } from "../src/sheet/index.js";
+import {
+  JOB_DEFS, PROCESSES, normalizeJob, serializeJob, settingApplies, produce, finishProduction, runJob,
+  listArtifacts, sheetViews, summarize, exportNotes, designStem,
+} from "../src/production/index.js";
+import { validSetting } from "../src/production/job.js";
+
+const root = new URL("..", import.meta.url).pathname;
+const closed = { openings: false };
+const dodeca = { base: "dodecahedron", circumdiameterMm: 160, ...closed };
+
+describe("compileShape", () => {
+  const states = [
+    {},
+    { base: "cube", circumdiameterMm: 80 },
+    { base: "icosahedron", subdiv: 1, soften: 1 },
+    { base: "octahedron", spike: 1.2 },
+    { base: "globe", jitter: 3 },
+    { base: "random", seed: 7, dual: true },
+  ];
+
+  it("builds the skeleton compile() builds", () => {
+    for (const s of states) {
+      const a = compile(s), b = compileShape(s);
+      assert.deepEqual(b.skeleton.positions, a.skeleton.positions);
+      assert.deepEqual(b.skeleton.faces, a.skeleton.faces);
+      assert.equal(b.state.faceIndex, a.state.faceIndex);
+    }
+  });
+
+  it("ignores what only the printed shell reads", () => {
+    const shell = { wallMm: 0, roundingMm: 500, depth: "nonsense", edgeDiv: 0, openingAxis: "through" };
+    assert.deepEqual(Object.keys(shell).filter((k) => !PRINT_KEYS.includes(k)), []);
+    assert.equal(compile({ ...dodeca, ...shell }).validation.ok, false);
+    const r = compileShape({ ...dodeca, ...shell });
+    assert.equal(r.validation.ok, true);
+    assert.equal(r.skeleton.faces.length, 12);
+  });
+
+  it("reports bad shapes as validation, not a throw", () => {
+    const r = compileShape({ base: "nothing" });
+    assert.equal(r.validation.ok, false);
+    assert.equal(r.skeleton, null);
+    assert.ok(compileShape({ base: "cube", circumdiameterMm: -1 }).validation.errors.length);
+  });
+});
+
+describe("jobs", () => {
+  it("every default is a value its own definition accepts", () => {
+    for (const p of PROCESSES) for (const def of JOB_DEFS[p]) assert.ok(validSetting(def, def.default), `${p}.${def.key}`);
+  });
+
+  it("fills in anything missing or invalid", () => {
+    const job = normalizeJob({
+      process: "cut",
+      cut: { sheetMm: 99, join: "staples", clipsPerEdge: 2, board: "nope", boardSize: { w: 1, h: 2 } },
+      fold: "garbage",
+    });
+    assert.equal(job.process, "cut");
+    assert.equal(job.cut.sheetMm, 3);
+    assert.equal(job.cut.join, "clips");
+    assert.equal(job.cut.clipsPerEdge, 2);
+    assert.equal(job.cut.board, "falcon-a1");
+    assert.deepEqual(job.cut.boardSize, { w: 300, h: 200 });
+    assert.equal(job.fold.join, "tape");
+    assert.equal(normalizeJob(undefined).process, "print");
+    assert.equal(normalizeJob({ process: "laser" }).process, "print");
+    assert.equal(normalizeJob({ cut: { board: "constructor" } }).cut.board, "falcon-a1");
+  });
+
+  it("saves only what differs, and reads back the same", () => {
+    assert.deepEqual(serializeJob(normalizeJob({ process: "cut" })), { process: "cut" });
+    const job = normalizeJob({ process: "fold", cut: { sheetMm: 4 }, fold: { join: "sew", seamMm: 8, board: "custom", boardSize: { w: 500, h: 300 } } });
+    const saved = serializeJob(job);
+    assert.deepEqual(saved, { process: "fold", cut: { sheetMm: 4 }, fold: { join: "sew", seamMm: 8, board: "custom", boardSize: { w: 500, h: 300 } } });
+    assert.deepEqual(normalizeJob(saved), job);
+  });
+
+  it("gives every setting with a panel row a group, and hides rows that don't apply", () => {
+    const of = (p, key) => JOB_DEFS[p].find((d) => d.key === key);
+    assert.equal(settingApplies(of("fold", "seamMm"), { join: "tape" }), false);
+    assert.equal(settingApplies(of("fold", "seamMm"), { join: "sew" }), true);
+    assert.equal(settingApplies(of("fold", "foldStyle"), { join: "sew" }), false);
+    assert.equal(settingApplies(of("cut", "clipSize"), { join: "ties" }), false);
+    assert.equal(settingApplies(of("cut", "weld"), { join: "clips", clipsBy: "print", clipPlace: "middle" }), false);
+    assert.equal(settingApplies(of("cut", "weld"), { join: "clips", clipsBy: "print", clipPlace: "corners" }), true);
+  });
+
+  it("offers Fit in the fit strip's own numbers", () => {
+    const fit = JOB_DEFS.cut.find((d) => d.key === "clearanceMm");
+    assert.deepEqual(fit.options.map(([v]) => v), [-0.2, -0.1, 0, 0.1, 0.2]);
+  });
+
+  it("travels in a project file without touching the shape", () => {
+    const production = serializeJob(normalizeJob({ process: "cut", cut: { join: "ties" } }));
+    const parsed = parseProject(serializeProjectV1({ name: "x", state: { ...DEFAULT_STATE }, production }));
+    assert.equal(parsed.ok, true);
+    assert.deepEqual(parsed.project.production, production);
+    const plain = parseProject(serializeProjectV1({ name: "x", state: { ...DEFAULT_STATE } }));
+    assert.equal(plain.project.production, undefined);
+    assert.deepEqual(parsed.state, plain.state);
+  });
+});
+
+describe("produce", () => {
+  it("plans cut and fold from the shape alone", () => {
+    const shape = compileShape(dodeca);
+    const cut = produce(shape, { process: "cut" }), fold = produce(shape, { process: "fold", fold: { join: "sew" } });
+    assert.equal(cut.ok && fold.ok, true);
+    assert.equal(cut.sheet.stats.panels, 12);
+    assert.equal(fold.sheet.stats.seams + fold.sheet.stats.darts + fold.sheet.stats.folds, 30);
+  });
+
+  it("never throws: no skeleton, or print without a shell, come back as errors", () => {
+    assert.equal(produce({ skeleton: null, state: {} }, { process: "cut" }).ok, false);
+    assert.equal(produce({}, { process: "cut" }).ok, false);
+    assert.match(produce(compileShape(dodeca), { process: "print" }).error, /shell/);
+  });
+
+  it("marks sewn stock instead of scoring it", () => {
+    const prod = produce(compileShape(dodeca), { process: "fold", fold: { join: "sew", foldStyle: "score" } });
+    const layers = new Set(prod.sheet.parts.flatMap((p) => p.paths.map((x) => x.layer)));
+    assert.equal(layers.has("valley") || layers.has("mountain"), false);
+  });
+
+  it("offers the Border that opens closed faces, and runJob can take it", async () => {
+    const state = { base: "icosidodeca", circumdiameterMm: 200 };
+    const plain = produce(compileShape(state), { process: "cut" });
+    assert.equal(plain.fixes.length, 1);
+    assert.ok(plain.sheet.stats.filledPanels > 0);
+    const fixed = await runJob(state, { process: "cut" }, { applyFixes: true });
+    assert.equal(fixed.sheet.stats.filledPanels, 0);
+    assert.equal(fixed.fixes.length, 0);
+  });
+
+  it("offers no fix when no Border can open the faces", () => {
+    const prod = produce(compileShape({}), { process: "cut" });
+    assert.ok(prod.sheet.stats.filledPanels > 0);
+    assert.deepEqual(prod.fixes, []);
+  });
+
+  it("welds printed corner clips as a later step, on a new production", async () => {
+    const job = { process: "cut", cut: { clipsBy: "print", clipPlace: "corners", clipSize: "large", clipWidthMm: 6 } };
+    const prod = produce(compileShape({ base: "octahedron", spike: 1, circumdiameterMm: 200, ...closed }), job);
+    assert.equal(prod.weld.pending, true);
+    assert.match(summarize(prod)[1], /welding corners/);
+    const done = await finishProduction(prod);
+    assert.notEqual(done, prod);
+    assert.ok(done.weld.pieces > 0);
+    assert.equal(prod.weld.pending, true);
+    assert.ok(sheetViews(done).some((v) => v.id === "corners"));
+    assert.ok(listArtifacts(done).some((f) => f.name.endsWith("_corners.stl")));
+    assert.equal(await finishProduction(done), done);
+  });
+});
+
+describe("artifacts", () => {
+  it("names every file uniquely and gives each one bytes", async () => {
+    for (const job of [{ process: "cut" }, { process: "fold", fold: { join: "flaps" } }, { process: "print" }, { process: "cut", cut: { clipsBy: "print" } }]) {
+      const prod = await runJob({ base: "icosidodeca", circumdiameterMm: 200 }, job);
+      const files = listArtifacts(prod);
+      assert.ok(files.length >= 2);
+      assert.equal(new Set(files.map((f) => f.name)).size, files.length);
+      for (const f of files) {
+        const data = f.bytes();
+        assert.ok((data.length ?? data.byteLength) > 100, f.name);
+        assert.match(f.name, new RegExp(`^${designStem(prod.state)}`));
+      }
+    }
+  });
+
+  it("makes the fit strip its own first file, and leaves its spot empty on the board", async () => {
+    const prod = await runJob(dodeca, { process: "cut" });
+    const [strip, ...boards] = listArtifacts(prod);
+    assert.equal(strip.id, "fit-strip");
+    assert.match(strip.detail, /first/);
+    assert.ok(boards.length);
+    const items = prod.sheet.boards.flatMap((b) => b.items);
+    const coupons = items.filter((it) => it.part.kind === "coupon");
+    assert.equal(coupons.length, 2);
+    const all = items.flatMap((it) => it.part.paths).length;
+    const paths = (svg) => (svg.match(/<path /g) ?? []).length;
+    assert.equal(boards.reduce((n, f) => n + paths(f.bytes()), 0) + paths(strip.bytes()), all);
+    // The strip sits exactly where it sits on the combined board.
+    assert.ok(boardSvg({ items: coupons }, prod.board, { title: `${designStem(prod.state)}_cut_clips_3mm_fit-strip` }) === strip.bytes());
+  });
+
+  it("adds a score test strip where scoring is used, and only there", async () => {
+    const has = async (fold) => listArtifacts(await runJob(dodeca, { process: "fold", fold })).some((f) => f.id === "fold-strip");
+    assert.equal(await has({ join: "flaps" }), true);
+    assert.equal(await has({ join: "flaps", foldStyle: "mark" }), false);
+    assert.equal(await has({ join: "sew" }), false);
+  });
+
+  it("says what to do with the files", async () => {
+    assert.match(exportNotes(await runJob(dodeca, { process: "cut" }))[0], /fit strip/);
+    assert.match(exportNotes(await runJob(dodeca, { process: "fold", fold: { join: "sew" } }))[0], /ladder stitch/);
+    assert.deepEqual(exportNotes(await runJob(dodeca, { process: "print" })), []);
+  });
+
+  it("lists print's shell and drawing, or the two halves of a split", async () => {
+    const prod = await runJob({}, { process: "print" });
+    assert.deepEqual(listArtifacts(prod).map((f) => f.id), ["shell", "drawing"]);
+    const fake = { a: prod.compiled.mesh, b: prod.compiled.mesh, planeZ: 40 };
+    assert.deepEqual(listArtifacts(prod, { split: fake }).map((f) => f.id), ["half-a", "half-b", "drawing"]);
+  });
+
+  it("is empty when nothing was made", () => {
+    assert.deepEqual(listArtifacts({ ok: false }), []);
+    assert.deepEqual(sheetViews({ ok: false }), []);
+  });
+});
+
+describe("layers", () => {
+  const sources = (dir) => readdirSync(join(root, dir), { recursive: true }).filter((f) => f.endsWith(".js")).map((f) => [`${dir}/${f}`, readFileSync(join(root, dir, f), "utf8")]);
+
+  it("keeps the engine and production free of the DOM and the viewer", () => {
+    for (const [file, text] of [...sources("src/sheet"), ...sources("src/production")]) {
+      assert.doesNotMatch(text.replace(/^\s*(\*|\/\/).*$/gm, ""), /\b(document|window|localStorage|location)\./, file);
+      assert.doesNotMatch(text, /from ".*(viewer|main|ui|controls|sheet-mockup|flat-view)\.js"/, file);
+      assert.doesNotMatch(text, /from "three"/, file);
+    }
+  });
+
+  it("keeps the sheet engine below production", () => {
+    for (const [file, text] of sources("src/sheet")) assert.doesNotMatch(text, /from ".*production\//, file);
+  });
+
+  it("keeps the shape pipeline free of production", () => {
+    for (const [file, text] of [["src/compile.js", readFileSync(join(root, "src/compile.js"), "utf8")], ["src/pipeline.js", readFileSync(join(root, "src/pipeline.js"), "utf8")], ...sources("src/solid")]) {
+      assert.doesNotMatch(text, /from ".*(production|sheet)\//, file);
+    }
+  });
+});
+
+describe("examples", () => {
+  const dir = join(root, "docs/examples");
+  const designs = readdirSync(dir, { recursive: true }).filter((f) => f.endsWith(".shapemaker.json"));
+  const open = (f) => parseProject(readFileSync(join(dir, f), "utf8"));
+
+  it("all build, with no warning they don't expect", async () => {
+    assert.ok(designs.length >= 11);
+    for (const f of designs) {
+      const { ok, state, project } = open(f);
+      assert.equal(ok, true, f);
+      const prod = await runJob(state, project.production, { applyFixes: true });
+      assert.equal(prod.ok, true, f);
+      assert.deepEqual(prod.warnings.filter((w) => !/glue them|ties will hinge/.test(w)), [], f);
+    }
+  });
+
+  it("test cuts fit their stock", async () => {
+    for (const [f, nets] of [["test-cuts/paper-dodecahedron-a4", 1], ["test-cuts/ply-dodecahedron-clips", 0], ["test-cuts/ply-octahedron-fingers", 0]]) {
+      const { state, project } = open(`${f}.shapemaker.json`);
+      const prod = await runJob(state, project.production);
+      assert.equal(prod.sheet.stats.boards, 1, f);
+      if (nets) assert.equal(prod.sheet.stats.nets, nets, f);
+    }
+  });
+
+  it("felt examples have no whip stitches", async () => {
+    for (const f of designs.filter((x) => x.includes("felt"))) {
+      const { state, project } = open(f);
+      const prod = await runJob(state, project.production);
+      assert.equal(prod.sheet.stats.whipStitched, 0, f);
+    }
+  });
+});
+
+describe("command line", () => {
+  const cli = (...args) => spawnSync(process.execPath, [join(root, "scripts/shapemaker.mjs"), ...args], { cwd: root, encoding: "utf8" });
+
+  it("plans without writing, in words or JSON", () => {
+    const r = cli("plan", "--base=cube", "--diameter=140", "--openings=false", "--process=cut", "--join=fingers", "--json");
+    assert.equal(r.status, 0, r.stderr);
+    const report = JSON.parse(r.stdout);
+    assert.equal(report.process, "cut");
+    assert.equal(report.production.cut.join, "fingers");
+    assert.equal(report.state.circumdiameterMm, 140);
+    assert.deepEqual(report.files.map((f) => f.file), ["cube_140mm_cut_fingers_3mm_fit-strip.svg", "cube_140mm_cut_fingers_3mm.svg"]);
+  });
+
+  it("builds the same bytes as the library, with a manifest", async () => {
+    const out = mkdtempSync(join(tmpdir(), "shapemaker-"));
+    const design = "docs/examples/fold-dodecahedron-felt-seams.shapemaker.json";
+    execFileSync(process.execPath, ["scripts/shapemaker.mjs", "build", design, `--out=${out}`], { cwd: root, encoding: "utf8" });
+    const { state, project } = parseProject(readFileSync(join(root, design), "utf8"));
+    const files = listArtifacts(await runJob(state, project.production));
+    assert.ok(files.length);
+    for (const f of files) assert.equal(readFileSync(join(out, f.name), "utf8"), f.bytes());
+    assert.deepEqual(JSON.parse(readFileSync(join(out, "manifest.json"), "utf8")).files.map((f) => f.file), files.map((f) => f.name));
+  });
+
+  it("lets flags override a design file", () => {
+    const r = cli("plan", "docs/examples/cut-cube-fingers.shapemaker.json", "--process=fold", "--join=sew", "--diameter=100", "--json");
+    const report = JSON.parse(r.stdout);
+    assert.equal(report.process, "fold");
+    assert.equal(report.state.circumdiameterMm, 100);
+    assert.equal(report.state.base, "cube");
+  });
+
+  it("exits 2 on usage errors and 1 when the design doesn't build", () => {
+    assert.equal(cli().status, 2);
+    assert.equal(cli("frobnicate").status, 2);
+    assert.equal(cli("plan", "--process=laser").status, 2);
+    assert.equal(cli("plan", "--process=cut", "--nonsense=1").status, 2);
+    assert.equal(cli("plan", "--process=cut", "--join=staples").status, 2);
+    assert.equal(cli("plan", "--process=cut", "--sheet-mm=99").status, 2);
+    assert.equal(cli("plan", "no-such-file.json").status, 2);
+    assert.equal(cli("plan", "--base=nothing").status, 1);
+  });
+
+  it("lists each process's settings", () => {
+    const r = cli("settings", "--process=fold");
+    assert.equal(r.status, 0);
+    assert.match(r.stdout, /--seam-mm=/);
+    assert.doesNotMatch(r.stdout, /--sheet-mm=/);
+  });
+});

@@ -2,7 +2,7 @@
  * Cut mode: rigid sheet panels joined by clips, zip-tie holes or finger
  * joints.
  *
- * Geometry follows docs/LASER_RESEARCH.md §3 and §7. The skeleton is the
+ * Geometry follows docs/research/sheet-output.md §3 and §7. The skeleton is the
  * *inner* surface and the sheet grows outward, so at a convex edge the two
  * panels' inner corners meet and the face polygon is the panel outline. A
  * reflex (valley) edge would make the outer halves collide, so both panels

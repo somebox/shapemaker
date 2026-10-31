@@ -1,0 +1,39 @@
+{
+  "format": "shapemaker-project",
+  "formatVersion": 1,
+  "name": "Open icosidodecahedron, zip ties",
+  "createdWith": "0.16.1",
+  "state": {
+    "base": "icosidodeca",
+    "circumdiameterMm": 200,
+    "borderFraction": 0.6,
+    "depth": "hollow",
+    "wallMm": 1.4,
+    "wallMode": "even",
+    "openings": true,
+    "openingStyle": "polygon",
+    "openingAxis": "center",
+    "breakOut": false,
+    "filletMm": 4.5,
+    "roundingMm": 0,
+    "edgeDiv": 10,
+    "points": 24,
+    "seed": 1337,
+    "separation": 0.5,
+    "jitter": 0,
+    "jitterMode": "surface",
+    "dual": false,
+    "truncate": 0,
+    "spike": 0,
+    "subdiv": 0,
+    "subdivStyle": "radial",
+    "soften": 0,
+    "faceIndex": 20
+  },
+  "production": {
+    "process": "cut",
+    "cut": {
+      "join": "ties"
+    }
+  }
+}

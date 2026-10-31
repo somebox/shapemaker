@@ -19,34 +19,11 @@ import { writeBinaryStl } from "../src/export/stl.js";
 import { clearPipelineCache } from "../src/pipeline.js";
 import { loadCsg, needsCsg } from "../src/solid/csg.js";
 import { DEFAULT_STATE } from "../src/schema.js";
+import { STATE_FLAGS as FLAGS } from "./lib/flags.mjs";
 import {
   chooseSplit,
   halfExportMatrices,
 } from "../src/split.js";
-
-const kebab = (k) => k.replace(/([A-Z])/g, "-$1").toLowerCase();
-const castFor = (dflt) =>
-  typeof dflt === "boolean"
-    ? (v) => v !== "0" && v !== "false"
-    : typeof dflt === "number"
-    ? Number
-    : String;
-const FLAGS = {};
-for (const [key, dflt] of Object.entries(DEFAULT_STATE)) {
-  if (dflt === null || dflt === undefined) continue;
-  FLAGS[kebab(key)] = [key, castFor(dflt)];
-}
-// Constant-mm border is optional (legacy / acceptance fits) — not in defaults.
-FLAGS["border-mm"] = ["borderMm", Number];
-FLAGS["border-fraction"] = ["borderFraction", Number];
-Object.assign(FLAGS, {
-  wall: FLAGS["wall-mm"],
-  // `--border=N` keeps meaning millimetres for acceptance / scripts.
-  border: FLAGS["border-mm"],
-  fillet: FLAGS["fillet-mm"],
-  diameter: FLAGS["circumdiameter-mm"],
-  face: FLAGS["face-index"],
-});
 
 const args = process.argv.slice(2);
 let outfile = null;

@@ -37,6 +37,20 @@ export const STATE_KEYS = Object.freeze([
   "faceIndex",
 ]);
 
+/**
+ * State keys only the printed shell reads. The shape and its openings are
+ * everything else, and Cut and Fold use nothing but those.
+ */
+export const PRINT_KEYS = Object.freeze([
+  "depth",
+  "wallMm",
+  "wallMode",
+  "openingAxis",
+  "breakOut",
+  "roundingMm",
+  "edgeDiv",
+]);
+
 /** Spike slider / validation ceiling (apex radius in parent circumradius units). */
 export const SPIKE_T_MAX = 4;
 
