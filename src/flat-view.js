@@ -4,10 +4,7 @@
  * one hands it back to the caller.
  */
 
-import { LAYERS } from "./sheet/svg.js";
-import { apply } from "./sheet/geom2.js";
-import { LAYER_NAMES, PLATE_CLIP, SHEET_FILL, sheetViews } from "./production/artifacts.js";
-import { fmt, plural } from "./production/summary.js";
+import { LAYERS, LAYER_NAMES, PLATE_CLIP, SHEET_FILL, fmt, placePoint, plural, sheetViews } from "./production/index.js";
 import { el } from "./controls.js";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -75,7 +72,7 @@ export function createFlatView(host, { onPick }) {
     const svg = svgEl("svg", { viewBox: `-4 -4 ${size.w + 8} ${size.h + 8}`, class: "sheet-board" });
     svg.append(svgEl("rect", { x: 0, y: 0, width: size.w, height: size.h, rx: 1.5, fill: plate ? SHEET_FILL.plate : SHEET_FILL[prod.process], class: "sheet-board-bg" }));
     const P = (tf, q) => {
-      const [x, y] = apply(tf, q);
+      const [x, y] = placePoint(tf, q);
       return `${fmt(x, 2)},${fmt(size.h - y, 2)}`;
     };
     for (const { part, tf } of view.items) {

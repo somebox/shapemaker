@@ -53,10 +53,9 @@ locally in the browser.
 - `name`, `createdWith`, `production`, `view`, `metadata`, and `extensions` are
   optional.
 - `production` is how the design gets made: a job as described in
-  [`PRODUCTION.md`](PRODUCTION.md), holding `process` and whatever differs from
-  the defaults. It never changes the shape. Unknown or invalid settings fall
-  back to their defaults, and a session that doesn't use the block keeps it
-  when saving.
+  [`PRODUCTION.md`](PRODUCTION.md), holding `process` and its settings in
+  full. It never changes the shape. Unknown or invalid settings fall back to
+  their defaults, and a session that doesn't use the block keeps it when saving.
 - Numeric geometry values use millimetres unless their key states otherwise.
 - All saved numbers must be finite JSON numbers.
 - `extensions` is an object. Third-party data belongs under namespaced keys,

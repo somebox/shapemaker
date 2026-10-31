@@ -34,7 +34,17 @@
     "process": "fold",
     "fold": {
       "join": "flaps",
-      "marginMm": 6
+      "seamMm": 6,
+      "sewHoles": false,
+      "foldStyle": "score",
+      "board": "a4",
+      "boardSize": {
+        "w": 300,
+        "h": 200
+      },
+      "labels": true,
+      "marginMm": 6,
+      "gapMm": 2
     }
   }
 }

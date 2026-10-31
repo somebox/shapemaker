@@ -103,6 +103,9 @@ export const JOB_DEFS = Object.freeze({
   ],
 });
 
+/** Processes with settings of their own. */
+const SETTLED = PROCESSES.filter((p) => JOB_DEFS[p].length);
+
 /** Does def accept value v? */
 export function validSetting(def, v) {
   switch (def.kind) {
@@ -122,7 +125,7 @@ export function validSetting(def, v) {
  */
 export function normalizeJob(raw) {
   const job = { process: PROCESSES.includes(raw?.process) ? raw.process : "print" };
-  for (const process of ["cut", "fold"]) {
+  for (const process of SETTLED) {
     const from = raw?.[process] ?? {};
     job[process] = Object.fromEntries(
       JOB_DEFS[process].map((def) => [def.key, validSetting(def, from[def.key]) ? structuredClone(from[def.key]) : structuredClone(def.default)]),
@@ -132,15 +135,17 @@ export function normalizeJob(raw) {
 }
 
 /**
- * Canonical JSON form: the process, plus whatever differs from the defaults.
+ * Canonical JSON form. The process in use is written out in full, as state
+ * is, so a later change of default can't change an existing design; the
+ * others keep only what differs from their defaults.
  * @param {object} job
  */
 export function serializeJob(job) {
   const n = normalizeJob(job);
   const out = { process: n.process };
-  for (const process of ["cut", "fold"]) {
-    const changed = JOB_DEFS[process].filter((def) => JSON.stringify(n[process][def.key]) !== JSON.stringify(def.default));
-    if (changed.length) out[process] = Object.fromEntries(changed.map((def) => [def.key, n[process][def.key]]));
+  for (const process of SETTLED) {
+    const kept = JOB_DEFS[process].filter((def) => process === n.process || JSON.stringify(n[process][def.key]) !== JSON.stringify(def.default));
+    if (kept.length) out[process] = Object.fromEntries(kept.map((def) => [def.key, n[process][def.key]]));
   }
   return out;
 }

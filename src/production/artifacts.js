@@ -78,10 +78,10 @@ function sheetArtifacts(prod, stem0) {
     bytes: () => boardSvg({ items }, size, { title: name }),
     preview: () => boardSvg({ items }, size, { title: name, preview: true }),
   });
-  // The fit strip keeps its place on the first board but is its own file,
-  // cut first; the model files leave its spot empty, so the layout holds.
+  // The fit strip keeps its place in the layout but is its own file, cut
+  // first; the model files leave its spot empty, so the sheet needn't move.
   const strip = boards.flatMap((b) => b.items).filter(isCoupon);
-  const files = strip.length ? [file("fit-strip", `${stem}_fit-strip`, strip, `Cut this first · ${plural(strip.length, "part")} on ${fmt(size.w)} × ${fmt(size.h)} mm`)] : [];
+  const files = strip.length ? [file("fit-strip", `${stem}_fit-strip`, strip, `Cut this first · slots and a key, on ${fmt(size.w)} × ${fmt(size.h)} mm`)] : [];
   // Scoring power varies by machine and stock, so Score gets a test strip.
   if (!cutting && m.foldStyle === "score" && m.join !== "sew") {
     const test = packParts([foldTestStrip()], size, { marginMm: m.marginMm, gapMm: m.gapMm }).boards[0].items;
@@ -96,8 +96,9 @@ function sheetArtifacts(prod, stem0) {
     files.push(file(view.id, name, items, `${plural(items.length, "part")} on ${fmt(size.w)} × ${fmt(size.h)} mm · ${layers.join(", ")}`));
   });
   // One STL per print plate: …_clipsA.stl, …_clipsA2.stl, …_corners.stl
+  // Not while welding, which will change them.
   const bed = cutting ? PRINT_BEDS[m.printBed] : null;
-  for (const view of views.filter((v) => v.kind === "plate")) {
+  for (const view of prod.weld?.pending ? [] : views.filter((v) => v.kind === "plate")) {
     const { plate } = view;
     const name = `${stem}_${view.id}`;
     const n = plate.items.reduce((a, it) => a + (it.part.clips?.length ?? 1), 0);

@@ -33,7 +33,25 @@
   "production": {
     "process": "cut",
     "cut": {
-      "join": "ties"
+      "sheetMm": 3,
+      "join": "ties",
+      "clipSize": "auto",
+      "clipsPerEdge": "auto",
+      "clipPlace": "middle",
+      "clipsBy": "cut",
+      "clipWidthMm": 3,
+      "weld": true,
+      "kerfMm": 0,
+      "clearanceMm": 0.1,
+      "printBed": "prusa-core-one",
+      "board": "falcon-a1",
+      "boardSize": {
+        "w": 300,
+        "h": 200
+      },
+      "labels": true,
+      "marginMm": 5,
+      "gapMm": 2
     }
   }
 }

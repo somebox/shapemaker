@@ -29,7 +29,7 @@ export function buildSheet(skeleton, opts) {
   const extracted = extractPanels(skeleton);
   const res = opts.mode === "cut" ? buildCut(extracted, opts) : buildFold(extracted, opts);
   const slotMm = opts.clipsBy === "print" ? Math.max(opts.sheetMm, opts.clipWidthMm ?? opts.sheetMm) : opts.sheetMm;
-  const parts = [...res.parts, ...(opts.mode === "cut" && opts.coupon ? fitCoupon({ ...opts, slotMm }) : [])];
+  const parts = [...res.parts, ...(opts.mode === "cut" && opts.coupon ? [fitCoupon({ ...opts, slotMm })] : [])];
   // Printed clips go to print plates instead of the boards.
   const printed = parts.filter((p) => p.print);
   const { boards, oversize } = packParts(parts.filter((p) => !p.print), opts.board, { marginMm: opts.marginMm, gapMm: opts.gapMm });

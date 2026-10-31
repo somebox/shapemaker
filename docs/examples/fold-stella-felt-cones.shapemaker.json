@@ -34,7 +34,17 @@
     "process": "fold",
     "fold": {
       "join": "sew",
-      "board": "falcon-a1"
+      "seamMm": 6,
+      "sewHoles": false,
+      "foldStyle": "score",
+      "board": "falcon-a1",
+      "boardSize": {
+        "w": 300,
+        "h": 200
+      },
+      "labels": true,
+      "marginMm": 5,
+      "gapMm": 2
     }
   }
 }

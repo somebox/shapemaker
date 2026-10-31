@@ -605,6 +605,7 @@ src/
   pipeline.js          stage runner and bounded caches
   schema.js            canonical state, control definitions, defaults
   validate.js          state validation and structured geometry errors
+  types.js             core type documentation
   bases.js, points/    base shapes
   hull.js, dual.js, truncate.js, subdivide.js, plane-perturb.js   skeleton operators
   skeleton.js, faceframe.js, geom/   shape-independent geometry

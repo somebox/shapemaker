@@ -13,15 +13,20 @@
 import { compile, compileShape } from "../compile.js";
 import { OPENING_GENERATORS } from "../solid/shell.js";
 import { loadCsg, needsCsg, weldTouching } from "../solid/csg.js";
-import { DEFAULT_STATE } from "../schema.js";
+import { DEFAULT_STATE, patchState } from "../schema.js";
 import { buildSheet } from "../sheet/index.js";
+import { buildAssembly } from "../sheet/assembly.js";
 import { weldPlates, PRINT_BEDS } from "../sheet/printclips.js";
 import { MAX_BORDER } from "../sheet/cut.js";
 import { normalizeJob, boardOf } from "./job.js";
 
-export { JOB_DEFS, PROCESSES, PROCESS_STOCK, normalizeJob, serializeJob, settingsOf, settingApplies, boardOf } from "./job.js";
-export { designStem, listArtifacts, sheetViews, exportNotes } from "./artifacts.js";
-export { summarize } from "./summary.js";
+export { JOB_DEFS, PROCESSES, PROCESS_STOCK, normalizeJob, serializeJob, settingsOf, settingApplies, validSetting, boardOf } from "./job.js";
+export { designStem, listArtifacts, sheetViews, exportNotes, LAYER_NAMES, PLATE_CLIP, SHEET_FILL } from "./artifacts.js";
+export { summarize, fmt, plural } from "./summary.js";
+export { BOARD_PROFILES } from "../sheet/layout.js";
+export { LAYERS } from "../sheet/svg.js";
+export { PRINT_BEDS };
+export { apply as placePoint } from "../sheet/geom2.js";
 
 /** The state's openings, as the sheet engine takes them; null when closed. */
 export function openingSpec(state) {
@@ -30,21 +35,22 @@ export function openingSpec(state) {
     : null;
 }
 
-/** buildSheet options for a job on a shape. */
+/**
+ * buildSheet options for a job on a shape. Settings pass straight through,
+ * so a new row in JOB_DEFS reaches the engine; these are the ones that need
+ * resolving first.
+ */
 export function sheetOptions(job, state) {
   const m = job[job.process];
-  const common = { mode: job.process, board: boardOf(m), labels: m.labels, marginMm: m.marginMm, gapMm: m.gapMm, openings: openingSpec(state) };
+  const common = { mode: job.process, board: boardOf(m), openings: openingSpec(state) };
   return job.process === "cut"
-    ? {
-        ...common, coupon: true, join: m.join, sheetMm: m.sheetMm, kerfMm: m.kerfMm, clearanceMm: m.clearanceMm,
-        clipsBy: m.clipsBy, clipSize: m.clipSize, clipsPerEdge: m.clipsPerEdge, clipPlace: m.clipPlace, clipWidthMm: m.clipWidthMm,
-        printBed: PRINT_BEDS[m.printBed],
-      }
-    : {
-        // Felt and cloth take no score line: sewn stock is only marked.
-        ...common, join: m.join, foldStyle: m.join === "sew" ? "mark" : m.foldStyle,
-        seamMm: m.seamMm, sewHoles: m.sewHoles, rootFace: state.faceIndex,
-      };
+    ? { ...m, ...common, coupon: true, printBed: PRINT_BEDS[m.printBed] }
+    : { ...m, ...common, foldStyle: m.join === "sew" ? "mark" : m.foldStyle, rootFace: state.faceIndex }; // felt and cloth take no score line
+}
+
+/** The parts of a production put together, as tagged triangles any renderer can draw. */
+export function assemblyOf(prod) {
+  return buildAssembly(prod.skeleton, prod.sheet, { openings: prod.openings });
 }
 
 /**
@@ -83,9 +89,11 @@ export function produce(shape, rawJob) {
     const mmBorder = opts.openings && shape.state.borderMm != null
       ? [`Border is set in millimetres, which sheet openings can't use: using ${Math.round(opts.openings.borderFraction * 100)}%`]
       : [];
+    // Of the shape's own warnings; the rest are about the printed shell.
+    const shapeWarnings = (shape.validation?.warnings ?? []).filter((w) => w.stage === "orient").map((w) => w.message);
     return {
       ...base, ok: true, sheet, board: opts.board, openings: opts.openings,
-      warnings: [...mmBorder, ...sheet.warnings], fixes: shapeFixes(sheet), weld: pending ? { pending: true } : null,
+      warnings: [...shapeWarnings, ...mmBorder, ...sheet.warnings], fixes: shapeFixes(sheet), weld: pending ? { pending: true } : null,
     };
   } catch (err) {
     console.error("produce:", err);
@@ -136,7 +144,7 @@ export async function runJob(state, rawJob, { applyFixes = false } = {}) {
   let prod = produce(shape, job);
   if (applyFixes && prod.ok && prod.fixes.length) {
     const patch = Object.assign({}, ...prod.fixes.map((f) => f.patch));
-    prod = produce(compileShape({ ...state, ...patch }), job);
+    prod = produce(compileShape(patchState(state, patch)), job);
   }
   return prod.ok ? finishProduction(prod) : prod;
 }

@@ -13,15 +13,9 @@
  */
 
 import {
-  produce, finishProduction, listArtifacts, exportNotes, summarize, normalizeJob, serializeJob,
-  settingsOf, settingApplies, boardOf, JOB_DEFS, PROCESS_STOCK,
+  produce, finishProduction, assemblyOf, listArtifacts, exportNotes, summarize, designStem, normalizeJob, serializeJob,
+  settingsOf, settingApplies, boardOf, fmt, JOB_DEFS, PROCESSES, PROCESS_STOCK, BOARD_PROFILES, PRINT_BEDS, PLATE_CLIP,
 } from "./production/index.js";
-import { BOARD_PROFILES } from "./sheet/layout.js";
-import { PRINT_BEDS } from "./sheet/printclips.js";
-import { buildAssembly } from "./sheet/assembly.js";
-import { PLATE_CLIP } from "./production/artifacts.js";
-import { designStem } from "./production/names.js";
-import { fmt } from "./production/summary.js";
 import { createFlatView } from "./flat-view.js";
 import { PRINT_KEYS } from "./schema.js";
 import { el } from "./controls.js";
@@ -110,7 +104,7 @@ export function mountSheetMockup({ viewer, getLast, applyPatch, download }) {
   header?.querySelector("h1, .brand, .title")?.after(chip) ?? header?.prepend(chip);
 
   // ── Form: Build switch and each mode's rows ──
-  const buildRow = segControl("Build", [["print", "Print"], ["cut", "Cut"], ["fold", "Fold"]], () => S.job.process, (v) => {
+  const buildRow = segControl("Build", PROCESSES.map((p) => [p, p[0].toUpperCase() + p.slice(1)]), () => S.job.process, (v) => {
     if (v === S.job.process) return;
     switchOverlays(S.job.process, v);
     S.job.process = v;
@@ -123,7 +117,7 @@ export function mountSheetMockup({ viewer, getLast, applyPatch, download }) {
 
   // One row per job setting, sorted into its place in the panel.
   const rows = [];
-  for (const process of ["cut", "fold"]) {
+  for (const process of PROCESSES) {
     for (const def of JOB_DEFS[process]) {
       if (!def.group || def.kind === "size") continue;
       rows.push({ process, def, control: settingControl(process, def) });
@@ -233,7 +227,13 @@ export function mountSheetMockup({ viewer, getLast, applyPatch, download }) {
   function build() {
     const last = getLast();
     prod = produce(last ?? {}, S.job);
-    viewer.setAltModel(prod.ok ? assemblyModel(prod) : null);
+    try {
+      viewer.setAltModel(prod.ok ? assemblyModel(prod) : null);
+    } catch (err) {
+      console.error("sheet mockup:", err);
+      prod = { ...prod, ok: false, error: `Couldn't put this shape together: ${err.message}` };
+      viewer.setAltModel(null);
+    }
     if (prod.weld?.pending) {
       // The mesh library loads on demand; a newer build wins.
       const pending = prod;
@@ -241,6 +241,7 @@ export function mountSheetMockup({ viewer, getLast, applyPatch, download }) {
         if (prod !== pending) return;
         prod = done;
         render();
+        if (exportDialog.open) openExport();
       });
     }
     render();
@@ -290,8 +291,8 @@ export function mountSheetMockup({ viewer, getLast, applyPatch, download }) {
   }
 
   // ── 3D: the parts put together, as plain data the viewer draws ──
-  function assemblyModel({ skeleton, sheet, openings }) {
-    const { solids } = buildAssembly(skeleton, sheet, { openings });
+  function assemblyModel(production) {
+    const { solids } = assemblyOf(production);
     const linePts = [];
     const parts = solids.map((s) => {
       const positions = new Float32Array(s.tris.length * 9);
@@ -527,12 +528,16 @@ export function mountSheetMockup({ viewer, getLast, applyPatch, download }) {
     onResult() {
       if (S.job.process !== "print") scheduleBuild();
     },
-    /** The job, for a saved project. */
-    job: () => serializeJob(S.job),
-    /** A project's job, or null to leave the current one. */
+    /** The job, for a saved project; a Print project carries none. */
+    job: () => (S.job.process === "print" ? null : serializeJob(S.job)),
+    /**
+     * A project's job; none means Print, as it does without the mockup. The
+     * file decides only its own process: the browser keeps its settings for
+     * the others.
+     */
     setJob(job) {
-      if (!job) return;
       const next = normalizeJob(job);
+      for (const p of PROCESSES) if (p !== next.process && S.job[p]) next[p] = S.job[p];
       switchOverlays(S.job.process, next.process);
       S.job = next;
       changed();

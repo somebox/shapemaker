@@ -545,6 +545,19 @@ export function normalizeSavedState(input = {}) {
 }
 
 /**
+ * A state with a patch over it. Border has two mutually exclusive spellings,
+ * so a patch that sets one clears the other.
+ * @param {object} state
+ * @param {object} patch
+ */
+export function patchState(state, patch) {
+  const next = { ...state, ...patch };
+  if (patch.borderFraction != null) delete next.borderMm;
+  else if (patch.borderMm != null) delete next.borderFraction;
+  return next;
+}
+
+/**
  * Canonical equality for dirty / history gates.
  * @param {object} a
  * @param {object} b

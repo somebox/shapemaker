@@ -40,7 +40,8 @@ draws:
 | Printed shell | depth, wall, wall mode, sides, break out, rounding, quality | Print only |
 
 So a Wall that would fail a print can't fail a laser job, and dragging a
-slider in Cut needn't solidify a shell.
+slider in Cut needn't solidify a shell. The CLI works this way today; the app
+gets there in step 2 of §5.
 
 ### Layers
 
@@ -53,28 +54,30 @@ Each layer may use the ones above it, never the ones below.
 | Production | `src/production/` | Job to finished production, file list, status words | Touch the DOM, a file system or a viewer |
 | Adapters | Web: `main.js`, `sheet-mockup.js`, `flat-view.js`, `viewer.js`. CLI: `scripts/shapemaker.mjs` | Input, display, download or write | Compute geometry, or decide what files exist |
 
-`test/production.test.js` enforces the import rules, and that the CLI writes
-the same bytes as the library.
+`test/production.test.js` enforces these import rules, including that the
+adapters reach the engine only through `src/production/`, and that the CLI
+writes the same bytes as the library.
 
 ### Jobs
 
 A job is plain JSON. `JOB_DEFS` in `src/production/job.js` is the one table of
 its settings: default, bounds, label, hint, panel group, and when each
 applies. The panel builds its rows from it, the CLI its flags, and
-`normalizeJob` checks saved jobs against it, so a new setting is one row in
-that table.
+`normalizeJob` checks saved jobs against it, and settings pass straight to the
+engine, so a new setting is one row in that table.
 
 ```json
 {
   "process": "fold",
-  "fold": { "join": "sew", "seamMm": 8, "board": "falcon-a1" }
+  "fold": { "join": "sew", "seamMm": 8, "board": "falcon-a1", "…": "…" }
 }
 ```
 
-Saved jobs hold only what differs from the defaults. Each process keeps its
-own settings while another is in use, so switching Build and back loses
-nothing. An old or hand-edited job falls back setting by setting; it never
-fails to open.
+A saved job writes the process in use out in full, as `state` does, so a later
+change of default can't change an existing design; the other processes keep
+only what differs from their defaults. Each process keeps its own settings
+while another is in use, so switching Build and back loses nothing. An old or
+hand-edited job falls back setting by setting; it never fails to open.
 
 ### The same workflow, either way
 
@@ -111,7 +114,8 @@ that list and appears in both.
 3. Add its files to `listArtifacts()` and its lines to `summarize()`.
 4. If it draws flat layouts, return them from `sheetViews()`.
 
-The panel, CLI, Export dialog and project format then need no changes.
+The Build switch, CLI, Export dialog and project format then follow. The panel
+builds its rows from the table; only a new panel group needs a place of its own.
 
 ## 2. What the mockup showed
 
@@ -152,15 +156,17 @@ Still wrong, and fixed by the release (§5):
   Tapered, Straight and Cut.
 - **Fold's face click also turns the model**, because it reuses the
   resting-face pick. Only the net should change.
-- **Every edit still builds a shell**, because the app calls `compile()` in
-  every mode.
+- **The app still goes through the shell in Cut and Fold**, because it calls
+  `compile()` in every mode. Every edit builds a shell, and a design only a
+  print would refuse is refused here too, with the error on a row Cut hides.
+- **Job edits don't mark the project modified** yet.
 - **Nothing is in a link yet**, so sharing a Cut design shares only its shape.
 
 ## 3. Decisions for the first release
 
-**Locked** is settled. **Proposed** is the recommendation, waiting for a yes,
-because it drops something or changes a shipped label. The code follows the
-locked column today and the recommendation where it says so.
+**Locked** is settled, whether or not it's built yet; §2 and §5 say what's
+left. **Proposed** is a recommendation waiting for a yes, because it drops
+something or changes a shipped label.
 
 ### What it makes
 
@@ -207,7 +213,7 @@ locked column today and the recommendation where it says so.
 
 | # | Decision | Status |
 |---|---|---|
-| 22 | A project's job is an optional `production` block, kept even by a session that doesn't use it. `formatVersion` stays 1: the block never changes the shape, and older apps ignore it. | Locked, built |
+| 22 | A project's job is an optional `production` block, kept even by a session that doesn't use it, across Undo too. `formatVersion` stays 1: the block never changes the shape, and older apps ignore it. A project without one opens in Print. | Locked, built |
 | 23 | Links carry the job as a second segment after the state, and only when it isn't Print. Today's links stay valid. | Locked |
 | 24 | Each process's last settings stay in the browser as a convenience only, like the panel's open groups. | Locked |
 
@@ -237,8 +243,8 @@ Written to move into the spec:
    - A felt seam sample, and one printed clip in the fit strip.
 2. **Ship the panel.** Move the Build switch and rows into `ui.js`, the styles
    into `index.html`, and drop `?sheet`. Have `main.js` call `compileShape()`
-   in Cut and Fold, and take Print's export from `listArtifacts()`. Fix the
-   Fold click and rename Sides.
+   in Cut and Fold, take Print's export from `listArtifacts()`, and count job
+   edits as changes to the project. Fix the Fold click and rename Sides.
 3. **Give closed faces a way out.** When no Border opens them, offer the size
    that does, found the same way the Border fix is.
 4. **Links and the zip** (§3, 21 and 23).

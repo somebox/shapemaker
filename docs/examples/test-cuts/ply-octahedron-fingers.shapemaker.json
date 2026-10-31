@@ -35,12 +35,21 @@
     "cut": {
       "sheetMm": 2,
       "join": "fingers",
+      "clipSize": "auto",
+      "clipsPerEdge": "auto",
+      "clipPlace": "middle",
+      "clipsBy": "cut",
+      "clipWidthMm": 3,
+      "weld": true,
+      "kerfMm": 0,
       "clearanceMm": 0,
+      "printBed": "prusa-core-one",
       "board": "custom",
       "boardSize": {
         "w": 310,
         "h": 170
       },
+      "labels": true,
       "marginMm": 3,
       "gapMm": 1.5
     }

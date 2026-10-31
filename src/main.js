@@ -196,7 +196,7 @@ ui = createPanel(panelEl, {
     const text = serializeProjectV1({
       name: projectName,
       state: last.state,
-      production: sheetMockup?.job() ?? openedProduction,
+      production: sheetMockup ? sheetMockup.job() : openedProduction,
     });
     downloadText(text, `${safeName(projectName)}.shapemaker.json`);
     cleanState = normalizeState(last.state);
@@ -409,9 +409,11 @@ fileInput.addEventListener("change", async () => {
 function applyStart(id) {
   const start = startFromRecipe(id, presets);
   if (!start) return;
+  // A new shape keeps the job in hand: browsing starts doesn't leave Cut.
   const text = serializeProjectV1({
     name: start.name,
     state: start.state,
+    production: sheetMockup?.job(),
   });
   openProjectText(text);
 }
@@ -460,6 +462,7 @@ function openParsed(parsed) {
   const prevDraft = draft;
   const prevClean = cleanState;
   const prevCleanName = cleanName;
+  const prevProduction = openedProduction;
 
   projectName = parsed.project.name || "Untitled";
   openedProduction = parsed.project.production ?? null;
@@ -483,6 +486,7 @@ function openParsed(parsed) {
   draft = prevDraft;
   cleanState = prevClean;
   cleanName = prevCleanName;
+  openedProduction = prevProduction;
   updateProjectStatus();
 }
 
@@ -504,6 +508,7 @@ window.addEventListener("popstate", () => {
       projectName = restored.projectName;
       cleanName = restored.cleanName;
       cleanState = normalizeState(restored.cleanState);
+      openedProduction = restored.production ?? null;
     }
     regenerate({ forceFrame: false, fromHistory: true });
     updateProjectStatus();
@@ -873,6 +878,7 @@ function writeUrl(hash, action) {
     cleanName,
     cleanState,
     depth: sessionPushDepth,
+    production: openedProduction,
   });
   applyingHistory = true;
   if (action === "push") history.pushState(payload, "", url);
@@ -894,6 +900,7 @@ function refreshHistoryPayload() {
       cleanName,
       cleanState,
       depth: sessionPushDepth,
+      production: openedProduction,
     }),
     "",
     location.href,

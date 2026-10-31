@@ -8,9 +8,9 @@
  *   node scripts/shapemaker.mjs settings [--process=cut]
  *
  * build writes every file the design makes, plus manifest.json, to --out
- * (default test/out/<stem>). plan says what it would make and writes
- * nothing. A design file's own production block picks the process; flags
- * override it and its shape.
+ * (default test/out/<stem>). plan only says what it would make. A design
+ * file's own production block picks the process; flags override it and its
+ * shape.
  *
  * Flags: --process=print|cut|fold, any state key (--base=cube --diameter=120),
  * any setting of the process (--sheet-mm=3 --join=sew --board=500x300),
@@ -23,7 +23,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { parseProject, serializeProjectV1 } from "../src/project-format.js";
-import { normalizeState } from "../src/schema.js";
+import { normalizeState, patchState } from "../src/schema.js";
 import { chooseSplit } from "../src/split.js";
 import {
   runJob, normalizeJob, serializeJob, summarize, listArtifacts, exportNotes, designStem, PROCESSES,
@@ -73,8 +73,8 @@ if (designFile) {
 const { process: processFlag, out, json, fix, split: splitFlag, pictures, save, ...rest } = flags;
 const jobFlags = {};
 for (const [flag, value] of Object.entries(rest)) {
-  const spec = STATE_FLAGS[flag];
-  if (spec) stateIn = { ...stateIn, [spec[0]]: spec[1](value) };
+  const spec = Object.hasOwn(STATE_FLAGS, flag) ? STATE_FLAGS[flag] : null;
+  if (spec) stateIn = patchState(stateIn, { [spec[0]]: spec[1](value) });
   else jobFlags[flag] = value;
 }
 if (processFlag && !PROCESSES.includes(processFlag)) usage(`unknown process ${processFlag}; one of ${USAGE_PROCESSES}`);

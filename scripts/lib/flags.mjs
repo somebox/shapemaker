@@ -7,15 +7,13 @@
  * process (--sheet-mm=3, --join=sew).
  */
 import { DEFAULT_STATE } from "../../src/schema.js";
-import { JOB_DEFS, PROCESSES, settingsOf } from "../../src/production/index.js";
-import { validSetting } from "../../src/production/job.js";
-import { BOARD_PROFILES } from "../../src/sheet/layout.js";
+import { BOARD_PROFILES, JOB_DEFS, PROCESSES, settingsOf, validSetting } from "../../src/production/index.js";
 
 export const kebab = (k) => k.replace(/([A-Z])/g, "-$1").toLowerCase();
 
 const castFor = (dflt) =>
   typeof dflt === "boolean"
-    ? (v) => v !== "0" && v !== "false"
+    ? (v) => !["0", "false", "no", "off"].includes(v)
     : typeof dflt === "number"
     ? Number
     : String;
@@ -78,8 +76,13 @@ export function applyJobFlags(job, flags) {
   for (const [flag, text] of Object.entries(flags)) {
     const size = flag === "board" && /^(\d+(\.\d+)?)x(\d+(\.\d+)?)$/.exec(text);
     if (size && m) {
-      m.board = "custom";
-      m.boardSize = { w: Number(size[1]), h: Number(size[3]) };
+      const boardSize = { w: Number(size[1]), h: Number(size[3]) };
+      if (validSetting(defs.find((d) => d.kind === "size"), boardSize)) {
+        m.board = "custom";
+        m.boardSize = boardSize;
+      } else {
+        invalid.push(flag);
+      }
       continue;
     }
     const def = defs.find((d) => kebab(d.key) === flag && d.kind !== "size");

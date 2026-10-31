@@ -8,11 +8,12 @@ import { compile, compileShape } from "../src/compile.js";
 import { DEFAULT_STATE, PRINT_KEYS } from "../src/schema.js";
 import { parseProject, serializeProjectV1 } from "../src/project-format.js";
 import { boardSvg } from "../src/sheet/index.js";
+import { pointInPoly } from "../src/sheet/geom2.js";
 import {
   JOB_DEFS, PROCESSES, normalizeJob, serializeJob, settingApplies, produce, finishProduction, runJob,
-  listArtifacts, sheetViews, summarize, exportNotes, designStem,
+  listArtifacts, sheetViews, summarize, exportNotes, designStem, sheetOptions, validSetting,
 } from "../src/production/index.js";
-import { validSetting } from "../src/production/job.js";
+import { restoreSessionFromPopstate, sessionHistoryPayload } from "../src/session.js";
 
 const root = new URL("..", import.meta.url).pathname;
 const closed = { openings: false };
@@ -77,12 +78,19 @@ describe("jobs", () => {
     assert.equal(normalizeJob({ cut: { board: "constructor" } }).cut.board, "falcon-a1");
   });
 
-  it("saves only what differs, and reads back the same", () => {
-    assert.deepEqual(serializeJob(normalizeJob({ process: "cut" })), { process: "cut" });
+  it("writes its own process in full and the others' differences, and reads back the same", () => {
+    assert.deepEqual(serializeJob(normalizeJob({ process: "print" })), { process: "print" });
     const job = normalizeJob({ process: "fold", cut: { sheetMm: 4 }, fold: { join: "sew", seamMm: 8, board: "custom", boardSize: { w: 500, h: 300 } } });
     const saved = serializeJob(job);
-    assert.deepEqual(saved, { process: "fold", cut: { sheetMm: 4 }, fold: { join: "sew", seamMm: 8, board: "custom", boardSize: { w: 500, h: 300 } } });
+    assert.deepEqual(saved.cut, { sheetMm: 4 });
+    assert.deepEqual(Object.keys(saved.fold).sort(), JOB_DEFS.fold.map((d) => d.key).sort());
+    assert.equal(saved.fold.seamMm, 8);
     assert.deepEqual(normalizeJob(saved), job);
+  });
+
+  it("keeps a saved design's settings when a default later changes", () => {
+    const saved = serializeJob(normalizeJob({ process: "cut", cut: { clipsBy: "print", clipPlace: "corners" } }));
+    assert.equal(saved.cut.weld, true);
   });
 
   it("gives every setting with a panel row a group, and hides rows that don't apply", () => {
@@ -100,6 +108,14 @@ describe("jobs", () => {
     assert.deepEqual(fit.options.map(([v]) => v), [-0.2, -0.1, 0, 0.1, 0.2]);
   });
 
+  it("passes every setting of a process through to the engine", () => {
+    const shape = compileShape(dodeca);
+    for (const process of ["cut", "fold"]) {
+      const opts = sheetOptions(normalizeJob({ process }), shape.state);
+      for (const def of JOB_DEFS[process]) assert.ok(def.key in opts, def.key);
+    }
+  });
+
   it("travels in a project file without touching the shape", () => {
     const production = serializeJob(normalizeJob({ process: "cut", cut: { join: "ties" } }));
     const parsed = parseProject(serializeProjectV1({ name: "x", state: { ...DEFAULT_STATE }, production }));
@@ -108,6 +124,15 @@ describe("jobs", () => {
     const plain = parseProject(serializeProjectV1({ name: "x", state: { ...DEFAULT_STATE } }));
     assert.equal(plain.project.production, undefined);
     assert.deepEqual(parsed.state, plain.state);
+  });
+
+  it("survives Undo: each history entry remembers its project's job", () => {
+    const production = { process: "cut" };
+    const historyState = sessionHistoryPayload({ projectName: "A", cleanName: "A", cleanState: {}, depth: 1, production });
+    const restored = restoreSessionFromPopstate({ decoded: { ok: true, state: {} }, historyState });
+    assert.deepEqual(restored.production, production);
+    const older = sessionHistoryPayload({ projectName: "B", cleanName: "B", cleanState: {}, depth: 0 });
+    assert.equal(restoreSessionFromPopstate({ decoded: { ok: true, state: {} }, historyState: older }).production, null);
   });
 });
 
@@ -129,6 +154,14 @@ describe("produce", () => {
   it("says so when a border in mm can't apply to sheet openings", () => {
     const prod = produce(compileShape({ base: "dodecahedron", circumdiameterMm: 200, borderMm: 12 }), { process: "fold" });
     assert.match(prod.warnings[0], /millimetres/);
+  });
+
+  it("passes on the shape's own warnings, but not the shell's", () => {
+    const prod = produce(compileShape({ ...dodeca, faceIndex: 99 }), { process: "fold" });
+    assert.match(prod.warnings[0], /Resting face 99/);
+    const thin = compile({ base: "icosahedron", subdiv: 2, circumdiameterMm: 40 });
+    assert.ok(thin.validation.warnings.length);
+    assert.equal(produce(thin, { process: "fold" }).warnings.some((w) => /print|Border/i.test(w) && thin.validation.warnings.some((x) => x.message === w)), false);
   });
 
   it("marks sewn stock instead of scoring it", () => {
@@ -158,6 +191,7 @@ describe("produce", () => {
     const prod = produce(compileShape({ base: "octahedron", spike: 1, circumdiameterMm: 200, ...closed }), job);
     assert.equal(prod.weld.pending, true);
     assert.match(summarize(prod)[1], /welding corners/);
+    assert.equal(listArtifacts(prod).some((f) => f.name.endsWith(".stl")), false);
     const done = await finishProduction(prod);
     assert.notEqual(done, prod);
     assert.ok(done.weld.pieces > 0);
@@ -191,12 +225,24 @@ describe("artifacts", () => {
     assert.ok(boards.length);
     const items = prod.sheet.boards.flatMap((b) => b.items);
     const coupons = items.filter((it) => it.part.kind === "coupon");
-    assert.equal(coupons.length, 2);
+    assert.equal(coupons.length, 1);
     const all = items.flatMap((it) => it.part.paths).length;
     const paths = (svg) => (svg.match(/<path /g) ?? []).length;
     assert.equal(boards.reduce((n, f) => n + paths(f.bytes()), 0) + paths(strip.bytes()), all);
     // The strip sits exactly where it sits on the combined board.
     assert.ok(boardSvg({ items: coupons }, prod.board, { title: `${designStem(prod.state)}_cut_clips_3mm_fit-strip` }) === strip.bytes());
+  });
+
+  it("keeps the fit strip's slots and key together, on any layout", async () => {
+    for (const [state, board] of [[{ base: "globe", circumdiameterMm: 100 }, "a4"], [{ base: "rhombicenneaconta", circumdiameterMm: 100, ...closed }, "falcon-a1"]]) {
+      const prod = await runJob(state, { process: "cut", cut: { board } });
+      const strip = prod.sheet.boards.flatMap((b) => b.items).filter((it) => it.part.kind === "coupon");
+      assert.equal(strip.length, 1);
+      const [slots, ...rest] = strip[0].part.paths.filter((p) => p.layer === "cut" && p.closed);
+      const key = rest.at(-1).pts;
+      const inside = (q, poly) => pointInPoly(q, poly);
+      assert.equal(key.some((q) => inside(q, slots.pts)), false, "the key sits clear of the strip");
+    }
   });
 
   it("adds a score test strip where scoring is used, and only there", async () => {
@@ -233,6 +279,12 @@ describe("layers", () => {
       assert.doesNotMatch(text.replace(/^\s*(\*|\/\/).*$/gm, ""), /\b(document|window|localStorage|location)\./, file);
       assert.doesNotMatch(text, /from ".*(viewer|main|ui|controls|sheet-mockup|flat-view)\.js"/, file);
       assert.doesNotMatch(text, /from "three"/, file);
+    }
+  });
+
+  it("keeps adapters on the production API", () => {
+    for (const file of ["src/sheet-mockup.js", "src/flat-view.js", "src/main.js", "scripts/shapemaker.mjs", "scripts/lib/flags.mjs", "scripts/build-examples.mjs"]) {
+      assert.doesNotMatch(readFileSync(join(root, file), "utf8"), /from "[^"]*\/sheet\//, file);
     }
   });
 
@@ -313,6 +365,19 @@ describe("command line", () => {
     assert.equal(report.state.base, "cube");
   });
 
+  it("takes either border spelling, over a design or a fix", () => {
+    const over = cli("plan", "docs/examples/cut-icosidodecahedron-ties.shapemaker.json", "--border-mm=3", "--json");
+    assert.equal(over.status, 0, over.stderr);
+    assert.equal(JSON.parse(over.stdout).state.borderMm, 3);
+    const fixed = cli("plan", "--process=cut", "--base=cube", "--border=2", "--fix", "--json");
+    assert.equal(fixed.status, 0, fixed.stderr);
+    assert.equal(JSON.parse(fixed.stdout).state.borderFraction, 0.37);
+  });
+
+  it("reads the usual words for off", () => {
+    for (const off of ["false", "no", "off", "0"]) assert.equal(JSON.parse(cli("plan", "--process=cut", `--openings=${off}`, "--json").stdout).state.openings, false);
+  });
+
   it("exits 2 on usage errors and 1 when the design doesn't build", () => {
     assert.equal(cli().status, 2);
     assert.equal(cli("frobnicate").status, 2);
@@ -320,6 +385,8 @@ describe("command line", () => {
     assert.equal(cli("plan", "--process=cut", "--nonsense=1").status, 2);
     assert.equal(cli("plan", "--process=cut", "--join=staples").status, 2);
     assert.equal(cli("plan", "--process=cut", "--sheet-mm=99").status, 2);
+    assert.equal(cli("plan", "--process=cut", "--board=2500x1250").status, 2);
+    assert.equal(cli("plan", "--process=cut", "--constructor=1").status, 2);
     assert.equal(cli("plan", "no-such-file.json").status, 2);
     assert.equal(cli("plan", "--base=nothing").status, 1);
   });
