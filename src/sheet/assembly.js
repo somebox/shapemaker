@@ -16,7 +16,7 @@
 import { triangulate as earcut } from "../../vendor/earcut/earcut.js";
 import { fromFaceFrame } from "../faceframe.js";
 import { panelOpenings } from "./panels.js";
-import { chamferedPrism, chamferOf } from "./printclips.js";
+import { chamferedPrism, chamferOf } from "./prism.js";
 
 const v = {
   add: (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]],

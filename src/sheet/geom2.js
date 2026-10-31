@@ -199,3 +199,54 @@ export function filletCorners(poly, radii, stepDeg = 12) {
   // Two fillets that meet mid-edge share a tangent point: keep one.
   return out.filter((p, i) => len(sub(p, out[(i + 1) % out.length])) > 1e-6);
 }
+
+/** Regular n-gon standing in for a circle. */
+export function circle(cen, r, n) {
+  return Array.from({ length: n }, (_, i) => {
+    const g = (2 * Math.PI * i) / n;
+    return [cen[0] + r * Math.cos(g), cen[1] + r * Math.sin(g)];
+  });
+}
+
+export function pointInPoly(q, poly) {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [xi, yi] = poly[i], [xj, yj] = poly[j];
+    if ((yi > q[1]) !== (yj > q[1]) && q[0] < ((xj - xi) * (q[1] - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+
+/** Whether two simple polygons overlap: a vertex inside, or edges crossing. */
+export function polysOverlap(P, Q) {
+  if (P.some((q) => pointInPoly(q, Q)) || Q.some((q) => pointInPoly(q, P))) return true;
+  const o = (a, b, c) => (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+  for (let i = 0; i < P.length; i++) {
+    const a = P[i], b = P[(i + 1) % P.length];
+    for (let j = 0; j < Q.length; j++) {
+      const c = Q[j], d = Q[(j + 1) % Q.length];
+      if (o(a, b, c) * o(a, b, d) < 0 && o(c, d, a) * o(c, d, b) < 0) return true;
+    }
+  }
+  return false;
+}
+
+/** Is the polygon convex (either winding)? */
+export function isConvex(poly) {
+  let sign = 0;
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i], b = poly[(i + 1) % poly.length], c = poly[(i + 2) % poly.length];
+    const z = (b[0] - a[0]) * (c[1] - b[1]) - (b[1] - a[1]) * (c[0] - b[0]);
+    if (Math.abs(z) < 1e-9) continue;
+    if (sign && Math.sign(z) !== sign) return false;
+    sign = Math.sign(z);
+  }
+  return sign !== 0;
+}
+
+/** On/off dash segments from a to b. */
+export function dashes(a, b, on, off) {
+  const L = len(sub(b, a)), u = unit(sub(b, a)), out = [];
+  for (let s = 0; s < L; s += on + off) out.push([add(a, mul(u, s)), add(a, mul(u, Math.min(L, s + on)))]);
+  return out;
+}

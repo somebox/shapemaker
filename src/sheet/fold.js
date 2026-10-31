@@ -1,23 +1,10 @@
 /**
- * Fold mode: thin stock unfolded into nets.
+ * Fold mode: thin stock unfolded into nets (unfold.js).
  *
- * A net grows breadth-first from its largest panel, hinging each neighbour
- * about their shared edge, and refuses a neighbour that would overlap the
- * net or push it past the board; whatever is left starts the next net. Edges
- * inside a net are fold lines; edges between nets (or refused) stay open and
- * get glue flaps, seams or nothing (tape), plus matching numbers.
- *
- * Sewn edges are seams, as in clothing: both pieces get a seam allowance
- * past the edge, the edge itself is the stitch line, and the two allowances
- * are stitched face to face from the inside, where they stay as a fin. The
- * allowance ends are cut back at half the corner's angle, so allowances of
- * seams that meet at a corner don't pile up (and in a notch between two
- * petals of a net, they meet without overlapping when the shape allows).
- * Valley edges are always seams, so a star comes apart into one cone per
- * point. Where a notch or slit in a net is too narrow for two allowances (a nearly
- * flat corner, as on a geodesic; gores side by side, as on a globe), the
- * gap stays in the net as a dart: folded in half and stitched along both
- * edges, it is the allowance.
+ * Edges inside a net are fold lines; edges between nets (or refused) stay
+ * open and get glue flaps, seams (seams.js) or nothing (tape), plus matching
+ * numbers. Sewn, valley edges are always seams, so a star comes apart into
+ * one cone per point.
  *
  * Nets are built seen from inside (as Cut panels are), so marks on the
  * sheet's top face end up hidden. From that side a convex edge folds away
@@ -25,13 +12,11 @@
  * you (a mountain fold as cut).
  */
 
-import {
-  add, sub, mul, unit, leftNormal, convexOverlap, alignSegment, apply,
-  minAreaAngle, rotate, bbox, len,
-} from "./geom2.js";
+import { add, sub, mul, convexOverlap, apply, circle, pointInPoly, dashes } from "./geom2.js";
 import { insideView, panelOpenings } from "./panels.js";
 import { strokeText, textWidth } from "./font.js";
-import { pointInPoly } from "./cut.js";
+import { growNets, placedSide, fits } from "./unfold.js";
+import { seamFor, dartFor, SEAM_FULL, SEAM_REST } from "./seams.js";
 
 /**
  * @param {{ panels: object[], joints: object[] }} extracted
@@ -55,72 +40,12 @@ export function buildFold(extracted, opts) {
   const warnings = [];
 
   const views = panels.map((p) => insideView(p));
-  const sideIndex = (pid, origSide) => views[pid].sideOf(origSide);
-  const jointsOf = panels.map(() => []);
-  for (const j of joints) {
-    jointsOf[j.a].push({ j, other: j.b });
-    jointsOf[j.b].push({ j, other: j.a });
-  }
-
-  const placedTf = new Array(panels.length).fill(null);
-  const netOf = new Array(panels.length).fill(-1);
-  const nets = [];
-  const folded = new Set();
-  const order = panels.map((p) => p.id).sort((a, b) => polyArea(views[b].outline) - polyArea(views[a].outline));
-  // A chosen face centres the first net; otherwise the largest panel does.
-  const rootPanel = Number.isInteger(opts.rootFace) ? panels.findIndex((p) => p.faces.includes(opts.rootFace)) : -1;
-  if (rootPanel >= 0) order.unshift(...order.splice(order.indexOf(rootPanel), 1));
-
-  for (const root of order) {
-    if (netOf[root] >= 0) continue;
-    const net = { id: nets.length, members: [root], polys: [views[root].outline], pts: [...views[root].outline] };
-    nets.push(net);
-    netOf[root] = net.id;
-    placedTf[root] = { a: 0, t: [0, 0] };
-    // Grow compactly: of all faces that could hinge on next, take the one
-    // whose centre lands nearest the root's, so nets come out as flowers
-    // and strips rather than sprawling trees.
-    const centre = polyCentre(net.polys[0]);
-    const frontier = [];
-    const offer = (pid) => {
-      for (const { j, other } of jointsOf[pid]) {
-        if (netOf[other] >= 0) continue;
-        // Sewn: valleys are seams, so a star comes apart into one cone per
-        // point, the way it would be patterned in cloth.
-        if (opts.join === "sew" && j.reflex) continue;
-        // Hinge `other` onto pid's placed copy of the shared edge.
-        const sp = side(views[pid].outline, sideIndex(pid, pid === j.a ? j.ea : j.eb));
-        const so = side(views[other].outline, sideIndex(other, other === j.a ? j.ea : j.eb));
-        const tfP = placedTf[pid];
-        const tf = alignSegment(so[0], so[1], apply(tfP, sp[1]), apply(tfP, sp[0]));
-        const poly = views[other].outline.map((p) => apply(tf, p));
-        const c = polyCentre(poly);
-        frontier.push({ j, other, tf, poly, dist: Math.hypot(c[0] - centre[0], c[1] - centre[1]) });
-      }
-    };
-    offer(root);
-    while (frontier.length) {
-      frontier.sort((x, y) => x.dist - y.dist);
-      const cand = frontier.shift();
-      if (netOf[cand.other] >= 0) continue;
-      if (net.polys.some((q) => convexOverlap(cand.poly, q, 1e-3))) continue;
-      if (!fits([...net.pts, ...cand.poly], fitW - grow, fitH - grow)) continue;
-      net.members.push(cand.other);
-      net.polys.push(cand.poly);
-      net.pts.push(...cand.poly);
-      placedTf[cand.other] = cand.tf;
-      netOf[cand.other] = net.id;
-      folded.add(cand.j.id);
-      offer(cand.other);
-    }
-  }
-
-  // Placed side geometry for a panel's original side index.
-  const placedSide = (pid, origSide) => {
-    const [p0, p1] = side(views[pid].outline, sideIndex(pid, origSide));
-    const q0 = apply(placedTf[pid], p0), q1 = apply(placedTf[pid], p1), u = unit(sub(q1, q0));
-    return { p0: q0, p1: q1, u, m: leftNormal(u), L: len(sub(q1, q0)) };
-  };
+  // Sewn: valleys are seams, so a star comes apart into one cone per point,
+  // the way it would be patterned in cloth.
+  const { nets, netOf, placedTf, folded } = growNets(extracted, views, {
+    fitW, fitH, grow, rootFace: opts.rootFace, hingeValleys: opts.join !== "sew",
+  });
+  const sideOfPanel = (pid, origSide) => placedSide(views[pid], placedTf[pid], origSide);
 
   const netPaths = nets.map(() => []);
   // Flaps and seam allowances, which must clear the faces and each other.
@@ -142,73 +67,10 @@ export function buildFold(extracted, opts) {
   const labelDepth = new Map();
   const free = (net, poly) =>
     !nets[net].polys.some((q) => convexOverlap(poly, q, 1e-3)) && !flapPolys[net].some((q) => convexOverlap(poly, q, 1e-3));
-  // Interior angle of a panel's (inside-view) outline at corner k.
-  const cornerAngle = (pid, k) => {
-    const o = views[pid].outline, n = o.length, p = o[k];
-    const a = unit(sub(o[(k + 1) % n], p)), b = unit(sub(o[(k - 1 + n) % n], p));
-    return Math.acos(Math.max(-1, Math.min(1, a[0] * b[0] + a[1] * b[1])));
-  };
-
-  /**
-   * Seam allowances for an open edge, the same on both sides so the two
-   * layers match: full width with the ends at half the corner angle (at
-   * most 45°) first, then steeper ends and narrower strips where a
-   * neighbour is in the way. A's p0 is B's p1 (the edge's v1).
-   */
-  const seamFor = (j, A, B, tries) => {
-    const kA = sideIndex(j.a, j.ea), kB = sideIndex(j.b, j.eb), nA = views[j.a].outline.length, nB = views[j.b].outline.length;
-    const half = (x, y) => Math.min(Math.PI / 4, Math.min(x, y) / 2);
-    const atV1 = half(cornerAngle(j.a, kA), cornerAngle(j.b, (kB + 1) % nB));
-    const atV0 = half(cornerAngle(j.a, (kA + 1) % nA), cornerAngle(j.b, kB));
-    for (const [sc, ws] of tries) {
-      const cot1 = 1 / Math.tan(sc * atV1), cot0 = 1 / Math.tan(sc * atV0);
-      const w = Math.min(seamMm * ws, (0.9 * j.lengthMm) / (cot0 + cot1));
-      if (w < Math.min(2, 0.5 * seamMm)) continue;
-      const pa = trapezoid(A, w, cot1, cot0), pb = trapezoid(B, w, cot0, cot1);
-      const na = netOf[j.a], nb = netOf[j.b];
-      if (!free(na, pa) || !free(nb, pb) || (na === nb && convexOverlap(pa, pb, 1e-3))) continue;
-      if (!fits([...nets[na].pts, ...pa, ...(na === nb ? pb : [])], fitW, fitH) || !fits([...nets[nb].pts, ...pb], fitW, fitH)) continue;
-      const L = j.lengthMm;
-      return { w, profile: [[0, 0], [L, 0], [L - w * cot1, w], [w * cot0, w]], cotV0: cot0, cotV1: cot1, polys: [pa, pb], narrowed: w < seamMm - 1e-6 };
-    }
-    return null;
-  };
-  const SEAM_FULL = [[1, 1], [1, 0.7]];
-  const SEAM_REST = [[0.6, 1], [0.6, 0.7], [0.35, 1], [0.35, 0.7], [0.2, 0.7], [0.2, 0.5]];
-
-  /**
-   * A dart: the open edge's two sides face each other across a gap in the
-   * same net, either meeting at one corner (a wedge of at most 90°) or
-   * running side by side a slit apart (no wider than two allowances). The
-   * gap stays as material, folded in half and stitched along both edges.
-   * Its profile is one half of it, in the edge's coordinates from v0.
-   */
-  const dartFor = (j, A, B) => {
-    const net = netOf[j.a];
-    if (netOf[j.b] !== net) return null;
-    const gap1 = len(sub(A.p0, B.p1)), gap0 = len(sub(A.p1, B.p0));
-    const tip = Math.min(gap0, gap1) < 1e-4;
-    if (tip) {
-      const [V, FA, FB] = gap1 < gap0 ? [A.p0, A.p1, B.p0] : [A.p1, A.p0, B.p1];
-      const a = unit(sub(FA, V)), b = unit(sub(FB, V));
-      const ang = Math.acos(Math.max(-1, Math.min(1, a[0] * b[0] + a[1] * b[1])));
-      if (ang > Math.PI / 2 || ang < 1e-3) return null;
-    } else if (Math.max(gap0, gap1) > 2 * seamMm) {
-      return null;
-    }
-    const region = [A.p0, A.p1, B.p0, B.p1].filter((p, i, all) => len(sub(p, all[(i + 1) % 4])) > 1e-4);
-    if (!isConvex(region) || !free(net, region)) return null;
-    // In A's frame: along the edge from v0 (A runs v1 → v0), and outward.
-    const at = (p) => [dot2(sub(p, A.p1), mul(A.u, -1)), dot2(sub(p, A.p1), mul(A.m, -1))];
-    const mid = (p, q) => mul(add(p, q), 0.5);
-    const L = j.lengthMm;
-    const profile = [[0, 0], [L, 0], at(mid(A.p0, B.p1)), at(mid(A.p1, B.p0))].filter((p, i, all) => Math.hypot(p[0] - all[(i + 1) % all.length][0], p[1] - all[(i + 1) % all.length][1]) > 1e-4);
-    const far = [gap1 > 1e-4 && [A.p0, B.p1], gap0 > 1e-4 && [A.p1, B.p0]].filter(Boolean);
-    return { region, far, profile };
-  };
+  const seams = { views, nets, netOf, seamMm, fitW, fitH, free };
 
   for (const j of joints) {
-    const A = placedSide(j.a, j.ea), B = placedSide(j.b, j.eb);
+    const A = sideOfPanel(j.a, j.ea), B = sideOfPanel(j.b, j.eb);
     // Felt: where a net closes round a nearly flat corner, the edge's two
     // sides lie within a millimetre or so; the felt takes that up, so the
     // edge stays whole as a fold.
@@ -239,9 +101,9 @@ export function buildFold(extracted, opts) {
     }
     let seam = null, dart = null;
     if (opts.join === "sew") {
-      seam = seamFor(j, A, B, SEAM_FULL);
-      if (!seam) dart = dartFor(j, A, B);
-      if (!seam && !dart) seam = seamFor(j, A, B, SEAM_REST);
+      seam = seamFor(seams, j, A, B, SEAM_FULL);
+      if (!seam) dart = dartFor(seams, j, A, B);
+      if (!seam && !dart) seam = seamFor(seams, j, A, B, SEAM_REST);
       if (!seam && !dart) seamFallbacks++;
       if (seam?.narrowed) seamsNarrowed++;
     }
@@ -266,7 +128,7 @@ export function buildFold(extracted, opts) {
           // Holes on the stitch line, through both layers; symmetric about
           // the edge's midpoint, so the two sides line up.
           const n = Math.max(1, Math.floor((s.L - 4) / pitch) + 1), start = (s.L - (n - 1) * pitch) / 2;
-          for (let i = 0; i < n; i++) netPaths[net].push({ layer: "cut", closed: true, pts: circle(add(s.p0, mul(s.u, start + i * pitch)), sewD / 2) });
+          for (let i = 0; i < n; i++) netPaths[net].push({ layer: "cut", closed: true, pts: circle(add(s.p0, mul(s.u, start + i * pitch)), sewD / 2, 16) });
         } else {
           for (const seg of dashes(s.p0, s.p1, 2, 1.5)) netPaths[net].push({ layer: "mark", closed: false, pts: seg });
         }
@@ -294,7 +156,7 @@ export function buildFold(extracted, opts) {
         const start = (s.L - (n - 1) * pitch) / 2;
         for (let i = 0; i < n; i++) {
           const cen = add(add(s.p0, mul(s.u, start + i * pitch)), mul(s.m, sewDepth));
-          netPaths[net].push({ layer: "cut", closed: true, pts: circle(cen, sewD / 2) });
+          netPaths[net].push({ layer: "cut", closed: true, pts: circle(cen, sewD / 2, 16) });
         }
         depth = sewDepth + sewD;
       }
@@ -376,32 +238,6 @@ export function foldTestStrip() {
   return { name: "fold test", kind: "coupon", paths };
 }
 
-function polyCentre(poly) {
-  const c = [0, 0];
-  for (const p of poly) { c[0] += p[0] / poly.length; c[1] += p[1] / poly.length; }
-  return c;
-}
-
-const side = (outline, k) => [outline[k], outline[(k + 1) % outline.length]];
-
-function polyArea(poly) {
-  let a = 0;
-  for (let i = 0; i < poly.length; i++) {
-    const p = poly[i], q = poly[(i + 1) % poly.length];
-    a += p[0] * q[1] - q[0] * p[1];
-  }
-  return a / 2;
-}
-
-/** Does the point set fit a w × h board in its best orientation? */
-function fits(pts, w, h) {
-  const a = minAreaAngle(pts);
-  const b = bbox(pts.map((p) => rotate(p, a)));
-  const x = b.maxX - b.minX, y = b.maxY - b.minY;
-  const [lo, hi] = x < y ? [x, y] : [y, x];
-  return hi <= Math.max(w, h) + 1e-6 && lo <= Math.min(w, h) + 1e-6;
-}
-
 /** Glue flap outside side s: a trapezoid whose ends lean at endDeg. Returns [p0, p1, top1, top0]. */
 function flapPoly(s, flapMm, endDeg = 45) {
   const h = Math.min(flapMm, 0.35 * s.L), o = mul(s.m, -h);
@@ -409,42 +245,8 @@ function flapPoly(s, flapMm, endDeg = 45) {
   return [s.p0, s.p1, add(add(s.p1, mul(s.u, -e)), o), add(add(s.p0, mul(s.u, e)), o)];
 }
 
-/** Seam allowance outside side s, w wide, ends leaning in by cot0 at p0 and cot1 at p1. Returns [p0, p1, top1, top0]. */
-function trapezoid(s, w, cot0, cot1) {
-  const o = mul(s.m, -w);
-  return [s.p0, s.p1, add(add(s.p1, mul(s.u, -w * cot1)), o), add(add(s.p0, mul(s.u, w * cot0)), o)];
-}
-
-const dot2 = (a, b) => a[0] * b[0] + a[1] * b[1];
-
-/** Is the polygon convex (either winding)? */
-function isConvex(poly) {
-  let sign = 0;
-  for (let i = 0; i < poly.length; i++) {
-    const a = poly[i], b = poly[(i + 1) % poly.length], c = poly[(i + 2) % poly.length];
-    const z = (b[0] - a[0]) * (c[1] - b[1]) - (b[1] - a[1]) * (c[0] - b[0]);
-    if (Math.abs(z) < 1e-9) continue;
-    if (sign && Math.sign(z) !== sign) return false;
-    sign = Math.sign(z);
-  }
-  return sign !== 0;
-}
-
 /** The same side run the other way: its inward normal points outside the panel. */
 const flipSide = (s) => ({ p0: s.p1, p1: s.p0, u: mul(s.u, -1), m: mul(s.m, -1), L: s.L });
-
-function dashes(a, b, on, off) {
-  const L = len(sub(b, a)), u = unit(sub(b, a)), out = [];
-  for (let s = 0; s < L; s += on + off) out.push([add(a, mul(u, s)), add(a, mul(u, Math.min(L, s + on)))]);
-  return out;
-}
-
-function circle(cen, r, n = 16) {
-  return Array.from({ length: n }, (_, i) => {
-    const g = (2 * Math.PI * i) / n;
-    return [cen[0] + r * Math.cos(g), cen[1] + r * Math.sin(g)];
-  });
-}
 
 /**
  * Number strokes beside side s, or null. On a seam allowance (seam given),

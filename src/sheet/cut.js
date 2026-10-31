@@ -22,7 +22,7 @@
 
 import {
   add, sub, mul, dot, unit, leftNormal, offsetEdges, offsetPolygon, area,
-  edgeRect, centroid, len, filletCorners,
+  edgeRect, centroid, len, filletCorners, circle, pointInPoly, polysOverlap,
 } from "./geom2.js";
 import { insideView, panelOpenings } from "./panels.js";
 import { strokeText, textWidth } from "./font.js";
@@ -353,7 +353,7 @@ function sideFeatures(s, { t, c, w, web, reach, tw, tieD }) {
   } else if (p.kind === "ties") {
     const h = p.trim + web + tieD / 2;
     for (const a of p.at) {
-      out.holes.push(circle(add(add(p0, mul(s.u, a)), mul(s.m, h)), tieD / 2));
+      out.holes.push(circle(add(add(p0, mul(s.u, a)), mul(s.m, h)), tieD / 2, 24));
       out.footprints.push([a - tieD, a + tieD, h + tieD]);
       out.busy.push([a - tieD, a + tieD]);
     }
@@ -388,13 +388,6 @@ function spliceTabs(outline, sides, d, tabs) {
   return res;
 }
 
-function circle(cen, r, n = 24) {
-  return Array.from({ length: n }, (_, i) => {
-    const g = (2 * Math.PI * i) / n;
-    return [cen[0] + r * Math.cos(g), cen[1] + r * Math.sin(g)];
-  });
-}
-
 /**
  * Engrave the joint number beside a side, away from its slots and clear of
  * openings; tries a few heights and positions, null when nothing fits.
@@ -425,29 +418,6 @@ function panelIdLabel(text, outline, sides) {
   const h = Math.min(6, 0.5 * room);
   if (h < 3 || Math.hypot(textWidth(text, h) / 2, h / 2) > room) return null;
   return strokeText(text, h, c, [1, 0], [0, 1]);
-}
-
-/** Whether two simple polygons overlap: a vertex inside, or edges crossing. */
-function polysOverlap(P, Q) {
-  if (P.some((q) => pointInPoly(q, Q)) || Q.some((q) => pointInPoly(q, P))) return true;
-  const o = (a, b, c) => (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
-  for (let i = 0; i < P.length; i++) {
-    const a = P[i], b = P[(i + 1) % P.length];
-    for (let j = 0; j < Q.length; j++) {
-      const c = Q[j], d = Q[(j + 1) % Q.length];
-      if (o(a, b, c) * o(a, b, d) < 0 && o(c, d, a) * o(c, d, b) < 0) return true;
-    }
-  }
-  return false;
-}
-
-export function pointInPoly(q, poly) {
-  let inside = false;
-  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-    const [xi, yi] = poly[i], [xj, yj] = poly[j];
-    if ((yi > q[1]) !== (yj > q[1]) && q[0] < ((xj - xi) * (q[1] - yi)) / (yj - yi) + xi) inside = !inside;
-  }
-  return inside;
 }
 
 /**
@@ -496,7 +466,7 @@ export function fitCoupon({ sheetMm: t, kerfMm = 0, tieHoleMm = 4, slotMm = t })
     const lab = dlt === 0 ? "0" : `${dlt > 0 ? "+" : "-"}${Math.round(Math.abs(dlt) * 10)}`;
     for (const pts of strokeText(lab, 3.5, [x, 4 + w + 6], [1, 0], [0, 1])) paths.push({ layer: "mark", closed: false, pts });
   });
-  paths.push({ layer: "cut", closed: true, pts: offsetPolygon(circle([W - pitch / 2, H / 2], tieHoleMm / 2), -kerfMm / 2) });
+  paths.push({ layer: "cut", closed: true, pts: offsetPolygon(circle([W - pitch / 2, H / 2], tieHoleMm / 2, 24), -kerfMm / 2) });
   const coupon = { name: "fit coupon", kind: "coupon", paths };
   const key = {
     name: "fit key",

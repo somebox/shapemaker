@@ -5,8 +5,7 @@ import { DEFAULT_STATE } from "../src/schema.js";
 import { OPENING_GENERATORS } from "../src/solid/shell.js";
 import { extractPanels } from "../src/sheet/panels.js";
 import { buildSheet, boardSvg, BOARD_PROFILES } from "../src/sheet/index.js";
-import { area, apply, convexHull, convexOverlap } from "../src/sheet/geom2.js";
-import { pointInPoly } from "../src/sheet/cut.js";
+import { area, apply, convexHull, convexOverlap, pointInPoly } from "../src/sheet/geom2.js";
 import { plateMesh, weldPlates, PRINT_BEDS } from "../src/sheet/printclips.js";
 import { loadCsg, weldTouching } from "../src/solid/csg.js";
 
