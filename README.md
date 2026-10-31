@@ -82,6 +82,7 @@ MIT — see [`LICENSE`](LICENSE).
 | [`DEV.md`](DEV.md) | Developing, testing, CI, and project layout |
 | [`docs/SPEC.md`](docs/SPEC.md) | Product behavior and architecture |
 | [`docs/PROJECT_FORMAT.md`](docs/PROJECT_FORMAT.md) | `.shapemaker.json` files |
+| [`docs/PRODUCTION.md`](docs/PRODUCTION.md) | Laser-cut, folded and sewn output: design and plans |
 | [`docs/ROADMAP.md`](docs/ROADMAP.md) | Future ideas and backlog |
 | [`docs/CHANGELOG.md`](docs/CHANGELOG.md) | Released versions |
 

@@ -9,7 +9,7 @@ import { filletRMax, insetScale, collapseMicroEdges } from "./geom/poly2.js";
 import { DEFAULT_STATE, SPIKE_T_MAX } from "./schema.js";
 import { cornerOffsets, offsetWallLimit } from "./solid/offset.js";
 
-/** Practical FDM floor (≈ 6 lines at 0.4 mm nozzle); see docs/BORDER_EVIDENCE.md. */
+/** Practical FDM floor (≈ 6 lines at 0.4 mm nozzle). */
 export const PRINTABLE_BORDER_MM = 2.5;
 
 /**

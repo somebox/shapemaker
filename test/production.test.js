@@ -126,6 +126,11 @@ describe("produce", () => {
     assert.match(produce(compileShape(dodeca), { process: "print" }).error, /shell/);
   });
 
+  it("says so when a border in mm can't apply to sheet openings", () => {
+    const prod = produce(compileShape({ base: "dodecahedron", circumdiameterMm: 200, borderMm: 12 }), { process: "fold" });
+    assert.match(prod.warnings[0], /millimetres/);
+  });
+
   it("marks sewn stock instead of scoring it", () => {
     const prod = produce(compileShape(dodeca), { process: "fold", fold: { join: "sew", foldStyle: "score" } });
     const layers = new Set(prod.sheet.parts.flatMap((p) => p.paths.map((x) => x.layer)));

@@ -50,7 +50,13 @@ locally in the browser.
 - `formatVersion` is a required positive integer.
 - `state` is required and uses the canonical keys from the application schema.
   It is the only section that affects compiled geometry.
-- `name`, `createdWith`, `view`, `metadata`, and `extensions` are optional.
+- `name`, `createdWith`, `production`, `view`, `metadata`, and `extensions` are
+  optional.
+- `production` is how the design gets made: a job as described in
+  [`PRODUCTION.md`](PRODUCTION.md), holding `process` and whatever differs from
+  the defaults. It never changes the shape. Unknown or invalid settings fall
+  back to their defaults, and a session that doesn't use the block keeps it
+  when saving.
 - Numeric geometry values use millimetres unless their key states otherwise.
 - All saved numbers must be finite JSON numbers.
 - `extensions` is an object. Third-party data belongs under namespaced keys,

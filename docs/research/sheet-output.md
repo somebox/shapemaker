@@ -1,13 +1,16 @@
-# Laser mode — research notes
+# Sheet output — research notes
 
-Status: research and a headless prototype, 2026-10-25. Nothing here is
-specified or scheduled; it feeds the "More specialized 2D outputs" item in
-[ROADMAP.md](ROADMAP.md). Pictures of every joint are in §9. Two interactive
-pages sit beside this file; open them in a browser:
-[laser/connectors.html](laser/connectors.html) (the joint options by angle and
-thickness) and [laser/build-modes.html](laser/build-modes.html) (the panel
-rows in each mode). A clickable mockup runs in the app itself: open it with
-`?sheet` in the URL (§8.5).
+Research record, 2026-10-25 to 2026-10-30: how Shapemaker's flat-faced shapes
+can be built from cut sheet and folded or sewn stock, what the prior art does,
+and what a working prototype established. It is not a specification. What
+ships is [SPEC.md](../SPEC.md); the design and the decisions for the first
+release are in [PRODUCTION.md](../PRODUCTION.md). Where this file differs from
+either, they win. Nothing here has been cut, folded or sewn for real yet.
+
+Pictures of every joint are in §9. [connectors.html](connectors.html) sits
+beside this file: the joint options by angle and thickness, interactive; open
+it in a browser. Designs that build these results are in
+[examples/](../examples/).
 
 The idea: instead of a printable shell, the user picks a sheet **thickness**
 and a **board size**. Shapemaker restricts the design to geometry that is
@@ -23,7 +26,7 @@ passes through a skeleton of flat polygons.
 
 | Piece | Where | Use in laser mode |
 |---|---|---|
-| Skeleton: `positions`, planar `faces`, `edges` in mm | `src/types.js`, `src/pipeline.js` | One panel per face. Hull, jitter (plane perturbation), dual, truncate and spike all keep faces planar. |
+| Skeleton: `positions`, planar `faces`, `edges` in mm | `src/skeleton.js`, `src/pipeline.js` | One panel per face. Hull, jitter (plane perturbation), dual, truncate and spike all keep faces planar. |
 | Face-local 2D frame | `src/faceframe.js` (`toFaceFrame`, `projectToFrame`) | Already the "into the face plane" step a panel export needs. |
 | Opening generators in 2D | `OPENING_GENERATORS` in `src/solid/shell.js` (polygon inset + fillet, ellipse) | Panel cutouts come straight from these. |
 | Even inner wall | `wallMode: "even"`, `cornerOffsets` in `src/solid/shell.js` | Moves every face plane in by the wall. Projected back onto its face, the inner face *is* the square-cut panel outline (see §3). |
@@ -361,168 +364,37 @@ coupon per sheet of plywood.
 - The shared parameters are t, kerf, tab width w, tab bump size, hole
   distance h from the edge or corner, and the minimum web.
 
-## 8. Plan: Cut and Fold modes (2026-10-25)
+## 8. What the prototype established
 
-The user's direction: the most interesting joints for solid sheet are
-**edge clips, zip ties and tabs**. Thin stock (paper, card, felt) folds
-instead. There, fold lines are a layer of their own next to the cut lines,
-and the edges that stay open get tape or stitching. The interface has to
-add this without making the panel harder to take in.
+The prototype builds every joint below from the real skeleton, and the
+rules here are what building and testing it taught. The user's direction
+set the joints: the most interesting ones for solid sheet are **edge clips,
+zip ties and finger joints**; thin stock folds instead, with fold lines on
+a layer of their own next to the cut lines and tape, flaps or seams on the
+edges that stay open.
 
-### 8.1 Interface: one switch, the rest adapts
+### 8.1 Rules from building it
 
-- **One new control: Build = Print · Cut · Fold**, the first row of Form.
-  Start and Shape don't change, so every shape works in every mode.
-  Switching modes keeps each mode's own settings.
-- **Cut mode (rigid sheet):**
-  - Sheet thickness takes Wall's place.
-  - Join: Clips · Ties · Fingers (first planned as Tabs; see §8.7). One
-    choice per design; edges a join can't serve (fingers away from 90°, ties
-    on sharp edges) fall back to clips and are counted in the status line.
-  - Openings stay. Kerf and fit go under Advanced.
-  - Make holds the Board (presets plus custom) and edge labels.
-  - Hidden: Shell, Wall, Rounding, Sides, Inner wall, Break out, Quality
-    and Mass.
-- **Fold mode (thin stock):**
-  - Join: Tape · Flaps · Sew (seams with an allowance, §8.8).
-  - Fold lines: Score · Perforate · Mark.
-  - Openings stay. Make holds the Board.
-  - Clicking a face picks the centre of the net, which reuses today's
-    resting-face click.
-- **Viewport:**
-  - A **Flat** toggle joins Section. It switches between the 3D model and
-    the boards or nets laid out. Clicking a panel highlights it on the model.
-  - Print risk and Split hide outside Print.
-- **Bottom bar:** in Cut and Fold, Export STL becomes **Export cut file**
-  (layered SVG). Export SVG (the line drawing) stays. (Since replaced by
-  one Export button and a dialog, §8.7.)
-- **Status line:** parts, boards and the smallest web or panel. Warnings
-  use the same "fix" pattern the print warnings use.
-- **Project file:** new keys (`build`, `sheetMm`, `join`, `foldStyle`,
-  `board`, `kerfMm`) with defaults, so old links and files open unchanged.
+- Unfolding is the one algorithm with real risk: a spanning tree over the
+  faces can overlap itself, so a refused face starts another net. High face
+  counts need several nets, and a globe unfolds into spidery nets; gores
+  (meridian strips) would suit it better.
+- Clips need a wider Border than printing does: an icosidodecahedron goes
+  from 36% to 59% at 3 mm.
+- Edges shorter than 2·clip width + 2·t (18 mm at 3 mm) have no room for a
+  joint clear of the corners, so they are glued.
+- When no Border clears the joints, the honest advice is to close the faces
+  or scale up, not a Border over 90%.
+- Fold flaps must be checked against each other, not only the faces, when
+  fitting the board.
+- Fold labels go down to 2 mm, so they fit beside openings. Labels skip
+  faces too small for them.
+- The cut file is one SVG per board, in millimetres, one colour per
+  operation: red cut, blue valley fold, light blue mountain fold, black
+  engrave. Laser software picks layers by colour; the user's own
+  icosidodecahedron net already used blue for folds.
 
-### 8.2 The cut file
-
-- It is one SVG in millimetres, with one colour per operation:
-  - cut: red
-  - score or fold: blue, dashed for mountain folds and dot-dash for valley
-  - engrave or labels: grey
-- The user's own icosidodecahedron net already uses blue for folds. The
-  Pentakis kit uses separate colours for cut and score.
-- Each board is its own group, plus a fit-test coupon (Cut mode).
-
-### 8.3 Shared engine, two strategies
-
-`src/sheet/` (new) takes the skeleton and the Build settings. It returns
-panels as 2D outlines with holes, an edge table (which panels, angle, join)
-and the boards. The work divides like this:
-
-| Step | Cut | Fold |
-|---|---|---|
-| Panels | one per face (coplanar faces merged), inner-surface convention, reflex edges inset | faces grouped into nets by unfolding |
-| Edges inside a net | — | fold lines (mountain or valley from the angle sign) |
-| Edges between parts | clips, tie holes or finger joints | tape, glue flaps or seams |
-| Openings | the existing 2D generators | same |
-| Checks | web ≥ t, hole ≥ 1.5·t, panel fits the board | flap fits, nets don't overlap, net fits the board |
-| Layout | shelf packing of min-area rectangles | one net per board where possible, otherwise split |
-
-Unfolding is the only new algorithm with real risk. A spanning tree over
-the faces can overlap itself; when it does, split it into more nets. High
-face counts (globes) will need several nets.
-
-### 8.4 Phases
-
-0. **Headless prototype and test cuts (no UI).** A node script writes cut
-   files for:
-   - an icosidodecahedron in 3 mm ply with clips and tie holes, plus a fit
-     coupon;
-   - an icosahedron net on card with score lines and glue flaps.
-
-   The user cuts them; the gate is whether the parts fit and close.
-
-   **Status (2026-10-25):** built as `src/sheet/` (panels, cut, fold,
-   layout, svg, font) and `scripts/sheet-samples.mjs`, which writes 16
-   designs as Falcon A1 boards with a fit coupon (test/sheet.test.js covers
-   the invariants). Not wired into the UI. Not yet test-cut. Things the
-   samples already show:
-   - Clips need a wider Border than printing does: icosidodecahedron 36% →
-     59% at 3 mm. The script raises it and says so.
-   - The globe unfolds into spidery nets. Gores (meridian strips) would suit
-     it better.
-   - Labels skip faces that are too small.
-1. **Cut mode:**
-   - the Build switch;
-   - Sheet and Join (Clips, Ties) controls;
-   - Board and labels;
-   - the Flat view, cut-file export and status warnings.
-2. **Fold mode:** nets, the fold-line layer, tape, flaps and sewing holes,
-   and the net-centre click.
-3. **Fingers** (planned as tab and slot): near-90° edges only, falling back
-   to clips elsewhere.
-4. **Later:** vertex hubs, DXF, SVGnest nesting and kerf calibration.
-
-The board's "Define specialized 2D output workflow" story
-(card_0d8fe8fb) is largely answered by this file.
-
-### 8.5 Clickable mockup in the app (2026-10-28)
-
-Adding `?sheet` to the app's URL (`http://localhost:8000/?sheet`) mounts
-`src/sheet/mockup.js` over the real panel. Without the flag the app is
-unchanged. It is a mockup of the interface in §8.1, built on the real
-engine:
-
-- **Build** (Print · Cut · Fold) is the first row of Form. Each mode keeps its
-  own settings (stored in the browser, not in the design or the URL).
-- **Cut:** Sheet and Join (Clips · Ties · Fingers) replace Shell, Wall and
-  Rounding. Advanced holds Kerf and Fit; Sides and the print Advanced rows
-  hide. Make shows Board (the profiles plus Custom) and Labels in place of
-  Quality, Material and Mass.
-- **Fold:** Join (Tape · Flaps · Sew) and Fold lines (Score · Perforate ·
-  Mark). Clicking a face centres the first net on it.
-- **Viewer:** the parts put together (plates, clips, ties, fingers; paper,
-  flaps, tape, stitches) stand in for the printed shell, rebuilt on every
-  edit. Print risk, Split and Section hide.
-- **Flat** joins the viewport toggles. It shows the boards with the cut-file
-  colours on a plywood or paper ground, one tab per board. Hovering a part
-  names it; clicking a panel, clip or net goes back to 3D and lights it up.
-- **Bottom bar:** one Export button opens a dialog with every file the mode
-  makes (§8.7), and the status line reports parts, joins and boards. Its
-  first warning uses the app's fix pattern (a Border that opens the faces
-  the joints closed).
-
-Leaving Print switches Print risk, Section and Split off (Split locks the
-panel), and coming back turns Print risk and Section on again. Exports are
-named like the STL (`icosidodeca_100mm_cut_clips_3mm.svg`, with `_board2`
-and so on when there are several).
-
-Interactive testing (2026-10-28) also changed the engine:
-
-- Cut edges shorter than 2·clip width + 2·t (18 mm at 3 mm) are glued rather
-  than given a clip, tie or tab, and the status line counts them.
-- When no Border clears the joints, the warning says to close the faces
-  instead of asking for a Border over 90%.
-- Fold flaps are checked against each other when fitting the board.
-- Fold labels go down to 2 mm, so they fit beside openings.
-
-What it doesn't do yet:
-
-- Section can't cut through the plates, so it's off in Cut and Fold.
-- Fold's net-centre click also turns the model onto that face, because it
-  reuses the resting-face pick.
-- Nothing is saved with the design or the link.
-- Every edit rebuilds the sheet: about 0.3 s for most shapes, 1.4 s for the
-  globe.
-- At phone width the app's panel covers the viewport. That happens without
-  `?sheet` too.
-
-| | |
-|---|---|
-| ![Cut mode, 3D](laser/images/mockup-cut-3d.jpg) | ![Cut mode, Flat](laser/images/mockup-cut-flat.jpg) |
-| Cut, Clips: the plates and clips in the viewer, the Build switch in Form, a fix on the status line. | Flat: the Falcon A1 board with panels, clips and the fit strip. |
-| ![Fold mode, Flat](laser/images/mockup-fold-flat.jpg) | ![Cube with finger joints](laser/images/mockup-cube-fingers.png) |
-| Fold, Flaps: the A4 net with valley folds and glue flaps. | Cut, Fingers on a cube with openings. |
-
-### 8.6 Clip finish and printed clips (2026-10-29)
+### 8.2 Clip finish and printed clips
 
 With open faces, the clips show through the openings: the arms lie along
 each panel's inside face, and their square ends and sharp heel catch the
@@ -540,14 +412,14 @@ eye.
   shape gets its own plates and STL: `…_clipsA.stl`, `…_clipsB.stl`, and
   `…_clipsA2.stl` when one shape needs a second plate. The print bed
   (Prusa Core One by default) is under Advanced. In Flat, each plate is a
-  tab after the boards. §8.7 makes their width free. The plates are checked as closed solids, one body
-  per clip.
+  tab after the boards. Their width is free (§8.3). The plates are checked as closed solids, one
+  body per clip.
 - Fit still comes from the slots (Advanced → Fit). Print one clip of each
   shape and try it in the coupon's slots before printing the plates.
 
-![Laser clip with rounded ends (left) and printed clip with chamfers (right), seated and pulled apart](laser/images/clip-cut-vs-printed.png)
+![Laser clip with rounded ends (left) and printed clip with chamfers (right), seated and pulled apart](images/clip-cut-vs-printed.png)
 
-### 8.7 Joints, openings and export (2026-10-29, second round)
+### 8.3 Joints and openings
 
 Feedback: clips still showed through some openings and not others; clips
 and tabs looked alike, and tabs distorted complex shapes; there was no
@@ -594,23 +466,15 @@ cut and print files together.
   valley clips weld into a ring, and a cube's or dodecahedron's corner
   clips don't meet, which the status line says. Every tab of a welded piece
   still points along its own panel's normal, so a panel drops straight on.
-- **Export dialog.** Share and one Export button replace Export STL, Export
-  SVG and Export cut file, in every mode. The dialog lists each file with a
-  thumbnail and what's in it, grouped as Laser cut and 3D print (Print mode:
-  the STL and the line drawing, through the app's own exports), with
-  Download per file and Download all, and a reminder to cut the fit strip
-  first.
 
 | | |
 |---|---|
-| ![Corner clips: laser (left) and printed, 5 mm wide (right)](laser/images/clips-at-corners.png) | ![Welded corner pieces](laser/images/weld-corner-pieces.png) |
+| ![Corner clips: laser (left) and printed, 5 mm wide (right)](images/clips-at-corners.png) | ![Welded corner pieces](images/weld-corner-pieces.png) |
 | Place: Corners. Laser clips keep their arms apart; printed ones meet. | Welded: a ring of eight valley clips (spiked octahedron) and a pair (icosidodecahedron), in their print poses. |
-| ![Cube with finger joints](laser/images/cube-fingers-assembled.png) | ![Finger joint pulled apart](laser/images/finger-joint-pulled-apart.png) |
+| ![Cube with finger joints](images/cube-fingers-assembled.png) | ![Finger joint pulled apart](images/finger-joint-pulled-apart.png) |
 | Finger joints on a cube: flush faces, a small notch at each corner. | One panel drawn back to show the fingers. |
 
-![The Export dialog in Cut mode: three laser boards and two plates of welded corner pieces](laser/images/mockup-export.jpg)
-
-### 8.8 Seams for sewn felt (2026-10-30)
+### 8.4 Seams for sewn felt
 
 The user's direction: a model that is cut and sewn should have seams that
 fold in and are sewn from behind, as in clothing. Sew used to punch whip-stitch
@@ -666,63 +530,54 @@ Measured on Falcon A1 nets at 160 mm:
 
 | | |
 |---|---|
-| ![A seam from inside](laser/images/seam-inside.png) | ![A dart from inside](laser/images/dart-inside.png) |
+| ![A seam from inside](images/seam-inside.png) | ![A dart from inside](images/dart-inside.png) |
 | A seam: both allowances stand inward together, stitched along the edge. | A dart on the dodecahedron: the 36° notch, folded in half. |
 
-![Dodecahedron net in felt, with seam allowances and darts](laser/images/board-felt-dodecahedron-seams.svg)
+![Dodecahedron net in felt, with seam allowances and darts](images/board-felt-dodecahedron-seams.svg)
 
 ## 9. Pictures
 
-These are rendered by `scripts/sheet-samples.mjs` (with `scripts/lib/render3d.mjs`)
-from the same cut outlines that go to the laser: panels are the real cut
+These are rendered by `scripts/lib/sheet-pictures.mjs` from the same cut
+outlines that go to the laser: panels are the real cut
 parts extruded by the sheet thickness, and clips, ties, flaps, tape and
 seams sit where the cut file puts their slots, holes and allowances. The cutaways drop
-the near half of the model to show the joints inside. Running the script
-writes the full set, with every board, to `test/out/sheet/index.html`.
+the near half of the model to show the joints inside. `node scripts/build-examples.mjs`
+writes pictures and boards for every example to `test/out/examples/index.html`.
 
 ### Cut mode (rigid sheet)
 
 | | |
 |---|---|
-| ![Dodecahedron in 3 mm sheet, assembled](laser/images/ply-dodecahedron-assembled.png) | ![Cutaway: one clip per edge, inside](laser/images/ply-dodecahedron-cutaway-clips.png) |
+| ![Dodecahedron in 3 mm sheet, assembled](images/ply-dodecahedron-assembled.png) | ![Cutaway: one clip per edge, inside](images/ply-dodecahedron-cutaway-clips.png) |
 | Dodecahedron, assembled. The clip tabs show flush on the outside. | Cutaway: every edge has one clip on the inside, numbered panels. |
-| ![Clip at 116.6°, inside](laser/images/clip-116-inside.png) | ![Clip at 116.6°, pulled apart](laser/images/clip-116-pulled-apart.png) |
+| ![Clip at 116.6°, inside](images/clip-116-inside.png) | ![Clip at 116.6°, pulled apart](images/clip-116-pulled-apart.png) |
 | The clip lies in the plane square to the edge, so its outline holds the 116.6° angle exactly. | Pulled out of its slots: one tab per panel. |
-| ![Star cutaway](laser/images/star-cutaway-clips.png) | ![Valley clip, 250.5°](laser/images/clip-valley-250-pulled-apart.png) |
+| ![Star cutaway](images/star-cutaway-clips.png) | ![Valley clip, 250.5°](images/clip-valley-250-pulled-apart.png) |
 | Stella octangula: tip edges and valley edges each get their own clip class. | A valley clip (250.5°) sits in the valley between two points. |
-| ![Tip clip, 70.5°](laser/images/clip-tip-70-pulled-apart.png) | ![Cube with finger joints](laser/images/cube-fingers-assembled.png) |
-| A tip clip (70.5°) at a sharp edge. | Cube with finger joints: near 90° only (§8.7). |
-| ![Finger joint pulled apart](laser/images/finger-joint-pulled-apart.png) | ![Icosidodecahedron with zip ties](laser/images/icosidodeca-cutaway-ties.png) |
+| ![Tip clip, 70.5°](images/clip-tip-70-pulled-apart.png) | ![Cube with finger joints](images/cube-fingers-assembled.png) |
+| A tip clip (70.5°) at a sharp edge. | Cube with finger joints: near 90° only (§8.3). |
+| ![Finger joint pulled apart](images/finger-joint-pulled-apart.png) | ![Icosidodecahedron with zip ties](images/icosidodeca-cutaway-ties.png) |
 | One panel drawn back: the two edges' fingers. | Icosidodecahedron held by zip ties, with openings. |
-| ![Zip tie close-up](laser/images/zip-tie-inside.png) | |
+| ![Zip tie close-up](images/zip-tie-inside.png) | |
 | A tie through a hole in each panel, looped over the edge. | |
 
 ### Fold mode (paper, card, felt)
 
 | | |
 |---|---|
-| ![Paper dodecahedron cutaway](laser/images/paper-dodecahedron-cutaway-flaps.png) | ![Glue flap](laser/images/glue-flap-inside.png) |
+| ![Paper dodecahedron cutaway](images/paper-dodecahedron-cutaway-flaps.png) | ![Glue flap](images/glue-flap-inside.png) |
 | Paper dodecahedron: one net, glue flaps folded under the neighbours. | A flap hangs off one face and is glued under the next. |
-| ![Tape](laser/images/tape-inside.png) | ![Seam](laser/images/seam-inside.png) |
-| Tape across the inside of an open edge. | Felt: a seam, both allowances stitched together and folded in (§8.8). |
-| ![Felt geodesic](laser/images/felt-geodesic-cutaway-seams.png) | ![Dart](laser/images/dart-inside.png) |
+| ![Tape](images/tape-inside.png) | ![Seam](images/seam-inside.png) |
+| Tape across the inside of an open edge. | Felt: a seam, both allowances stitched together and folded in (§8.4). |
+| ![Felt geodesic](images/felt-geodesic-cutaway-seams.png) | ![Dart](images/dart-inside.png) |
 | An 80-face geodesic in felt: seams and darts inside. | A dart where a notch is too narrow for two allowances. |
 
 ### Boards
 
 | Plywood test (310 × 170 mm, 2 mm) | Paper test (A4) | Spiked net, mountain and valley folds |
 |---|---|---|
-| ![Plywood board](laser/images/board-ply-dodecahedron-clips.svg) | ![Paper net](laser/images/board-paper-dodecahedron-net.svg) | ![Spiked net](laser/images/board-spiked-net-folds.svg) |
+| ![Plywood board](images/board-ply-dodecahedron-clips.svg) | ![Paper net](images/board-paper-dodecahedron-net.svg) | ![Spiked net](images/board-spiked-net-folds.svg) |
 
 Red is cut, black is engraved (edge numbers, on the model's inside), blue is
 a valley fold and light blue a mountain fold as seen on the sheet. The board
 outlines appear only in these previews.
-
-## Open questions
-
-- Machine and materials: which laser and bed size, and which sheet for the
-  first test cut?
-- Felt has no score line. Should Fold on felt draw no fold lines, or mark
-  them lightly for sewing guides?
-- Labels: engraved numbers on the inside face of every edge pair, or only
-  part numbers?

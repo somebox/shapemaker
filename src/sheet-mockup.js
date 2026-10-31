@@ -112,14 +112,7 @@ export function mountSheetMockup({ viewer, getLast, applyPatch, download }) {
   // ── Form: Build switch and each mode's rows ──
   const buildRow = segControl("Build", [["print", "Print"], ["cut", "Cut"], ["fold", "Fold"]], () => S.job.process, (v) => {
     if (v === S.job.process) return;
-    if (S.job.process === "print") {
-      printOverlays = overlayInputs.filter((i) => i.checked);
-      for (const i of printOverlays) i.click();
-    } else if (v === "print") {
-      for (const i of printOverlays) if (!i.checked && !i.matches("[data-split-on]")) i.click();
-      printOverlays = [];
-      S.flat = false;
-    }
+    switchOverlays(S.job.process, v);
     S.job.process = v;
     changed();
   });
@@ -179,6 +172,17 @@ export function mountSheetMockup({ viewer, getLast, applyPatch, download }) {
   appStrip.after(strip);
 
   // ── Wiring ──
+  function switchOverlays(from, to) {
+    if (from === "print" && to !== "print") {
+      printOverlays = overlayInputs.filter((i) => i.checked);
+      for (const i of printOverlays) i.click();
+    } else if (from !== "print" && to === "print") {
+      for (const i of printOverlays) if (!i.checked && !i.matches("[data-split-on]")) i.click();
+      printOverlays = [];
+      S.flat = false;
+    }
+  }
+
   function changed(rebuild = true) {
     saveSettings(S);
     syncPanel();
@@ -528,8 +532,9 @@ export function mountSheetMockup({ viewer, getLast, applyPatch, download }) {
     /** A project's job, or null to leave the current one. */
     setJob(job) {
       if (!job) return;
-      S.job = normalizeJob(job);
-      S.flat = false;
+      const next = normalizeJob(job);
+      switchOverlays(S.job.process, next.process);
+      S.job = next;
       changed();
     },
   };

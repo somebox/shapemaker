@@ -42,13 +42,14 @@ Possible project/export companion data:
 
 ### More specialized 2D outputs
 
-Potential outputs include per-face templates, tabs, kerf allowances, or PCB
-outline helpers. These are not equivalent to the current camera-projected SVG
-and require a defined assembly workflow before implementation.
+Laser cutting and folded or sewn stock now have a defined workflow, a working
+engine and locked decisions for their first release: see
+[PRODUCTION.md](PRODUCTION.md), with the findings in
+[research/sheet-output.md](research/sheet-output.md).
 
-Laser cutting and folded thin stock are researched, with a headless
-prototype (`src/sheet/`, `scripts/sheet-samples.mjs`), in
-[LASER_RESEARCH.md](LASER_RESEARCH.md).
+PCB outline helpers and per-face templates remain ideas. Each would be a new
+process or output in `src/production/`, and still needs a defined assembly
+workflow first.
 
 ## Later — shape vocabulary
 
@@ -156,10 +157,11 @@ Consistency and maintainability; none change current product behavior.
 True round beams would require a different solidifier from the current flat
 frame shell. Candidate approaches:
 
-- `manifold-3d` WebAssembly for robust unions and smooth rod-and-node forms;
+- `manifold-3d` WebAssembly (already vendored for Cut sides) for robust unions
+  and smooth rod-and-node forms;
 - lightweight convex node hulls for a smaller, faceted implementation.
 
-Do not choose a dependency or pre-design this feature yet. Revisit only when a
+Do not pre-design this feature yet. Revisit only when a
 user workflow requires actual round struts rather than frame shells. At that
 point, document the needed beam profiles, joint behavior, fabrication method,
 performance budget, and export guarantees before promoting it from backlog.
@@ -183,18 +185,23 @@ performance budget, and export guarantees before promoting it from backlog.
   millimetres remain a supported legacy/API spelling. Relative authoring
   scales frames with face size (subdiv, globe, irregular hulls); printability
   warnings still guide scale-up when the thinnest applied border falls below
-  ≈2.5 mm. See [`BORDER_EVIDENCE.md`](BORDER_EVIDENCE.md).
+  ≈2.5 mm.
 - **Projects are portable files.** URL state is for sharing; local recovery is
   convenience; neither replaces `.shapemaker.json`.
 - **Mesh “smoothness” is tessellation, not shading.** Preview stays flat-shaded
   so it matches STL; quality presets only increase facet density.
 - **True struts remain backlog.** No geometry dependency is chosen without a
   demonstrated use case.
-- **Origin-star-convex meshes are in scope; general concave / booleans are
-  not.** Hollow walls are a uniform scale about the origin, so every ray
-  from the origin must hit the surface once. Spike (pyramids and dimples)
-  passes that certificate; CSG, true offset walls, and Kepler–Poinsot
-  pentagram faces stay unscheduled.
+- **Origin-star-convex meshes are in scope; general concave modeling is
+  not.** Every ray from the origin must hit the surface once. Spike (pyramids
+  and dimples) passes that certificate. Mesh booleans ship inside Cut sides
+  and welding (0.15.0 onward), loaded on demand; they are an implementation
+  detail, not a modeling feature. Kepler–Poinsot pentagram faces stay
+  unscheduled.
+- **What a design is and how it's made are separate.** Shape state and the
+  production job live apart, and only state affects compiled geometry, so a
+  new process never touches the shape pipeline. See
+  [`PRODUCTION.md`](PRODUCTION.md).
 - **First `localStorage` use is onboarding (and collapsible panel groups), not
   session recovery.** The seen-flag / group-open keys are convenience UI state;
   portable projects and URL hash remain the recovery paths. Optional local

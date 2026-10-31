@@ -52,13 +52,15 @@ general CAD.
 
 ### Not in version 1
 
-- General CAD, booleans, or concave forms that are not origin-star-convex
-  (every ray from the origin must hit the surface once). Origin-star-convex
-  spikes and dimples are in scope; Kepler–Poinsot pentagram faces and
-  true boolean CSG are not.
+- General CAD, user-facing booleans, or concave forms that are not
+  origin-star-convex (every ray from the origin must hit the surface once).
+  Origin-star-convex spikes and dimples are in scope, and Cut sides use a mesh
+  boolean internally; Kepler–Poinsot pentagram faces are not in scope.
 - Slicing, or scored orientation of the unsplit model (Split already
   ranks session-only print poses; click-to-rest stays a face pick).
-- Fabrication-specific nesting, toolpaths, Gerber generation, or slicer output.
+- Toolpaths, Gerber generation, or slicer output. Laser-cut and folded
+  output is designed in [`PRODUCTION.md`](PRODUCTION.md) and joins this
+  specification when it ships; until then it runs only behind `?sheet`.
 - Opening styles beyond polygon and ellipse, several openings per face, or
   editable operator stacks.
 - Valley / concave fillets, or resin drain-hole design. Convex dihedral
@@ -80,6 +82,8 @@ compile(state) -> {
   state
 }
 
+compileShape(state) -> { skeleton, validation, state }
+
 Skeleton    { positions: Float64Array, faces: number[][], edges: [i, j][] }
 Mesh        { positions: Float32Array, indices: Uint32Array,
               faceId: Uint32Array }
@@ -89,7 +93,8 @@ Orientation { faceIndex, matrix }
 Rules:
 
 1. `compile()` is the only regeneration API used by UI, exports, project and
-   URL restore, and tests.
+   URL restore, and tests. `compileShape()` is the same path stopped before
+   the shell, with the same skeleton, for production steps that need no mesh.
 2. Geometry modules never import Three.js and must run headlessly under Node.
 3. Stage outputs are treated as immutable.
 4. Geometry is correct by construction; no normal- or topology-repair pass is
@@ -98,9 +103,8 @@ Rules:
    through the `compile()` boundary.
 6. The orientation matrix is computed once and applied by preview and export;
    geometry buffers remain unoriented.
-7. From Milestone 2 onward, the parameter schema is the source of defaults,
-   bounds, visibility, project serialization, and URL serialization. Phase 1
-   defaults currently live in `src/types.js`.
+7. The parameter schema is the source of defaults, bounds, visibility,
+   project serialization, and URL serialization.
 
 ## Geometry pipeline
 
@@ -545,8 +549,9 @@ in place.
 - Export compiles through the same `compile()` path as the preview and refuses
   invalid state. When a mesh quality preset exists, preview and STL use that
   same tessellation — there is no separate “pretty” preview mesh.
-- More specialized fabrication outputs belong in the roadmap until their
-  required semantics are defined.
+- More specialized fabrication outputs go through `src/production/`, which
+  lists a design's files for the app and the command line alike. See
+  [`PRODUCTION.md`](PRODUCTION.md).
 
 ## Projects and persistence
 
@@ -591,67 +596,27 @@ mode. Shape controls are size, edge, density, seed, and jitter.
   of scope until a separate “Yours” store is specified.
 ## Architecture
 
-### Implemented in Phase 1
-
 ```text
 index.html
-vendor/three/          pinned Three.js, controls, licence, provenance
+vendor/                pinned Three.js, QuickHull, earcut, manifold, fonts
+presets.json           named recipes
 src/
-  main.js              browser event adapter
   compile.js           sole regeneration entry point
   pipeline.js          stage runner and bounded caches
+  schema.js            canonical state, control definitions, defaults
   validate.js          state validation and structured geometry errors
-  types.js             Phase 1 defaults and core type documentation
-  skeleton.js          shape-independent skeleton utilities
-  faceframe.js         face-local 2D/world transforms
-  points/
-    icosidodeca.js
-  geom/
-    poly2.js           inset, fillet, radial sampling
-    edgesub.js         shared edge subdivisions
-    annulus.js         rings to triangles
-  solid/
-    shell.js
-  mesh.js              structural and manifold invariants
-  orient.js            resting-face transform
-  metrics.js
-  export/
-    stl.js
-  viewer.js            Three.js preview and picking
+  bases.js, points/    base shapes
+  hull.js, dual.js, truncate.js, subdivide.js, plane-perturb.js   skeleton operators
+  skeleton.js, faceframe.js, geom/   shape-independent geometry
+  solid/               the printed shell, spikes, mesh booleans
+  mesh.js, orient.js, metrics.js, limits.js, split.js
+  export/              STL and SVG writers
+  sheet/               laser and fold engine: panels, cut, fold, nets, layout
+  production/          shape and job to files; used by app and CLI
+  main.js, ui.js, controls.js, viewer.js   the app
+scripts/               shapemaker.mjs (CLI), acceptance, examples
 prototype/             Python reference: geometry, meshcheck, bridge analysis
 test/                  fixtures, parity tests, and acceptance references
-```
-
-### Planned modules
-
-```text
-presets.json            shipped (M3)
-vendor/quickhull3d/     shipped (M3)
-src/schema.js           canonical state codec + control defs
-src/hashcodec.js        versioned URL hash
-src/project-format.js   .shapemaker.json serialize/parse
-src/ui.js               Shape/Form/Inspect/Make panel
-src/limits.js           proactive slider ceilings
-src/hull.js             shipped (M3)
-src/points/platonic.js  shipped (M3)
-src/bases.js            shipped (M3)
-src/points/random.js    shipped (M5 path)
-src/starts.js           start-from recipes
-src/start-thumbs.js     chooser wireframe thumbnails (SVG)
-src/points/jitter.js    on-sphere jitter (parametric bases)
-src/points/sphere.js    fibonacci-lattice sphere points
-src/points/globe.js     lat/long globe (meridian Density)
-src/points/twistedglobe.js  twisted globe (antiprism bands, merge off)
-src/points/rhombicenneaconta.js  rhombic enneacontahedron (direct zonotope)
-src/dual.js             polar dual (skeleton operator)
-src/geom/ellipse.js     inscribed moment ellipse (ellipse openings)
-src/points/cuboctahedron.js  cuboctahedron
-src/points/rhombicosidodeca.js  rhombicosidodecahedron
-src/points/rhombic.js   rhombic dodecahedron / triacontahedron
-src/plane-perturb.js    plane-perturbation jitter (regular bases)
-src/subdivide.js        spherified surface subdivision (skeleton operator)
-src/solid/spike.js      face pyramids / dimples (origin-star-convex)
-src/export/svg.js       hidden-line SVG export (M6 path)
 ```
 
 The viewer and UI consume compiled outputs only. Face-local opening geometry is
