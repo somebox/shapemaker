@@ -1130,12 +1130,12 @@ export function estimateMassG(volumeCm3, densityGPerCm3) {
 function updateFaceStepper(stepper, readout, loc, multiFamily) {
   if (!stepper || !readout || !loc?.family) return;
   const { family, indexInFamily } = loc;
-  readout.textContent = `${family.label} · ${indexInFamily + 1} of ${family.indices.length}`;
+  readout.textContent = `${indexInFamily + 1} of ${family.indices.length}`;
   readout.dataset.faceIndex = String(family.indices[indexInFamily]);
   const famBtn = stepper.querySelector("[data-face-family]");
   if (famBtn) {
     famBtn.textContent = family.label;
-    famBtn.hidden = !multiFamily;
+    famBtn.disabled = !multiFamily;
   }
 }
 

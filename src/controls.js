@@ -269,10 +269,27 @@ export function el(tag, props = {}) {
   return node;
 }
 
+/** The longest run of option labels that still reads at half the panel's width. */
+const HALF_FIELD_CHARS = 14;
+
 /**
- * Build one schema-driven control. Range controls use a single row:
- * label · slider · editable value + unit. Limits live in title/aria, not a
- * third row.
+ * Whether a field takes the panel's full width. Two fit side by side, except
+ * a choice with too many or too long options to read at half width.
+ * @param {{ type?: string, kind?: string, options?: unknown[] }} def
+ *   a ControlDef, or a JOB_DEFS row (whose options are [value, label] pairs)
+ */
+export function isWideField(def) {
+  if (def.kind === "board" || def.kind === "bed") return true;
+  const options = def.options;
+  if (!options) return false;
+  const labels = options.map((o) => (Array.isArray(o) ? o[1] : o.label));
+  return options.length > 3 || labels.join("").length > HALF_FIELD_CHARS;
+}
+
+/**
+ * Build one schema-driven control. A range field stacks label and value over
+ * its slider; a choice stacks its label over its buttons, or beside them when
+ * wide. Limits live in title/aria, not another row.
  *
  * @param {object} def ControlDef
  * @param {Map<string, HTMLInputElement|HTMLSelectElement>} inputs
@@ -282,9 +299,9 @@ export function el(tag, props = {}) {
  */
 export function buildControl(def, inputs, ranges, errNodes, limitLabels) {
   const root = el("div", { className: "control", dataset: { key: def.key } });
+  if (isWideField(def)) root.dataset.wide = "1";
 
   if (def.type === "segments") {
-    // Label and buttons share one row, on the same grid as the sliders.
     const row = el("div", { className: "control-row control-row--seg" });
     row.appendChild(el("label", { textContent: def.label }));
     root.appendChild(row);

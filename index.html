@@ -345,12 +345,7 @@
       color: var(--text-dim);
       white-space: nowrap;
     }
-    .cluster-body {
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-      margin-top: 4px;
-    }
+    .cluster-body { margin-top: 4px; }
     .cluster-body[hidden] { display: none; }
     .control--clustered { gap: 2px; }
 
@@ -527,11 +522,18 @@
       overflow-y: auto;
       padding: 12px 14px 10px;
     }
-    .tab-body {
-      display: flex;
-      flex-direction: column;
-      gap: 5px;
+    /* Two fields side by side; anything that isn't a field takes the row. */
+    .tab-body,
+    .cluster-body {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px 14px;
+      align-items: start;
     }
+    .tab-body > :not(.control),
+    .cluster-body > :not(.control),
+    .control[data-wide="1"],
+    .control.has-error { grid-column: 1 / -1; }
     .tab-body[hidden] { display: none; }
 
     .identity {
@@ -758,29 +760,36 @@
       gap: 6px;
       min-height: 24px;
     }
+    /* Label and value over the slider. Fixed value column: the readout and
+       editor swap, and 1→100 digit growth, must not move the label. */
     .control-row--range {
-      /* Fixed value column: the readout/editor swap and 1→100 digit growth
-         must never resize the slider track mid-drag. */
-      grid-template-columns: 5.5rem minmax(0, 1fr) 9ch;
-      gap: 8px;
-      min-height: 28px;
+      grid-template-columns: minmax(0, 1fr) 9ch;
+      grid-template-areas: "label value" "track track";
+      gap: 0 6px;
     }
+    .control-row--range label { grid-area: label; }
+    .control-row--range .value-box { grid-area: value; }
+    .control-row--range input[type="range"] { grid-area: track; }
     .control-row--seed {
-      grid-template-columns: 5.5rem 1fr auto;
+      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-areas: "label label" "field reroll";
+      gap: 0 6px;
     }
+    .control-row--seed label { grid-area: label; }
+    .control-row--seed input { grid-area: field; }
+    .control-row--seed .reroll { grid-area: reroll; }
     .control-row--seg {
-      /* Same label column as the sliders, so toggles and ranges line up. */
-      grid-template-columns: 5.5rem minmax(0, 1fr);
+      grid-template-columns: minmax(0, 1fr);
+      gap: 2px;
+    }
+    .control[data-wide="1"] .control-row--seg {
+      grid-template-columns: 4.5rem minmax(0, 1fr);
       gap: 8px;
-      min-height: 28px;
     }
     .control-row--number {
       grid-template-columns: 1fr 7ch 2.5ch;
     }
-    .control-row--material {
-      grid-template-columns: 5.5rem 1fr;
-      margin-top: 4px;
-    }
+    .control-row--material { grid-template-columns: 4.5rem 1fr; }
     .value-box {
       display: flex;
       align-items: center;
@@ -899,7 +908,7 @@
       -webkit-appearance: none;
       appearance: none;
       width: 100%;
-      height: 28px;
+      height: 24px;
       background: transparent;
       margin: 0;
       cursor: pointer;
@@ -957,7 +966,7 @@
       background: transparent;
       color: var(--text-dim);
       font: 400 0.75rem var(--font-ui);
-      padding: 0.45rem 0.4rem;
+      padding: 0.35rem 0.3rem;
       cursor: pointer;
       letter-spacing: 0.02em;
       box-shadow: inset 0 -2px 0 transparent;
@@ -1071,10 +1080,11 @@
       font: 500 11px var(--font-mono);
       cursor: pointer;
     }
-    .btn-quiet:hover {
+    .btn-quiet:hover:not(:disabled) {
       color: var(--text);
       border-color: var(--text-dim);
     }
+    .btn-quiet:disabled { cursor: default; }
     .base-warn {
       color: var(--warn, #c4a882);
       margin: 0 0 6px;

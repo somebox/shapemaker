@@ -18,7 +18,7 @@ import {
 } from "./production/index.js";
 import { createFlatView } from "./flat-view.js";
 import { PRINT_KEYS } from "./schema.js";
-import { el } from "./controls.js";
+import { el, isWideField } from "./controls.js";
 
 const STORE_KEY = "shapemaker.sheetMockup";
 
@@ -113,6 +113,7 @@ export function mountSheetMockup({ viewer, getLast, applyPatch, download, setJob
     changed();
   });
   buildRow.root.classList.add("sheet-build");
+  buildRow.root.dataset.wide = "1";
   const materialNote = el("p", { className: "hint sheet-material" });
   buildRow.root.append(materialNote);
   buildBody.prepend(buildRow.root);
@@ -469,7 +470,13 @@ export function mountSheetMockup({ viewer, getLast, applyPatch, download, setJob
       m()[def.key] = v;
       changed();
     };
-    if (def.kind === "board") return boardControl(process);
+    const control = rowFor(def, m, set);
+    if (isWideField(def)) control.root.dataset.wide = "1";
+    return control;
+  }
+
+  function rowFor(def, m, set) {
+    if (def.kind === "board") return boardControl(m);
     if (def.kind === "bed") {
       return selectControl(def.label, Object.entries(PRINT_BEDS).map(([id, b]) => [id, `${b.label} · ${b.w}×${b.h}`]), () => m()[def.key], set);
     }
@@ -480,8 +487,7 @@ export function mountSheetMockup({ viewer, getLast, applyPatch, download, setJob
     return segControl(def.label, def.options.map(([v, text]) => [v, text]), () => m()[def.key], set, titles);
   }
 
-  function boardControl(process) {
-    const m = () => S.job[process];
+  function boardControl(m) {
     const root = el("div", { className: "control sheet-control" });
     const row = el("div", { className: "control-row control-row--material" });
     const select = el("select", { className: "material-select", "aria-label": "Board" });
@@ -575,7 +581,7 @@ ${borrowed.join("\n")}
 }
 .sheet-build .control-row { margin-bottom: 2px; }
 .sheet-material { margin: 0 0 6px; }
-.sheet-custom { grid-template-columns: var(--label-col, 88px) 1fr auto 1fr auto; align-items: center; gap: 6px; }
+.sheet-custom { grid-template-columns: 4.5rem 1fr auto 1fr auto; align-items: center; gap: 6px; margin-top: 4px; }
 .sheet-num {
   width: 100%; min-width: 0; padding: 3px 6px; font: 0.75rem var(--font-mono); color: var(--text);
   background: var(--panel-inset); border: 1px solid var(--line); border-radius: 3px;

@@ -4,6 +4,8 @@ import { installDom, memoryStore, visible } from "./mini-dom.js";
 import { CONTROL_DEFS, PRINT_KEYS, normalizeState } from "../src/schema.js";
 import { TABS, tabOfKey, tabCaptions, validTab } from "../src/panel-model.js";
 import { createPanel, PANEL_TAB_KEY } from "../src/ui.js";
+import { isWideField } from "../src/controls.js";
+import { JOB_DEFS } from "../src/production/job.js";
 
 const noop = () => {};
 const handlers = (over = {}) => ({ onPatch: noop, onNameChange: noop, onSave: noop, onExport: noop, ...over });
@@ -146,6 +148,32 @@ describe("panel tabs", () => {
   });
 });
 
+describe("field widths", () => {
+  const wide = (key) => isWideField(CONTROL_DEFS.find((d) => d.key === key));
+
+  it("set sliders and short choices side by side", () => {
+    for (const key of ["wallMm", "seed", "depth", "dual", "wallMode"]) assert.equal(wide(key), false, key);
+  });
+
+  it("give long choices the whole row", () => {
+    for (const key of ["openingAxis", "edgeDiv"]) assert.equal(wide(key), true, key);
+  });
+
+  it("read job rows too", () => {
+    const row = (key) => isWideField(JOB_DEFS.cut.find((d) => d.key === key));
+    assert.equal(row("board"), true);
+    assert.equal(row("join"), true);
+    assert.equal(row("clearanceMm"), true);
+    assert.equal(row("sheetMm"), false);
+  });
+
+  it("reach the page", () => {
+    const { panelEl } = mount();
+    assert.equal(panelEl.querySelector('.control[data-key="openingAxis"]').dataset.wide, "1");
+    assert.equal(panelEl.querySelector('.control[data-key="wallMm"]').dataset.wide, undefined);
+  });
+});
+
 describe("panel controls", () => {
   it("send a segment click as a patch", () => {
     const patches = [];
@@ -159,6 +187,14 @@ describe("panel controls", () => {
     const { panelEl } = mount({ on: { onPatch: (p) => patches.push(p) } });
     panelEl.querySelector('[data-seg-key="openings"][data-seg-value="true"]').click();
     assert.equal(patches[0].depth, "hollow");
+  });
+
+  it("name a face once in Rests on", () => {
+    const { panelEl, ui } = mount();
+    const faces = [[0, 1, 2], [0, 2, 3], [0, 1, 2, 3]];
+    ui.setResult({ state: state({ faceIndex: 1 }), skeleton: { faces } });
+    assert.equal(panelEl.querySelector("[data-face-family]").textContent, "triangle");
+    assert.equal(panelEl.querySelector("[data-face-readout]").textContent, "2 of 2");
   });
 
   it("commit a slider on release", () => {
