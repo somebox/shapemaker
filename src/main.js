@@ -57,10 +57,6 @@ const chrome = createChrome({
 });
 appEl?.prepend(chrome.header);
 document.body.appendChild(chrome.dialog);
-{
-  const h = chrome.header.getBoundingClientRect().height;
-  document.documentElement.style.setProperty("--header-offset", `${Math.ceil(h)}px`);
-}
 
 /** @type {ReturnType<typeof compile> | null} */
 let last = null;

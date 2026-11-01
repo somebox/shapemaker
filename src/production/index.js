@@ -22,7 +22,7 @@ import { normalizeJob, boardOf } from "./job.js";
 
 export { JOB_DEFS, PROCESSES, PROCESS_STOCK, normalizeJob, serializeJob, settingsOf, settingApplies, validSetting, boardOf } from "./job.js";
 export { designStem, listArtifacts, sheetViews, exportNotes, LAYER_NAMES, PLATE_CLIP, SHEET_FILL } from "./artifacts.js";
-export { summarize, fmt, plural } from "./summary.js";
+export { summarize, headline, fmt, plural } from "./summary.js";
 export { BOARD_PROFILES } from "../sheet/layout.js";
 export { LAYERS } from "../sheet/svg.js";
 export { PRINT_BEDS };

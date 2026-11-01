@@ -28,9 +28,9 @@ const sews = (m) => m.join === "sew";
 
 /** Where a process's stock goes; both sheet processes share these. */
 const stock = (board) => [
-  { key: "board", kind: "board", label: "Board", default: board, group: "make" },
-  { key: "boardSize", kind: "size", label: "Size", default: { w: 300, h: 200 }, group: "make", when: (m) => m.board === "custom" },
-  choice("labels", "Labels", true, [[true, "On"], [false, "Off"]], { group: "make" }),
+  { key: "board", kind: "board", label: "Board", default: board, group: "stock" },
+  { key: "boardSize", kind: "size", label: "Size", default: { w: 300, h: 200 }, group: "stock", when: (m) => m.board === "custom" },
+  choice("labels", "Labels", true, [[true, "On"], [false, "Off"]], { group: "stock" }),
   // Layout tolerances: flags and saved jobs only, no panel row.
   range("marginMm", "Margin", 0, 50, 0.5, "mm", 5, { group: null }),
   range("gapMm", "Gap", 0, 20, 0.5, "mm", 2, { group: null }),

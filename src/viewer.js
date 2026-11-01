@@ -811,7 +811,8 @@ export function createViewer(container, opts = {}) {
     requestAnimationFrame(frame);
   }
 
-  window.addEventListener("resize", resize);
+  // The container, not the window: a warning under the model resizes it too.
+  new ResizeObserver(resize).observe(container);
   resize();
   frame();
 

@@ -13,7 +13,7 @@
  */
 
 import {
-  produce, finishProduction, assemblyOf, listArtifacts, exportNotes, summarize, normalizeJob, serializeJob,
+  produce, finishProduction, assemblyOf, listArtifacts, exportNotes, summarize, headline, normalizeJob, serializeJob,
   settingsOf, settingApplies, boardOf, fmt, JOB_DEFS, PROCESSES, PROCESS_STOCK, BOARD_PROFILES, PRINT_BEDS, PLATE_CLIP,
 } from "./production/index.js";
 import { createFlatView } from "./flat-view.js";
@@ -138,9 +138,12 @@ export function mountSheetMockup({ viewer, ui, getLast, applyPatch, download, pr
     const fit = def.options.find(([v]) => v === m.clearanceMm)[1];
     return `kerf ${fmt(m.kerfMm, 2)} · fit ${fit}${m.clipsBy === "print" && m.join !== "ties" ? ` · ${PRINT_BEDS[m.printBed].label.split(" /")[0]}` : ""}`;
   });
+  // Sheet and Labels are half-width, so they share a row.
+  const [cutSheet, ...cutMain] = rowsIn("cut", "main");
+  const [cutBoard, cutLabels] = rowsIn("cut", "stock");
   buildRow.root.after(
-    ...rowsIn("cut", "main"), clipCluster.root, ...rowsIn("fold", "main"),
-    ...rowsIn("cut", "make"), ...rowsIn("fold", "make"),
+    cutSheet, cutLabels, ...cutMain, clipCluster.root, cutBoard,
+    ...rowsIn("fold", "main"), ...rowsIn("fold", "stock"),
   );
   buildBody.append(cutAdvanced.root);
 
@@ -242,11 +245,7 @@ export function mountSheetMockup({ viewer, ui, getLast, applyPatch, download, pr
   function paintStatus() {
     if (S.job.process === "print") ui.setJobStatus(null);
     else if (!prod?.ok) ui.setJobStatus({ headline: "", error: prod?.error, warnings: [], fixes: [], geometry: [] });
-    else {
-      // The first line, without the process word the Build tab already says.
-      const [first, ...rest] = summarize(prod);
-      ui.setJobStatus({ headline: first.replace(/^\S+\s+/, ""), warnings: prod.warnings, fixes: prod.fixes, geometry: rest });
-    }
+    else ui.setJobStatus({ headline: headline(prod), warnings: prod.warnings, fixes: prod.fixes, geometry: summarize(prod) });
   }
 
   /** Leave Flat and light the part up on the model. */
@@ -487,6 +486,7 @@ function injectStyles() {
 .sheet-control[hidden], .sheet-custom[hidden], .sheet-flat[hidden], .sheet-flat-tip[hidden],
 .section-hud.sheet-mode > :not(.sheet-flat-toggle), .section-hud:not(.sheet-mode) > .sheet-flat-toggle,
 .sheet-material[hidden] { display: none; }
+@media (max-width: 899px) { .sheet-chip { display: none; } }
 .sheet-chip {
   margin-left: 10px; padding: 1px 7px; border: 1px solid var(--accent); border-radius: 3px;
   font: 500 0.62rem var(--font-mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent);

@@ -12,7 +12,7 @@ import { boardSvg } from "../src/sheet/index.js";
 import { pointInPoly } from "../src/sheet/geom2.js";
 import {
   JOB_DEFS, PROCESSES, normalizeJob, serializeJob, settingApplies, produce, finishProduction, runJob,
-  listArtifacts, sheetViews, summarize, exportNotes, designStem, sheetOptions, validSetting,
+  listArtifacts, sheetViews, summarize, headline, exportNotes, designStem, sheetOptions, validSetting,
 } from "../src/production/index.js";
 import { restoreSessionFromPopstate, sessionHistoryPayload } from "../src/session.js";
 
@@ -415,5 +415,25 @@ describe("command line", () => {
     assert.equal(r.status, 0);
     assert.match(r.stdout, /--seam-mm=/);
     assert.doesNotMatch(r.stdout, /--sheet-mm=/);
+  });
+});
+
+describe("status headline", () => {
+  const made = (job) => produce(compileShape({ ...DEFAULT_STATE, circumdiameterMm: 200 }), job);
+
+  it("says a job in a few words", () => {
+    assert.match(headline(made({ process: "cut" })), /^32 panels · \d+ clips · \d boards?$/);
+    assert.match(headline(made({ process: "fold" })), /^\d+ nets? · \d+ folds · \d boards?$/);
+  });
+
+  it("names the join in use", () => {
+    assert.match(headline(made({ process: "cut", cut: { join: "ties" } })), /\d+ ties/);
+    const cube = compileShape({ ...DEFAULT_STATE, base: "cube", circumdiameterMm: 140, openings: false });
+    assert.match(headline(produce(cube, { process: "cut", cut: { join: "fingers" } })), /finger joints?/);
+    assert.match(headline(made({ process: "cut", cut: { clipsBy: "print" } })), /printed clips/);
+  });
+
+  it("carries a failure's own words", () => {
+    assert.equal(headline(produce({ state: DEFAULT_STATE }, { process: "cut" })), "No model to lay out");
   });
 });
