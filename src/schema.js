@@ -5,7 +5,7 @@
 
 import { BASES } from "./bases.js";
 
-/** @typedef {{ key: string, group: string, subgroup?: string, advanced?: boolean, label: string, type: string, unit?: string, min?: number, max?: number, step?: number, options?: {value:string,label:string,title?:string,disabled?:boolean}[], numeric?: boolean, boolean?: boolean, customTag?: boolean, hideWhen?: (s:object)=>boolean, inertWhen?: (s:object)=>boolean, boundsForState?: (s:object)=>({min:number,max:number}|null) }} ControlDef */
+/** @typedef {{ key: string, group: string, advanced?: boolean, label: string, type: string, unit?: string, min?: number, max?: number, step?: number, options?: {value:string,label:string,title?:string,disabled?:boolean}[], numeric?: boolean, boolean?: boolean, customTag?: boolean, hideWhen?: (s:object)=>boolean, inertWhen?: (s:object)=>boolean, boundsForState?: (s:object)=>({min:number,max:number}|null) }} ControlDef */
 
 /** Canonical geometry keys in documented order. */
 export const STATE_KEYS = Object.freeze([
@@ -300,12 +300,12 @@ export const CONTROL_DEFS = [
     step: 1,
     inertWhen: (s) => !(s.subdiv > 0) || s.subdivStyle === "grid" || s.spike > 0,
   },
-  // Form reads top to bottom as shell → openings → advanced. `subgroup`
-  // opens a labelled run of controls; `advanced` folds a control into the
-  // collapsed Advanced cluster at the end of the group.
+  // `group` is the panel tab. Build holds what only a printed shell reads
+  // (PRINT_KEYS); `advanced` folds a control into the collapsed Advanced
+  // cluster at the end of the tab.
   {
     key: "depth",
-    group: "form",
+    group: "build",
     label: "Shell",
     type: "segments",
     options: [
@@ -315,7 +315,7 @@ export const CONTROL_DEFS = [
   },
   {
     key: "wallMm",
-    group: "form",
+    group: "build",
     label: "Wall",
     type: "range",
     unit: "mm",
@@ -329,7 +329,7 @@ export const CONTROL_DEFS = [
     // take a radius — reflex valleys skip, because the blend centre would
     // sit outside the fold.
     key: "roundingMm",
-    group: "form",
+    group: "build",
     label: "Rounding",
     type: "range",
     unit: "mm",
@@ -339,8 +339,7 @@ export const CONTROL_DEFS = [
   },
   {
     key: "openings",
-    group: "form",
-    subgroup: "Openings",
+    group: "openings",
     label: "Faces",
     type: "segments",
     boolean: true,
@@ -356,8 +355,7 @@ export const CONTROL_DEFS = [
     // best on the pentagon + hexagon cells a Dual produces. Fillet is inert
     // under Ellipse.
     key: "openingStyle",
-    group: "form",
-    subgroup: "Openings",
+    group: "openings",
     label: "Outline",
     type: "segments",
     options: [
@@ -372,8 +370,7 @@ export const CONTROL_DEFS = [
     // longer hard-fail on the smallest strut. Applied mm range is reported
     // in the status strip. Legacy borderMm remains valid via hash/API.
     key: "borderFraction",
-    group: "form",
-    subgroup: "Openings",
+    group: "openings",
     label: "Border",
     type: "range",
     unit: "%",
@@ -386,8 +383,7 @@ export const CONTROL_DEFS = [
   },
   {
     key: "filletMm",
-    group: "form",
-    subgroup: "Openings",
+    group: "openings",
     label: "Fillet",
     type: "range",
     unit: "mm",
@@ -405,8 +401,7 @@ export const CONTROL_DEFS = [
     // straight in out of the closed shell, so holes may run into
     // neighbouring inner faces and each other.
     key: "openingAxis",
-    group: "form",
-    subgroup: "Openings",
+    group: "build",
     label: "Sides",
     type: "segments",
     options: [
@@ -422,7 +417,7 @@ export const CONTROL_DEFS = [
     // shell about the origin: the face nearest the centre gets the set wall
     // and faces farther out get thicker (designs saved before Even existed).
     key: "wallMode",
-    group: "form",
+    group: "build",
     advanced: true,
     label: "Inner wall",
     type: "segments",
@@ -437,7 +432,7 @@ export const CONTROL_DEFS = [
     // neighbouring face's outside is an error; On, it cuts that notch, and
     // loose pieces the crossing cuts free are dropped.
     key: "breakOut",
-    group: "form",
+    group: "build",
     advanced: true,
     label: "Break out",
     type: "segments",
@@ -454,7 +449,7 @@ export const CONTROL_DEFS = [
     // shows when edgeDiv matches no level. Named Quality, never "preset":
     // preset already means shape recipes in this app.
     key: "edgeDiv",
-    group: "make",
+    group: "build",
     label: "Quality",
     type: "segments",
     numeric: true,

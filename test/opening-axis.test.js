@@ -132,7 +132,7 @@ describe("openingAxis", () => {
   it("is canonical state with a Centre default and a Form control", () => {
     assert.equal(DEFAULT_STATE.openingAxis, "center");
     const def = CONTROL_DEFS.find((d) => d.key === "openingAxis");
-    assert.equal(def.group, "form");
+    assert.equal(def.group, "build");
     assert.equal(def.inertWhen({ openings: false }), true);
     const back = decodeHash(encodeHash({ ...DEFAULT_STATE, openingAxis: "normal" }));
     assert.equal(back.state.openingAxis, "normal");

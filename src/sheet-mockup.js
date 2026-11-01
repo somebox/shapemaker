@@ -1,6 +1,6 @@
 /**
  * Clickable mockup of the Cut and Fold modes, mounted over the real app
- * when the URL carries ?sheet. It adds the Build switch to Form, swaps the
+ * when the URL carries ?sheet. It adds the switch to the Build tab, swaps the
  * rows each mode doesn't use for its own, shows the cut parts put together
  * in the viewer, adds a Flat view of the boards, and replaces the export
  * buttons with one dialog.
@@ -64,9 +64,10 @@ function saveSettings(s) {
  *   getLast: () => any,
  *   applyPatch: (patch: object, commit: boolean) => void,
  *   download: (data: BlobPart, filename: string, mime: string) => void,
+ *   setJob: (job: object) => void,
  * }} app
  */
-export function mountSheetMockup({ viewer, getLast, applyPatch, download }) {
+export function mountSheetMockup({ viewer, getLast, applyPatch, download, setJob }) {
   const S = loadSettings();
   /** The latest production; null in Print. @type {any} */
   let prod = null;
@@ -77,19 +78,20 @@ export function mountSheetMockup({ viewer, getLast, applyPatch, download }) {
   const panelEl = document.getElementById("panel");
   const canvasHost = document.getElementById("canvas-host");
   const appStrip = document.getElementById("dimension-strip");
-  const formBody = panelEl.querySelector('section[data-group="form"] .group-body');
-  const makeBody = panelEl.querySelector('section[data-group="make"] .group-body');
+  const buildBody = panelEl.querySelector('section[data-tab="build"]');
   const hud = canvasHost.querySelector(".section-hud");
 
   // The app's own rows each mode hides.
   const byKey = (k) => panelEl.querySelector(`.control[data-key="${k}"]`);
   const printRows = [
     ...PRINT_KEYS.map(byKey),
-    formBody.querySelector('[data-cluster="form-advanced"]'),
-    ...makeBody.querySelectorAll(".control-row--material"),
+    buildBody.querySelector('[data-cluster="build-advanced"]'),
+    ...buildBody.querySelectorAll(".control-row--material"),
   ].filter(Boolean);
-  const faceHint = [...makeBody.querySelectorAll("p.hint")].find((p) => /click a face/i.test(p.textContent));
-  const faceHintPrint = faceHint?.textContent ?? "";
+  const faceRow = buildBody.querySelector("[data-face-row]");
+  const faceLabel = buildBody.querySelector("[data-face-label]");
+  const faceHint = faceRow.querySelector("p.hint");
+  const faceHintPrint = faceHint.textContent;
   // Print's viewport overlays don't apply to sheet parts: switched off on
   // the way out of Print (through their own checkboxes, so the app keeps
   // its state) and Print risk and Section switched back on the way in.
@@ -103,7 +105,7 @@ export function mountSheetMockup({ viewer, getLast, applyPatch, download }) {
   const chip = el("span", { className: "sheet-chip", textContent: "Sheet mockup", title: "Cut and Fold modes, mocked up over the real app (?sheet)" });
   header?.querySelector("h1, .brand, .title")?.after(chip) ?? header?.prepend(chip);
 
-  // ── Form: Build switch and each mode's rows ──
+  // ── Build: the switch and each mode's rows ──
   const buildRow = segControl("Build", PROCESSES.map((p) => [p, p[0].toUpperCase() + p.slice(1)]), () => S.job.process, (v) => {
     if (v === S.job.process) return;
     switchOverlays(S.job.process, v);
@@ -113,7 +115,7 @@ export function mountSheetMockup({ viewer, getLast, applyPatch, download }) {
   buildRow.root.classList.add("sheet-build");
   const materialNote = el("p", { className: "hint sheet-material" });
   buildRow.root.append(materialNote);
-  formBody.prepend(buildRow.root);
+  buildBody.prepend(buildRow.root);
 
   // One row per job setting, sorted into its place in the panel.
   const rows = [];
@@ -137,12 +139,11 @@ export function mountSheetMockup({ viewer, getLast, applyPatch, download }) {
     const fit = def.options.find(([v]) => v === m.clearanceMm)[1];
     return `kerf ${fmt(m.kerfMm, 2)} · fit ${fit}${m.clipsBy === "print" && m.join !== "ties" ? ` · ${PRINT_BEDS[m.printBed].label.split(" /")[0]}` : ""}`;
   });
-  buildRow.root.after(...rowsIn("cut", "main"), clipCluster.root, ...rowsIn("fold", "main"));
-  formBody.querySelector('[data-cluster="form-advanced"]')?.after(cutAdvanced.root);
-  if (!cutAdvanced.root.isConnected) formBody.append(cutAdvanced.root);
-
-  // ── Make: Board and Labels ──
-  makeBody.prepend(...rowsIn("cut", "make"), ...rowsIn("fold", "make"));
+  buildRow.root.after(
+    ...rowsIn("cut", "main"), clipCluster.root, ...rowsIn("fold", "main"),
+    ...rowsIn("cut", "make"), ...rowsIn("fold", "make"),
+  );
+  buildBody.append(cutAdvanced.root);
 
   // ── Viewport: Flat toggle, board tabs ──
   const flatToggle = el("label", { className: "section-hud-toggle sheet-flat-toggle", title: "Show the boards laid out flat" });
@@ -179,6 +180,7 @@ export function mountSheetMockup({ viewer, getLast, applyPatch, download }) {
 
   function changed(rebuild = true) {
     saveSettings(S);
+    setJob(S.job);
     syncPanel();
     if (rebuild) scheduleBuild();
     else render();
@@ -195,12 +197,10 @@ export function mountSheetMockup({ viewer, getLast, applyPatch, download }) {
     cutAdvanced.root.hidden = process !== "cut";
     materialNote.textContent = PROCESS_STOCK[process] ?? "";
     materialNote.hidden = !sheetMode;
-    if (faceHint) {
-      faceHint.textContent =
-        process === "cut" ? "Click a face on the model to find its panel on the board."
-        : process === "fold" ? "Click a face on the model to centre the first net on it."
-        : faceHintPrint;
-    }
+    // Cut has no face to choose; a click there still finds the panel.
+    faceRow.hidden = process === "cut";
+    faceLabel.textContent = process === "fold" ? "Net centres on" : "Rests on";
+    faceHint.textContent = process === "fold" ? "Click a face on the model to centre the first net on it." : faceHintPrint;
     hud?.classList.toggle("sheet-mode", sheetMode);
     flatInput.checked = S.flat;
     if (exportStl) exportStl.hidden = true;
@@ -523,6 +523,7 @@ export function mountSheetMockup({ viewer, getLast, applyPatch, download }) {
   }
 
   syncPanel();
+  setJob(S.job);
   return {
     /** Called after every rebuild of the model. */
     onResult() {

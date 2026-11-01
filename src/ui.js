@@ -10,6 +10,7 @@ import {
   isEdgeInputReadOnly,
 } from "./schema.js";
 import { faceFamilies, locateFace } from "./face-families.js";
+import { TABS, tabOfKey, tabCaptions, validTab } from "./panel-model.js";
 import { BASES, BASE_IDS } from "./bases.js";
 import { recipeForBase } from "./starts.js";
 import { startThumbSvg } from "./start-thumbs.js";
@@ -29,16 +30,11 @@ import {
   createDragScheduler,
 } from "./controls.js";
 
-const GROUPS = [
-  { id: "shape", title: "Shape" },
-  { id: "form", title: "Form" },
-  { id: "make", title: "Make" },
-];
-
 export const GROUPS_OPEN_KEY = "shapemaker.groups.open";
+export const PANEL_TAB_KEY = "shapemaker.panel.tab";
 
 /** Jitter is a sub-cluster of Shape; it starts folded. */
-const DEFAULT_OPEN = { shape: true, form: true, make: true, jitter: false };
+const DEFAULT_OPEN = { jitter: false };
 
 /**
  * Apply coupled-control rules so routine interactions never emit invalid combos.
@@ -87,6 +83,27 @@ export function saveGroupsOpen(open, store = localStorage) {
   }
 }
 
+/** @param {Storage} [store] */
+export function loadPanelTab(store = localStorage) {
+  try {
+    return validTab(store.getItem(PANEL_TAB_KEY));
+  } catch {
+    return validTab(null);
+  }
+}
+
+/**
+ * @param {string} id
+ * @param {Storage} [store]
+ */
+export function savePanelTab(id, store = localStorage) {
+  try {
+    store.setItem(PANEL_TAB_KEY, id);
+  } catch {
+    /* ignore */
+  }
+}
+
 /**
  * Whether a range/scrub drag should emit a live patch (false = readout only).
  * @param {{ heavyMode: boolean }} args
@@ -101,8 +118,60 @@ export function shouldLivePatchDuringDrag({ heavyMode }) {
  */
 export function createPanel(panelEl, handlers) {
   panelEl.innerHTML = "";
+  const tabBar = el("div", { className: "panel-tabs", role: "tablist", "aria-label": "Panel" });
   const scroll = el("div", { id: "panel-scroll" });
-  panelEl.appendChild(scroll);
+  panelEl.append(tabBar, scroll);
+
+  /** @type {Map<string, { button: HTMLElement, caption: HTMLElement, body: HTMLElement, scrollTop: number }>} */
+  const tabs = new Map();
+  let activeTab = loadPanelTab();
+
+  function selectTab(id) {
+    const from = tabs.get(activeTab);
+    if (from && id !== activeTab) from.scrollTop = scroll.scrollTop;
+    activeTab = id;
+    for (const [tabId, tab] of tabs) {
+      const on = tabId === id;
+      tab.body.hidden = !on;
+      tab.button.setAttribute("aria-selected", String(on));
+      tab.button.tabIndex = on ? 0 : -1;
+    }
+    scroll.scrollTop = tabs.get(id).scrollTop;
+    savePanelTab(id);
+  }
+
+  for (const t of TABS) {
+    const caption = el("span", { className: "panel-tab-caption" });
+    const button = el("button", {
+      type: "button",
+      className: "panel-tab",
+      role: "tab",
+      id: `tab-${t.id}`,
+      "aria-controls": `tabpanel-${t.id}`,
+    });
+    button.append(el("span", { className: "panel-tab-title", textContent: t.title }), caption);
+    button.addEventListener("click", () => selectTab(t.id));
+    tabBar.appendChild(button);
+    const body = el("section", {
+      className: "tab-body",
+      role: "tabpanel",
+      id: `tabpanel-${t.id}`,
+      "aria-labelledby": `tab-${t.id}`,
+      dataset: { tab: t.id },
+    });
+    scroll.appendChild(body);
+    tabs.set(t.id, { button, caption, body, scrollTop: 0 });
+  }
+  // Arrow keys move along the tabs, as a tablist does.
+  tabBar.addEventListener("keydown", (e) => {
+    const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
+    if (!step) return;
+    e.preventDefault();
+    const at = TABS.findIndex((t) => t.id === activeTab);
+    const next = TABS[(at + step + TABS.length) % TABS.length].id;
+    selectTab(next);
+    tabs.get(next).button.focus();
+  });
 
   const identity = el("div", { className: "identity" });
   const nameInput = el("input", {
@@ -118,7 +187,6 @@ export function createPanel(panelEl, handlers) {
   const dirtyLabel = el("span", { className: "dirty-label", textContent: "edited" });
   dirtyLabel.setAttribute("data-on", "0");
   identity.append(nameInput, dirtyDot, dirtyLabel);
-  scroll.appendChild(identity);
 
   // Start-from — whole row toggles the chooser; re-click cancels (no change).
   const startSection = el("section", { className: "group start-group" });
@@ -137,8 +205,9 @@ export function createPanel(panelEl, handlers) {
     title: "Restore previous session snapshot",
   });
   undoBtn.addEventListener("click", () => handlers.onUndo?.());
-  startHeader.append(sessionMode, undoBtn);
   startSection.appendChild(startHeader);
+  identity.append(sessionMode, undoBtn);
+  document.getElementById("app-header")?.querySelector(".app-header-actions")?.before(identity);
 
   const currentStart = el("button", {
     type: "button",
@@ -187,7 +256,7 @@ export function createPanel(panelEl, handlers) {
   presetCards.setAttribute("aria-label", "Named presets");
   chooser.append(presetSubhead, presetCards);
   startSection.appendChild(chooser);
-  scroll.appendChild(startSection);
+  tabs.get("shape").body.appendChild(startSection);
 
   /** @type {Map<string, { id: string, name: string, state: object, resolved: object }>} */
   const presetsById = new Map();
@@ -278,45 +347,15 @@ export function createPanel(panelEl, handlers) {
     return { cluster, body, summary };
   }
 
-  for (const g of GROUPS) {
-    const section = el("section", {
-      className: "group",
-      dataset: { group: g.id },
-    });
-    const open = groupsOpen[g.id] !== false;
-    const toggle = el("button", {
-      type: "button",
-      className: "group-header group-toggle",
-    });
-    toggle.setAttribute("aria-expanded", open ? "true" : "false");
-    const chevron = el("span", {
-      className: "group-chevron",
-      textContent: open ? "▾" : "▸",
-    });
-    chevron.setAttribute("aria-hidden", "true");
-    toggle.append(chevron, el("span", { textContent: g.title }));
-    const body = el("div", { className: "group-body" });
-    body.hidden = !open;
-    section.append(toggle, body);
-    scroll.appendChild(section);
-
-    toggle.addEventListener("click", () => {
-      const next = body.hidden;
-      body.hidden = !next;
-      toggle.setAttribute("aria-expanded", next ? "true" : "false");
-      chevron.textContent = next ? "▾" : "▸";
-      groupsOpen[g.id] = next;
-      saveGroupsOpen(groupsOpen);
-    });
-
+  for (const t of TABS) {
+    const { body } = tabs.get(t.id);
     /** @type {ReturnType<typeof makeCluster> | null} */
     let jitter = null;
     /** @type {ReturnType<typeof makeCluster> | null} */
     let advanced = null;
     /** @type {HTMLElement | null} */
     let pendingSeed = null;
-    let subgroup = null;
-    for (const def of CONTROL_DEFS.filter((c) => c.group === g.id)) {
+    for (const def of CONTROL_DEFS.filter((c) => c.group === t.id)) {
       const root = buildControl(def, inputs, ranges, errNodes, limitLabels);
       controlRoots.set(def.key, root);
       if (def.key === "seed") {
@@ -346,23 +385,21 @@ export function createPanel(panelEl, handlers) {
       }
       if (def.advanced) {
         if (!advanced) {
-          advanced = makeCluster(`${g.id}-advanced`, "Advanced");
-          if (g.id === "form") advancedSummary = advanced.summary;
+          advanced = makeCluster(`${t.id}-advanced`, "Advanced");
+          if (t.id === "build") advancedSummary = advanced.summary;
         }
         root.classList.add("control--clustered");
         advanced.body.appendChild(root);
         continue;
       }
-      if (def.subgroup && def.subgroup !== subgroup) {
-        body.appendChild(el("div", { className: "subgroup-label", textContent: def.subgroup }));
-      }
-      subgroup = def.subgroup ?? null;
       body.appendChild(root);
     }
     if (pendingSeed) (jitter?.body ?? body).appendChild(pendingSeed);
+    if (t.id === "build") body.appendChild(buildPrintRows());
     if (advanced) body.appendChild(advanced.cluster);
-    if (g.id === "make") body.appendChild(buildMake(handlers));
+    if (t.id === "files") body.appendChild(buildProjectFile());
   }
+  selectTab(activeTab);
 
   const strip = document.getElementById("dimension-strip");
   const barEl = document.getElementById("bottombar");
@@ -659,6 +696,10 @@ export function createPanel(panelEl, handlers) {
   let copyFeedbackTimer = null;
   let lastVolumeCm3 = null;
   let pinnedEdgeText = "";
+  /** @type {object|null} last state shown, for the tab captions */
+  let lastState = null;
+  /** The job in use; null means Print. @type {object|null} */
+  let job = null;
 
   saveBtn?.addEventListener("click", () => handlers.onSave());
   exportBtn?.addEventListener("click", () => handlers.onExport());
@@ -714,6 +755,12 @@ export function createPanel(panelEl, handlers) {
     strip.classList.remove("err");
   }
 
+  function paintCaptions() {
+    if (!lastState) return;
+    const words = tabCaptions({ state: lastState, job });
+    for (const [id, tab] of tabs) tab.caption.textContent = words[id] ?? "";
+  }
+
   function setSegment(key, value) {
     panelEl.querySelectorAll(`[data-seg-key="${key}"]`).forEach((btn) => {
       btn.setAttribute(
@@ -734,6 +781,8 @@ export function createPanel(panelEl, handlers) {
       if (lim) applyLimits(lim, ranges, limitLabels, CONTROL_DEFS);
 
       if (state) {
+        lastState = state;
+        paintCaptions();
         circumdiameter = state.circumdiameterMm;
         applyStateToControls(state, inputs, ranges, controlRoots, CONTROL_DEFS);
         setSegment("depth", state.depth);
@@ -799,8 +848,11 @@ export function createPanel(panelEl, handlers) {
 
       for (const [, node] of errNodes) node.textContent = "";
       for (const [, root] of controlRoots) root.classList.remove("has-error");
+      for (const [, tab] of tabs) tab.button.removeAttribute("data-marked");
       if (validation && !validation.ok) {
         for (const err of validation.errors) {
+          const marked = tabs.get(tabOfKey(err.key));
+          if (marked) marked.button.dataset.marked = "1";
           const at = err.key === "borderMm" ? "borderFraction" : err.key;
           const root = controlRoots.get(at);
           const msg = errNodes.get(at);
@@ -824,6 +876,14 @@ export function createPanel(panelEl, handlers) {
     setHeavy(on) {
       sched.setHeavy(!!on);
     },
+
+    /** The job in use, for the Build caption; null means Print. */
+    setJob(next) {
+      job = next;
+      paintCaptions();
+    },
+
+    selectTab,
 
     /**
      * With no model on screen, say in the viewport why nothing built and
@@ -968,13 +1028,18 @@ function safeThumb(state) {
   }
 }
 
-function buildMake(_handlers) {
+/** Rows only Print has that aren't state: resting face, material, mass. */
+function buildPrintRows() {
   const box = el("div", { className: "actions" });
   const warn = el("p", { className: "hint base-warn", textContent: "" });
   warn.setAttribute("data-base-warn", "");
   warn.hidden = true;
   box.appendChild(warn);
 
+  const faceRow = el("div", { className: "face-row" });
+  faceRow.setAttribute("data-face-row", "");
+  const faceLabel = el("div", { className: "face-label", textContent: "Rests on" });
+  faceLabel.setAttribute("data-face-label", "");
   const stepper = el("div", { className: "face-stepper" });
   stepper.setAttribute("data-face-stepper", "");
   const familyBtn = el("button", {
@@ -990,16 +1055,17 @@ function buildMake(_handlers) {
   const next = el("button", { type: "button", className: "btn-quiet", textContent: "→" });
   next.setAttribute("data-face-next", "");
   next.setAttribute("aria-label", "Next face in family");
-  const readout = el("span", { className: "face-readout", textContent: "Face: —" });
+  const readout = el("span", { className: "face-readout", textContent: "—" });
   readout.setAttribute("data-face-readout", "");
   stepper.append(familyBtn, prev, readout, next);
-  box.appendChild(stepper);
-  box.appendChild(
+  faceRow.append(faceLabel, stepper);
+  faceRow.appendChild(
     el("p", {
       className: "hint",
       textContent: "Click a face on the model, or step within a family.",
     }),
   );
+  box.appendChild(faceRow);
 
   const matRow = el("div", { className: "control-row control-row--material" });
   matRow.appendChild(el("label", { textContent: "Material" }));
@@ -1020,19 +1086,23 @@ function buildMake(_handlers) {
   mass.setAttribute("data-mass-readout", "");
   massRow.appendChild(mass);
   box.appendChild(massRow);
+  return box;
+}
 
-  box.appendChild(el("div", { className: "group-subheader", textContent: "JSON Model File" }));
+function buildProjectFile() {
+  const box = el("div", { className: "actions" });
+  box.appendChild(el("div", { className: "group-subheader", textContent: "Project" }));
   const save = el("button", {
     type: "button",
     className: "btn",
     id: "btn-save",
-    textContent: "Export",
+    textContent: "Save",
   });
   const open = el("button", {
     type: "button",
     className: "btn",
     id: "btn-open",
-    textContent: "Load",
+    textContent: "Open",
     hidden: true,
   });
   box.append(save, open);
@@ -1060,7 +1130,7 @@ export function estimateMassG(volumeCm3, densityGPerCm3) {
 function updateFaceStepper(stepper, readout, loc, multiFamily) {
   if (!stepper || !readout || !loc?.family) return;
   const { family, indexInFamily } = loc;
-  readout.textContent = `Face: ${family.label} · ${indexInFamily + 1} of ${family.indices.length}`;
+  readout.textContent = `${family.label} · ${indexInFamily + 1} of ${family.indices.length}`;
   readout.dataset.faceIndex = String(family.indices[indexInFamily]);
   const famBtn = stepper.querySelector("[data-face-family]");
   if (famBtn) {

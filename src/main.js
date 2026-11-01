@@ -950,6 +950,7 @@ const sheetMockup = new URLSearchParams(location.search).has("sheet")
       getLast: () => last,
       applyPatch,
       download: downloadBlob,
+      setJob: (job) => ui.setJob(job),
     })
   : null;
 

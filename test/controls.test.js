@@ -106,12 +106,11 @@ describe("panel policy helpers", () => {
         this.data[k] = String(v);
       },
     };
-    saveGroupsOpen({ shape: false, form: true }, store);
+    saveGroupsOpen({ jitter: true, "build-advanced": false }, store);
     assert.ok(store.data[GROUPS_OPEN_KEY]);
     const loaded = loadGroupsOpen(store);
-    assert.equal(loaded.shape, false);
-    assert.equal(loaded.form, true);
-    assert.equal(loaded.make, true);
+    assert.equal(loaded.jitter, true);
+    assert.equal(loaded["build-advanced"], false);
   });
 
   it("estimates mass from volume × density", () => {
@@ -306,7 +305,6 @@ describe("typed values and drag scheduling", () => {
   it("jitter cluster starts folded", () => {
     const store = { getItem: () => null, setItem() {} };
     assert.equal(loadGroupsOpen(store).jitter, false);
-    assert.equal(loadGroupsOpen(store).shape, true);
   });
 });
 

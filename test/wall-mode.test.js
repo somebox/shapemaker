@@ -71,7 +71,7 @@ describe("wallMode", () => {
   it("is canonical state with an Even default and a Form control", () => {
     assert.equal(DEFAULT_STATE.wallMode, "even");
     const def = CONTROL_DEFS.find((d) => d.key === "wallMode");
-    assert.equal(def.group, "form");
+    assert.equal(def.group, "build");
     assert.equal(def.inertWhen({ depth: "solid" }), true);
     assert.equal(decodeHash(encodeHash(DEFAULT_STATE)).state.wallMode, "even");
   });
