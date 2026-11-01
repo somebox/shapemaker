@@ -2,13 +2,13 @@ import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { installDom, memoryStore, visible } from "./mini-dom.js";
 import { CONTROL_DEFS, PRINT_KEYS, normalizeState } from "../src/schema.js";
-import { TABS, tabOfKey, tabCaptions, validTab } from "../src/panel-model.js";
+import { TABS, tabOfKey, tabCaptions, validTab, markedTabs, statusHeadline, geometryLines, warningLine } from "../src/panel-model.js";
 import { createPanel, PANEL_TAB_KEY } from "../src/ui.js";
 import { isWideField } from "../src/controls.js";
 import { JOB_DEFS } from "../src/production/job.js";
 
 const noop = () => {};
-const handlers = (over = {}) => ({ onPatch: noop, onNameChange: noop, onSave: noop, onExport: noop, ...over });
+const handlers = (over = {}) => ({ onPatch: noop, onNameChange: noop, onSave: noop, ...over });
 const state = (over = {}) => ({ ...normalizeState({}), ...over });
 
 function mount({ store = memoryStore(), on = {} } = {}) {
@@ -44,7 +44,9 @@ describe("what each tab holds", () => {
 describe("tab captions", () => {
   it("say the design at a glance", () => {
     const words = tabCaptions({ state: state({ circumdiameterMm: 142, borderFraction: 0.36, wallMm: 2.4 }) });
-    assert.deepEqual(words, { shape: "142 mm", openings: "36% border", build: "Print 2.4 mm" });
+    assert.deepEqual(words, { shape: "142 mm", openings: "36% border", build: "Print 2.4 mm", files: "0 files" });
+    assert.equal(tabCaptions({ state: state(), fileCount: 1 }).files, "1 file");
+    assert.equal(tabCaptions({ state: state(), fileCount: 3 }).files, "3 files");
   });
 
   it("follow a closed, solid or legacy-border design", () => {
@@ -204,5 +206,206 @@ describe("panel controls", () => {
     range.value = "3";
     range.dispatch("change");
     assert.deepEqual(patches.at(-1), [{ wallMm: 3 }, { commit: true }]);
+  });
+});
+
+const metrics = (over = {}) => ({
+  extentsMm: [95.1, 100, 85.1],
+  wallMm: { min: 1.4, max: 1.5 },
+  longestHorizontalMm: 30.9,
+  volumeCm3: 24.51,
+  triangleCount: 7280,
+  watertight: true,
+  edgeMm: { mean: 30.9 },
+  limits: null,
+  ...over,
+});
+const valid = (warnings = []) => ({ ok: true, errors: [], warnings });
+const statusOf = (doc) => doc.getElementById("status-line");
+
+describe("status words", () => {
+  it("lead with the size and the wall", () => {
+    assert.equal(statusHeadline(metrics()), "95.1×100×85.1 mm · wall 1.4–1.5");
+    assert.equal(statusHeadline(metrics({ wallMm: { min: null } })), "95.1×100×85.1 mm · solid");
+  });
+
+  it("leave the geometry detail for Files", () => {
+    assert.deepEqual(geometryLines(metrics()), ["longest flat 30.9 mm · 24.5 cm³", "mesh 7,280 tris · watertight ✓"]);
+  });
+
+  it("count the warnings past the first", () => {
+    assert.equal(warningLine(["a"]), "▲ a");
+    assert.equal(warningLine(["a", "b", "c"]), "▲ a (+2)");
+  });
+
+  it("mark tabs by a problem's key and a fix's patch", () => {
+    assert.deepEqual([...markedTabs([{ key: "wallMm" }, { key: "project" }, {}])], ["build"]);
+    assert.deepEqual([...markedTabs([], [{ patch: { borderFraction: 0.8 } }])], ["openings"]);
+  });
+});
+
+describe("status line", () => {
+  it("says the result", () => {
+    const { doc, ui } = mount();
+    ui.setResult({ state: state(), metrics: metrics(), validation: valid() });
+    assert.match(statusOf(doc).textContent, /^95\.1×100×85\.1 mm · wall/);
+  });
+
+  it("adds a picked edge", () => {
+    const { doc, ui } = mount();
+    ui.setResult({ state: state(), metrics: metrics(), validation: valid() });
+    ui.setSelectedEdge(31.2);
+    assert.match(statusOf(doc).textContent, /edge 31\.2 mm/);
+  });
+
+  it("shows a warning and marks the tab that causes it", () => {
+    const { doc, panelEl, ui } = mount();
+    ui.setResult({ state: state(), metrics: metrics(), validation: valid([{ key: "openingAxis", message: "2 faces stay closed" }]) });
+    assert.match(statusOf(doc).textContent, /▲ 2 faces stay closed/);
+    assert.equal(tabButton(panelEl, "build").dataset.marked, "1");
+    ui.setResult({ state: state(), metrics: metrics(), validation: valid() });
+    assert.equal(tabButton(panelEl, "build").dataset.marked, undefined);
+    assert.ok(!statusOf(doc).textContent.includes("▲"));
+  });
+
+  it("carries a warning that came with the edit", () => {
+    const { doc, ui } = mount();
+    ui.setResult({ state: state(), metrics: metrics(), validation: valid() }, { warnings: ["Some settings were reduced"] });
+    assert.match(statusOf(doc).textContent, /Some settings were reduced/);
+  });
+
+  it("says a failed build even when old metrics are still on screen", () => {
+    const { doc, ui } = mount();
+    ui.setResult({ state: state(), metrics: metrics(), validation: valid() });
+    const fail = { ok: false, errors: [{ key: "wallMm", message: "too thick", clampTo: 2 }], warnings: [] };
+    ui.setResult({ state: state(), metrics: metrics(), validation: fail }, { invalid: true });
+    assert.match(statusOf(doc).textContent, /Wall: too thick/);
+    assert.ok(!statusOf(doc).textContent.includes("95.1"));
+  });
+
+  it("offers a failed build's fix, which lands as a patch", () => {
+    const patches = [];
+    const { doc, ui } = mount({ on: { onPatch: (p) => patches.push(p) } });
+    const fail = { ok: false, errors: [{ key: "wallMm", message: "too thick", clampTo: 2 }], warnings: [] };
+    ui.setResult({ state: state(), validation: fail }, { invalid: true });
+    const fix = statusOf(doc).querySelector(".control-fix");
+    assert.equal(fix.textContent, "Use 2 mm");
+    fix.click();
+    assert.deepEqual(patches, [{ wallMm: 2 }]);
+  });
+
+  it("gives way to a job, and comes back", () => {
+    const { doc, panelEl, ui } = mount();
+    ui.setResult({ state: state(), metrics: metrics(), validation: valid() });
+    ui.setJobStatus({ headline: "32 panels", warnings: ["faces closed"], fixes: [{ label: "Use Border 80", patch: { borderFraction: 0.8 } }], geometry: ["edges 90–120°"] });
+    assert.match(statusOf(doc).textContent, /^32 panels/);
+    assert.equal(tabButton(panelEl, "openings").dataset.marked, "1");
+    assert.match(tabBody(panelEl, "files").textContent, /edges 90–120°/);
+    ui.setJobStatus(null);
+    assert.match(statusOf(doc).textContent, /^95\.1/);
+    assert.equal(tabButton(panelEl, "openings").dataset.marked, undefined);
+  });
+});
+
+describe("Files tab", () => {
+  const file = (name, run = noop) => ({ group: "3D print", name, detail: "d", run });
+
+  it("lists what the design makes, and runs a download", () => {
+    let ran = 0;
+    const { panelEl, ui } = mount();
+    ui.setFiles({ files: [file("a.stl", () => ran++), { ...file("a.svg"), group: "Drawing" }] });
+    const rows = panelEl.querySelectorAll(".file-row");
+    assert.deepEqual(rows.map((r) => r.querySelector(".file-name").textContent), ["a.stl", "a.svg"]);
+    rows[0].querySelector("button").click();
+    assert.equal(ran, 1);
+  });
+
+  it("staggers Download all, so browsers keep every file", async (t) => {
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    const ran = [];
+    const { panelEl, ui } = mount();
+    ui.setFiles({ files: [file("a", () => ran.push("a")), file("b", () => ran.push("b"))] });
+    panelEl.querySelector("section[data-tab=\"files\"] .btn-accent").click();
+    t.mock.timers.tick(0);
+    assert.deepEqual(ran, ["a"]);
+    t.mock.timers.tick(200);
+    assert.deepEqual(ran, ["a", "b"]);
+  });
+
+  it("captions the count, and says why it's empty", () => {
+    const { panelEl, ui } = mount();
+    ui.setResult({ state: state() });
+    ui.setFiles({ files: [file("a"), file("b")] });
+    assert.equal(tabButton(panelEl, "files").querySelector(".panel-tab-caption").textContent, "2 files");
+    ui.setFiles({ files: [] });
+    assert.match(tabBody(panelEl, "files").textContent, /Nothing to export/);
+  });
+
+  it("keeps the geometry and Share here", () => {
+    const { panelEl, ui } = mount();
+    ui.setResult({ state: state(), metrics: metrics(), validation: valid() });
+    assert.match(tabBody(panelEl, "files").textContent, /longest flat 30\.9 mm/);
+    assert.ok(tabBody(panelEl, "files").querySelector("#btn-share"));
+  });
+
+  it("is where Export goes, and Export stands down there", () => {
+    const { doc, panelEl } = mount();
+    const exportBtn = doc.getElementById("bottombar").querySelector("#btn-export");
+    exportBtn.click();
+    assert.ok(visible(tabBody(panelEl, "files")));
+    assert.equal(exportBtn.hidden, true);
+    tabButton(panelEl, "shape").click();
+    assert.equal(exportBtn.hidden, false);
+  });
+});
+
+describe("Split lock", () => {
+  it("locks three tabs and leaves Files live", () => {
+    const { panelEl, ui } = mount();
+    ui.setLocked(true);
+    for (const id of ["shape", "openings", "build"]) assert.equal(tabBody(panelEl, id).inert, true, id);
+    assert.equal(tabBody(panelEl, "files").inert, false);
+    assert.ok(visible(tabBody(panelEl, "files")));
+    assert.equal(panelEl.querySelector("#btn-open").disabled, true);
+  });
+
+  it("says why when you look at a locked tab", () => {
+    const { panelEl, ui } = mount();
+    ui.setLocked(true);
+    const note = panelEl.querySelector(".panel-lock-note");
+    assert.equal(note.hidden, true);
+    tabButton(panelEl, "build").click();
+    assert.equal(note.hidden, false);
+  });
+
+  it("goes back to the tab you were on, and doesn't remember Files", () => {
+    const { panelEl, store, ui } = mount();
+    tabButton(panelEl, "openings").click();
+    ui.setLocked(true);
+    assert.equal(store.data[PANEL_TAB_KEY], "openings");
+    ui.setLocked(false);
+    assert.ok(visible(tabBody(panelEl, "openings")));
+    assert.equal(tabBody(panelEl, "openings").inert, false);
+    assert.equal(panelEl.querySelector("#btn-open").disabled, false);
+  });
+
+  it("locks the project's name and Undo too", () => {
+    const { doc, ui } = mount();
+    ui.setProjectStatus({ name: "x", dirty: false, canSave: true, canUndo: true });
+    ui.setLocked(true);
+    assert.equal(doc.getElementById("project-name").disabled, true);
+    ui.setProjectStatus({ name: "x", dirty: false, canSave: true, canUndo: true });
+    assert.equal(doc.getElementById("app-header").querySelector(".undo-chip").disabled, true);
+  });
+
+  it("ignores a repeat, so an unlock can't lose the tab", () => {
+    const { panelEl, ui } = mount();
+    tabButton(panelEl, "build").click();
+    ui.setLocked(false);
+    assert.ok(visible(tabBody(panelEl, "build")));
+    ui.setLocked(true);
+    ui.setLocked(true);
+    ui.setLocked(false);
+    assert.ok(visible(tabBody(panelEl, "build")));
   });
 });

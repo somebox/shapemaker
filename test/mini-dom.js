@@ -247,7 +247,7 @@ export function installDom({ store = memoryStore(), href = "http://test/#x" } = 
   add(app, "div", "canvas-host");
   add(app, "aside", "panel");
   const bar = add(app, "footer", "bottombar");
-  add(bar, "div", "dimension-strip");
+  add(bar, "div", "status-line");
   add(bar, "div", "busy");
   Object.assign(globalThis, {
     document: doc,

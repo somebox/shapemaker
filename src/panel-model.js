@@ -57,13 +57,45 @@ export function openingsCaption(state) {
 
 /**
  * What each tab's caption says, so a design reads at a glance.
- * @param {{ state: object, job?: object | null }} args
+ * @param {{ state: object, job?: object | null, fileCount?: number }} args
  * @returns {Record<string, string>} by tab id
  */
-export function tabCaptions({ state, job = null }) {
+export function tabCaptions({ state, job = null, fileCount = 0 }) {
   return {
     shape: `${fmt(state.circumdiameterMm)} mm`,
     openings: openingsCaption(state),
     build: buildCaption(state, job),
+    files: fileCount === 1 ? "1 file" : `${fileCount} files`,
   };
+}
+
+/**
+ * The tabs a set of problems points at: each error or warning by its key, and
+ * each offered fix by what it changes.
+ * @param {{ key?: string }[]} [problems]
+ * @param {{ patch: object }[]} [fixes]
+ * @returns {Set<string>}
+ */
+export function markedTabs(problems = [], fixes = []) {
+  const keys = [...problems.map((p) => p.key), ...fixes.flatMap((f) => Object.keys(f.patch))];
+  return new Set(keys.map(tabOfKey).filter(Boolean));
+}
+
+/** The status line's first words: the result, and the wall it came out with. */
+export function statusHeadline(m) {
+  const size = `${fmt(m.extentsMm[0])}×${fmt(m.extentsMm[1])}×${fmt(m.extentsMm[2])} mm`;
+  return `${size} · ${m.wallMm.min != null ? `wall ${fmt(m.wallMm.min)}–${fmt(m.wallMm.max)}` : "solid"}`;
+}
+
+/** The geometry behind the headline, for the Files tab. */
+export function geometryLines(m) {
+  return [
+    `longest flat ${fmt(m.longestHorizontalMm)} mm · ${m.volumeCm3.toFixed(1)} cm³`,
+    `mesh ${m.triangleCount.toLocaleString("en-US")} tris · watertight ${m.watertight ? "✓" : "✗"}`,
+  ];
+}
+
+/** First warning, and how many more; `Warnings` in Files lists them all. */
+export function warningLine(warnings) {
+  return warnings.length > 1 ? `▲ ${warnings[0]} (+${warnings.length - 1})` : `▲ ${warnings[0]}`;
 }

@@ -10,7 +10,15 @@ import {
   isEdgeInputReadOnly,
 } from "./schema.js";
 import { faceFamilies, locateFace } from "./face-families.js";
-import { TABS, tabOfKey, tabCaptions, validTab } from "./panel-model.js";
+import {
+  TABS,
+  tabCaptions,
+  validTab,
+  markedTabs,
+  statusHeadline,
+  geometryLines,
+  warningLine,
+} from "./panel-model.js";
 import { BASES, BASE_IDS } from "./bases.js";
 import { recipeForBase } from "./starts.js";
 import { startThumbSvg } from "./start-thumbs.js";
@@ -121,12 +129,27 @@ export function createPanel(panelEl, handlers) {
   const tabBar = el("div", { className: "panel-tabs", role: "tablist", "aria-label": "Panel" });
   const scroll = el("div", { id: "panel-scroll" });
   panelEl.append(tabBar, scroll);
+  const lockNote = el("p", {
+    className: "panel-lock-note",
+    textContent: "Split preview — controls locked. Turn off Split in the viewer to edit.",
+    hidden: true,
+  });
+  scroll.appendChild(lockNote);
+  const exportBtn = el("button", {
+    type: "button",
+    className: "btn btn-accent",
+    id: "btn-export",
+    textContent: "Export",
+  });
+  exportBtn.addEventListener("click", () => selectTab("files"));
 
   /** @type {Map<string, { button: HTMLElement, caption: HTMLElement, body: HTMLElement, scrollTop: number }>} */
   const tabs = new Map();
   let activeTab = loadPanelTab();
+  /** The tab to go back to when Split lets go; null while unlocked. */
+  let tabBeforeLock = null;
 
-  function selectTab(id) {
+  function selectTab(id, { remember = true } = {}) {
     const from = tabs.get(activeTab);
     if (from && id !== activeTab) from.scrollTop = scroll.scrollTop;
     activeTab = id;
@@ -137,7 +160,9 @@ export function createPanel(panelEl, handlers) {
       tab.button.tabIndex = on ? 0 : -1;
     }
     scroll.scrollTop = tabs.get(id).scrollTop;
-    savePanelTab(id);
+    if (remember) savePanelTab(id);
+    exportBtn.hidden = id === "files";
+    lockNote.hidden = tabBeforeLock == null || id === "files";
   }
 
   for (const t of TABS) {
@@ -397,18 +422,32 @@ export function createPanel(panelEl, handlers) {
     if (pendingSeed) (jitter?.body ?? body).appendChild(pendingSeed);
     if (t.id === "build") body.appendChild(buildPrintRows());
     if (advanced) body.appendChild(advanced.cluster);
-    if (t.id === "files") body.appendChild(buildProjectFile());
   }
-  selectTab(activeTab);
 
-  const strip = document.getElementById("dimension-strip");
-  const barEl = document.getElementById("bottombar");
+  // Files: what this design makes, then the geometry, then the project.
+  const fileIntro = el("p", { className: "hint", hidden: true });
+  const fileList = el("div", { className: "file-list" });
+  const downloadAll = el("button", { type: "button", className: "btn btn-accent", hidden: true });
+  const fileNotes = el("div", { className: "file-notes" });
+  const geometry = el("div", { className: "file-geometry" });
+  const project = buildProjectFile();
+  tabs.get("files").body.append(fileIntro, fileList, downloadAll, fileNotes, geometry, project);
+  /** @type {{ run: () => void }[]} */
+  let files = [];
+  downloadAll.addEventListener("click", () => {
+    // Staggered: browsers coalesce or block clicks in the same tick.
+    files.forEach((f, i) => setTimeout(() => f.run(), i * 200));
+  });
+
+  const strip = document.getElementById("status-line");
+  const stripHead = el("div", { className: "status-head", textContent: "compiling…" });
+  const stripProblem = el("div", { className: "status-problem", hidden: true });
+  strip?.replaceChildren(stripHead, stripProblem);
   // Viewport note for a design that has never built (a broken link or file):
   // without it the viewport is an empty grid.
   const emptyNote = el("div", { className: "empty-note", role: "status" });
   emptyNote.hidden = true;
   document.getElementById("canvas-host")?.appendChild(emptyNote);
-  const shareWrap = el("div", { className: "share-wrap" });
   const shareBtn = el("button", {
     type: "button",
     className: "btn",
@@ -423,20 +462,9 @@ export function createPanel(panelEl, handlers) {
     textContent: "Copy",
   });
   sharePanel.append(shareUrl, shareCopy);
-  shareWrap.append(shareBtn, sharePanel);
-  const exportBtn = el("button", {
-    type: "button",
-    className: "btn btn-accent",
-    id: "btn-export",
-    textContent: "Export STL",
-  });
-  const exportSvgBtn = el("button", {
-    type: "button",
-    className: "btn",
-    id: "btn-export-svg",
-    textContent: "Export SVG",
-  });
-  barEl?.append(shareWrap, exportBtn, exportSvgBtn);
+  project.append(shareBtn, sharePanel);
+  document.getElementById("bottombar")?.append(exportBtn);
+  selectTab(activeTab);
 
   function truncateUrl(url, max = 42) {
     if (url.length <= max) return url;
@@ -683,7 +711,6 @@ export function createPanel(panelEl, handlers) {
 
   const faceReadout = panelEl.querySelector("[data-face-readout]");
   const faceStepper = panelEl.querySelector("[data-face-stepper]");
-  const warnLine = panelEl.querySelector("[data-base-warn]");
   const saveBtn = panelEl.querySelector("#btn-save");
   const openBtn = panelEl.querySelector("#btn-open");
   const materialSel = panelEl.querySelector("[data-material]");
@@ -700,10 +727,16 @@ export function createPanel(panelEl, handlers) {
   let lastState = null;
   /** The job in use; null means Print. @type {object|null} */
   let job = null;
+  /** What Print's status says, from the last result. */
+  let printStatus = { headline: "", warnings: [], fixes: [], geometry: [] };
+  /** The latest build's errors, which outrank everything else on the line. */
+  let statusErrors = [];
+  /** What a job's status says, in place of Print's; null in Print. @type {object|null} */
+  let jobStatus = null;
+  /** @type {{ key?: string, message: string }[]} keyed problems behind the marks */
+  let problems = [];
 
   saveBtn?.addEventListener("click", () => handlers.onSave());
-  exportBtn?.addEventListener("click", () => handlers.onExport());
-  exportSvgBtn?.addEventListener("click", () => handlers.onExportSvg?.());
   openBtn?.addEventListener("click", () => handlers.onOpen?.());
 
   materialSel?.addEventListener("change", () => {
@@ -748,16 +781,50 @@ export function createPanel(panelEl, handlers) {
     queuePatch({ faceIndex: cur.indices[nextK] }, true);
   }
 
-  function paintStrip() {
-    if (!strip || !lastStripCore) return;
-    const [line1, ...rest] = lastStripCore.split("\n");
-    strip.textContent = [line1 + pinnedEdgeText, ...rest].join("\n");
-    strip.classList.remove("err");
+  /** The fix buttons a problem offers, as `{ label, patch }`. */
+  function fixButton({ label, patch }) {
+    const btn = el("button", { type: "button", className: "control-fix", textContent: label });
+    btn.addEventListener("click", () => handlers.onPatch(patch, { commit: true }));
+    return btn;
+  }
+
+  function paintStatus() {
+    if (!strip) return;
+    const shown = jobStatus ?? printStatus;
+    const failed = statusErrors.length > 0;
+    stripHead.textContent = failed ? stripErrorText(statusErrors) : shown.error ?? shown.headline + (jobStatus ? "" : pinnedEdgeText);
+    stripHead.classList.toggle("err", failed || !!shown.error);
+    const warnings = failed ? [] : shown.warnings;
+    const fixes = failed
+      ? statusErrors.map((e) => fixPatch(e, CONTROL_DEFS)).filter(Boolean).slice(0, 1).map((f) => ({ ...f, label: `Use ${f.label}` }))
+      : shown.fixes;
+    stripProblem.replaceChildren();
+    stripProblem.hidden = !warnings.length && !fixes.length;
+    if (warnings.length) {
+      stripProblem.append(el("span", { className: "status-warning", title: warnings.join("\n"), textContent: warningLine(warnings) }));
+    }
+    stripProblem.append(...fixes.map(fixButton));
+
+    const marks = markedTabs(failed ? statusErrors : problems, fixes);
+    for (const [id, tab] of tabs) {
+      if (marks.has(id)) tab.button.dataset.marked = "1";
+      else tab.button.removeAttribute("data-marked");
+    }
+
+    geometry.replaceChildren();
+    if (shown.geometry.length) {
+      geometry.append(el("div", { className: "group-subheader", textContent: "Geometry" }));
+      for (const line of shown.geometry) geometry.append(el("div", { className: "file-geometry-line", textContent: line }));
+    }
+    if (shown.warnings.length > 1) {
+      geometry.append(el("div", { className: "group-subheader", textContent: "Warnings" }));
+      for (const w of shown.warnings) geometry.append(el("p", { className: "hint status-warning", textContent: w }));
+    }
   }
 
   function paintCaptions() {
     if (!lastState) return;
-    const words = tabCaptions({ state: lastState, job });
+    const words = tabCaptions({ state: lastState, job, fileCount: files.length });
     for (const [id, tab] of tabs) tab.caption.textContent = words[id] ?? "";
   }
 
@@ -826,12 +893,6 @@ export function createPanel(panelEl, handlers) {
         updateFaceStepper(faceStepper, faceReadout, loc, families.length > 1);
       }
 
-      if (warnLine) {
-        const msg = warnings?.[0] || "";
-        warnLine.textContent = msg;
-        warnLine.hidden = !msg;
-      }
-
       if (metrics) {
         edgeMean = metrics.edgeMm.mean;
         lastVolumeCm3 = metrics.volumeCm3;
@@ -840,19 +901,21 @@ export function createPanel(panelEl, handlers) {
           edgeInput.value = fmtInput(metrics.edgeMm.mean);
         }
         updateMassReadout();
-        lastStripCore = formatStripCore(metrics, validation);
-        paintStrip();
-      } else if (invalid && validation) {
-        updateStripErrors(strip, validation);
+        problems = validation?.warnings ?? [];
+        printStatus = {
+          headline: statusHeadline(metrics),
+          warnings: [...(warnings ?? []), ...problems.map((w) => w.message)],
+          fixes: [],
+          geometry: geometryLines(metrics),
+        };
       }
+      statusErrors = invalid && validation ? validation.errors : [];
+      paintStatus();
 
       for (const [, node] of errNodes) node.textContent = "";
       for (const [, root] of controlRoots) root.classList.remove("has-error");
-      for (const [, tab] of tabs) tab.button.removeAttribute("data-marked");
       if (validation && !validation.ok) {
         for (const err of validation.errors) {
-          const marked = tabs.get(tabOfKey(err.key));
-          if (marked) marked.button.dataset.marked = "1";
           const at = err.key === "borderMm" ? "borderFraction" : err.key;
           const root = controlRoots.get(at);
           const msg = errNodes.get(at);
@@ -880,6 +943,50 @@ export function createPanel(panelEl, handlers) {
     /** The job in use, for the Build caption; null means Print. */
     setJob(next) {
       job = next;
+      paintCaptions();
+    },
+
+    /**
+     * What a job's status says, in place of Print's; null goes back to it.
+     * @param {{ headline: string, error?: string, warnings: string[], fixes: { label: string, patch: object }[], geometry: string[] } | null} status
+     */
+    setJobStatus(status) {
+      jobStatus = status;
+      paintStatus();
+    },
+
+    /**
+     * What this design makes, for the Files tab.
+     * @param {{ intro?: string, files: { group: string, name: string, detail: string, thumb?: () => string, run: () => void }[], notes?: string[] }} view
+     */
+    setFiles({ intro = "", files: next, notes = [] }) {
+      files = next;
+      fileIntro.textContent = intro;
+      fileIntro.hidden = !intro;
+      fileList.replaceChildren();
+      if (!files.length) fileList.append(el("p", { className: "hint", textContent: "Nothing to export until the design builds." }));
+      let group = null;
+      for (const f of files) {
+        if (f.group !== group) {
+          group = f.group;
+          fileList.append(el("div", { className: "group-subheader", textContent: group }));
+        }
+        const row = el("div", { className: "file-row" });
+        const text = el("div", { className: "file-text" });
+        text.append(el("div", { className: "file-name", textContent: f.name }), el("div", { className: "file-detail", textContent: f.detail }));
+        const get = el("button", { type: "button", className: "btn", textContent: "↓", title: "Download", "aria-label": `Download ${f.name}` });
+        get.addEventListener("click", () => f.run());
+        if (f.thumb) {
+          const thumb = el("div", { className: "file-thumb" });
+          thumb.innerHTML = f.thumb();
+          row.append(thumb);
+        }
+        row.append(text, get);
+        fileList.append(row);
+      }
+      downloadAll.hidden = files.length < 2;
+      downloadAll.textContent = `Download all (${files.length})`;
+      fileNotes.replaceChildren(...notes.map((n) => el("p", { className: "hint", textContent: n })));
       paintCaptions();
     },
 
@@ -924,13 +1031,13 @@ export function createPanel(panelEl, handlers) {
       sessionMode.textContent = dirty ? "Edit" : "Browse";
       sessionMode.setAttribute("data-mode", dirty ? "edit" : "browse");
       if (saveBtn) saveBtn.disabled = !canSave;
-      undoBtn.disabled = !canUndo;
+      undoBtn.disabled = !canUndo || tabBeforeLock != null;
     },
 
     setSelectedEdge(lengthMm) {
       pinnedEdgeText =
         lengthMm == null ? "" : ` · edge ${fmt(lengthMm)} mm`;
-      paintStrip();
+      paintStatus();
     },
 
     setActionsVisible({ open }) {
@@ -938,29 +1045,20 @@ export function createPanel(panelEl, handlers) {
     },
 
     /**
-     * Lock the scrollable panel (Split preview). Uses native `inert` so
-     * pointer AND keyboard/focus are blocked; bottom bar stays live.
+     * Lock the panel for a Split preview, all but Files, where the two
+     * halves are. Native `inert` blocks pointer AND keyboard/focus.
      * @param {boolean} on
      */
     setLocked(on) {
-      scroll.inert = !!on;
+      if (on === (tabBeforeLock != null)) return;
       panelEl.dataset.locked = on ? "1" : "0";
-      let note = panelEl.querySelector(".panel-lock-note");
-      if (on) {
-        if (!note) {
-          note = el("p", {
-            className: "panel-lock-note",
-            textContent:
-              "Split preview — controls locked. Turn off Split in the viewer to edit.",
-          });
-          panelEl.insertBefore(note, scroll);
-        }
-        note.hidden = false;
-        exportSvgBtn.title = "Exports the unsplit model (SVG is view-based)";
-      } else {
-        if (note) note.hidden = true;
-        exportSvgBtn.removeAttribute("title");
-      }
+      for (const [id, tab] of tabs) if (id !== "files") tab.body.inert = on;
+      nameInput.disabled = on;
+      undoBtn.disabled = on;
+      if (openBtn) openBtn.disabled = on;
+      const back = tabBeforeLock;
+      tabBeforeLock = on ? activeTab : null;
+      selectTab(on ? "files" : back, { remember: false });
     },
 
     setCopyFeedback(ok) {
@@ -1031,11 +1129,6 @@ function safeThumb(state) {
 /** Rows only Print has that aren't state: resting face, material, mass. */
 function buildPrintRows() {
   const box = el("div", { className: "actions" });
-  const warn = el("p", { className: "hint base-warn", textContent: "" });
-  warn.setAttribute("data-base-warn", "");
-  warn.hidden = true;
-  box.appendChild(warn);
-
   const faceRow = el("div", { className: "face-row" });
   faceRow.setAttribute("data-face-row", "");
   const faceLabel = el("div", { className: "face-label", textContent: "Rests on" });
@@ -1105,7 +1198,9 @@ function buildProjectFile() {
     textContent: "Open",
     hidden: true,
   });
-  box.append(save, open);
+  const row = el("div", { className: "file-actions" });
+  row.append(save, open);
+  box.append(row);
   return box;
 }
 
@@ -1140,20 +1235,6 @@ function updateFaceStepper(stepper, readout, loc, multiFamily) {
 }
 
 
-function formatStripCore(m, validation) {
-  const line1 =
-    `dimensions  ${fmt(m.extentsMm[0])}×${fmt(m.extentsMm[1])}×${fmt(m.extentsMm[2])} mm` +
-    (m.wallMm.min != null ? ` · wall ${fmt(m.wallMm.min)}–${fmt(m.wallMm.max)}` : " · solid") +
-    ` · longest flat ${fmt(m.longestHorizontalMm)} mm`;
-  const line2 =
-    `mesh  ${m.triangleCount.toLocaleString("en-US")} tris` +
-    ` · watertight ${m.watertight ? "✓" : "✗"}` +
-    ` · ${m.volumeCm3.toFixed(1)} cm³`;
-  const warn =
-    validation?.warnings?.map((w) => `\n${w.message}`).join("") || "";
-  return line1 + "\n" + line2 + warn;
-}
-
 /** Error keys that no control carries, named after the control they belong to. */
 const ERROR_LABELS = new Map([
   ...CONTROL_DEFS.map((d) => [d.key, d.label]),
@@ -1174,11 +1255,4 @@ export function stripErrorText(errors) {
       return label && !e.message.startsWith(label) ? `${label}: ${e.message}` : e.message;
     })
     .join("\n");
-}
-
-function updateStripErrors(strip, validation) {
-  strip.innerHTML = "";
-  const p = el("span", { className: "err" });
-  p.textContent = stripErrorText(validation.errors);
-  strip.appendChild(p);
 }
