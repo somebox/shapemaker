@@ -54,7 +54,7 @@ general CAD.
 
 - General CAD, user-facing booleans, or concave forms that are not
   origin-star-convex (every ray from the origin must hit the surface once).
-  Origin-star-convex spikes and dimples are in scope, and Cut sides use a mesh
+  Origin-star-convex spikes and dimples are in scope, and Through sides use a mesh
   boolean internally; Kepler–Poinsot pentagram faces are not in scope.
 - Slicing, or scored orientation of the unsplit model (Split already
   ranks session-only print poses; click-to-rest stays a face pick).
@@ -360,7 +360,7 @@ warning with the worst tilt and that wall. Rounding does not widen the
 required flat: a straight wall wins, and the rim radius on a tight face
 shrinks to the inner flat that is left.
 
-Under **Cut** (`through`) the solidifier builds the closed hollow shell (faces as
+Under **Through** (`through`) the solidifier builds the closed hollow shell (faces as
 plain polygons, no edge subdivision), then subtracts one straight cutter per
 face with a mesh boolean (`solid/csg.js`, manifold-3d). The library is
 about half a megabyte of WebAssembly and loads on first use: the app waits
@@ -387,7 +387,7 @@ through another face's outside (sharp ridges; Fix → Straight), or no part of
 the opening reaches the cavity (Wall). Openings under 0.2 mm across stay
 closed, reported as a warning.
 
-**Break out** (`breakOut`, in Form → Advanced, active under Cut only,
+**Break out** (`breakOut`, in Form → Advanced, active under Through only,
 default off) lifts the first error. Such a face cuts as shallow as opens its
 own wall, past the cavity's far side if need be, ending at most a quarter
 wall past the entry, and notches the neighbours it crosses; faces that open
@@ -413,7 +413,7 @@ the line onto the nearer end of the edge, only where every triangle around it
 stays within the tolerance of its plane, keeps its orientation, and a flat one
 stays flat. Left in place, such a corner can sit a fraction of a micrometre
 on the right side of the edge in double precision and cross it once the STL
-export rounds positions to float32, folding through its neighbour. Cut costs
+export rounds positions to float32, folding through its neighbour. Through costs
 5–10× a Tapered build (≈0.5 s on the 288-face globe, ≈4 s at 2,000 faces).
 
 **Rounding** (`roundingMm`) is a separate Form parameter that softens every

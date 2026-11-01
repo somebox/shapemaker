@@ -25,7 +25,7 @@
 
 import { hullToSkeleton } from "./hull.js";
 
-export const TRUNCATE_MAX = 0.5;
+const TRUNCATE_MAX = 0.5;
 
 /**
  * @param {{ positions: Float64Array, edges: number[][] }} skeleton

@@ -6,8 +6,8 @@ import { normalizeState, serializeState } from "./schema.js";
 import { compile } from "./compile.js";
 import { isKnownBase } from "./bases.js";
 
-export const PRESETS_FORMAT = "shapemaker-presets";
-export const PRESETS_FORMAT_VERSION = 1;
+const PRESETS_FORMAT = "shapemaker-presets";
+const PRESETS_FORMAT_VERSION = 1;
 
 /**
  * @param {unknown} raw

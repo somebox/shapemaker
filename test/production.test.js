@@ -90,7 +90,7 @@ describe("jobs", () => {
 
   it("keeps a saved design's settings when a default later changes", () => {
     const saved = serializeJob(normalizeJob({ process: "cut", cut: { clipsBy: "print", clipPlace: "corners" } }));
-    assert.equal(saved.cut.weld, true);
+    assert.equal(saved.cut.weld, false);
   });
 
   it("gives every setting with a panel row a group, and hides rows that don't apply", () => {
@@ -187,8 +187,10 @@ describe("produce", () => {
   });
 
   it("welds printed corner clips as a later step, on a new production", async () => {
-    const job = { process: "cut", cut: { clipsBy: "print", clipPlace: "corners", clipSize: "large", clipWidthMm: 6 } };
-    const prod = produce(compileShape({ base: "octahedron", spike: 1, circumdiameterMm: 200, ...closed }), job);
+    const shape = compileShape({ base: "octahedron", spike: 1, circumdiameterMm: 200, ...closed });
+    const cut = { clipsBy: "print", clipPlace: "corners", clipSize: "large", clipWidthMm: 6 };
+    assert.equal(produce(shape, { process: "cut", cut }).weld, null, "Weld is off until asked for");
+    const prod = produce(shape, { process: "cut", cut: { ...cut, weld: true } });
     assert.equal(prod.weld.pending, true);
     assert.match(summarize(prod)[1], /welding corners/);
     assert.equal(listArtifacts(prod).some((f) => f.name.endsWith(".stl")), false);

@@ -456,7 +456,7 @@ cut and print files together.
 - **Printed clip width.** Width (printed only) sets how thick a printed clip
   is along its edge, from the sheet's thickness up to 12 mm; the slots
   follow, and the fit strip's slots test that width.
-- **Welding.** With printed clips at the corners, Weld (on by default)
+- **Welding.** With printed clips at the corners, Weld (off by default, since no piece has been printed yet)
   joins the clips at each corner that actually touch into one piece, using
   the vendored manifold library (loaded on demand). Each piece is turned to
   print with the least overhang: it is tried resting on each of its larger

@@ -7,6 +7,14 @@ surface is still moving, and git history is the detailed record. From **1.0**
 onward every release gets a full entry here, and breaking changes to the
 [project format](PROJECT_FORMAT.md) get a migration note.
 
+## Unreleased
+
+### Changed
+
+- Sides option **Cut** is now **Through**, to leave the word Cut for laser
+  cutting. Saved designs and links are unaffected: the stored value was
+  already `through`.
+
 ## [0.16.1] — 2026-10-11
 
 ### Fixed

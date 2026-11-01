@@ -146,14 +146,13 @@ dialog. Changed during this review:
   the stock.
 - **Download all is staggered.** It clicked every file in one tick, which
   browsers coalesce or block.
+- **Print's Sides option Cut is now Through**, so Cut names one thing.
 
 Still wrong, and fixed by the release (§5):
 
 - **Cut's first impression is a dead end.** Choosing Cut on the default 100 mm
   icosidodecahedron closes all 32 faces and offers no fix, because no Border
   clears a 3 mm clip's arm at that size. The warning needs a way out.
-- **Two things are called Cut.** Build has Cut, and Print's Sides row has
-  Tapered, Straight and Cut.
 - **Fold's face click also turns the model**, because it reuses the
   resting-face pick. Only the net should change.
 - **The app still goes through the shell in Cut and Fold**, because it calls
@@ -164,9 +163,8 @@ Still wrong, and fixed by the release (§5):
 
 ## 3. Decisions for the first release
 
-**Locked** is settled, whether or not it's built yet; §2 and §5 say what's
-left. **Proposed** is a recommendation waiting for a yes, because it drops
-something or changes a shipped label.
+All of these are settled, whether or not they're built yet; §2 and §5 say
+what's left.
 
 ### What it makes
 
@@ -176,8 +174,8 @@ something or changes a shipped label.
 | 2 | Every shape works in every process. Start and Shape don't change. | Locked |
 | 3 | Cut joins: Clips, Ties, Fingers. One choice per design; edges it can't serve fall back and the status line counts them. | Locked |
 | 4 | Clip options stay, collapsed: Size (Auto, S, M, L), Per edge, Place. | Locked |
-| 5 | Printed clips ship in the first release, with Width and Print bed. | Proposed: yes. Hybrid laser and print is the distinctive output, and the plates are checked as closed solids. |
-| 6 | Weld ships with the default **off**, until a printed corner piece has been tried. The code has it on today. | Proposed: flip it. The pieces may need supports, and none has been printed. |
+| 5 | Printed clips ship in the first release, with Width and Print bed. Hybrid laser and print is the distinctive output, and the plates are checked as closed solids. | Locked |
+| 6 | Weld defaults to **off**, until a printed corner piece has been tried. The pieces may need supports, and none has been printed. | Locked, built |
 | 7 | Fold joins: Tape, Flaps, Sew. Sew has Allowance and Holes. | Locked |
 | 8 | One openings rule everywhere: a joint's footprint closes the whole face, never part of it, and the status line offers the Border that opens it. | Locked |
 | 9 | No material library. Sheet thickness, kerf and Fit are the whole model. No laser power or speed. | Locked |
@@ -190,7 +188,7 @@ something or changes a shipped label.
 | 11 | Board is in Make: machine profiles, sheet sizes and Custom. Cut defaults to the Falcon A1, Fold to A4. Each process keeps its own. | Locked |
 | 12 | Labels: edge numbers on the inside of each pair, with a Labels switch; numbers go on the seam allowance when sewn. | Locked |
 | 13 | The word in the UI is **Build**; the word in code and files is `process`. | Locked |
-| 14 | Print's Sides option **Cut** is renamed **Through**. Its stored value is already `through`, so no file changes. | Proposed: yes. |
+| 14 | Print's Sides option **Cut** is renamed **Through**. Its stored value was already `through`, so no file changes. | Locked, built |
 
 ### The viewer
 
@@ -207,7 +205,7 @@ something or changes a shipped label.
 | 18 | One Export button and dialog in every process, replacing Export STL and Export SVG. Print goes through `listArtifacts()` too. | Locked |
 | 19 | Sheet files are SVG in millimetres, one per board, one colour per operation: red cut, blue valley, light blue mountain, black engrave. No DXF. | Locked |
 | 20 | Files are named `<stem>_<process>_<join>[_<sheet>mm][_boardN \| _fit-strip \| _fold-strip \| _clipsA \| _corners]`. | Locked |
-| 21 | Download all makes one `.zip`, from a small store-only writer with no dependency. Stagger stays as the fallback. | Proposed: yes. A five-file job otherwise trips the browser's multiple-downloads prompt. |
+| 21 | Download all makes one `.zip`, from a small store-only writer with no dependency, because a five-file job otherwise trips the browser's multiple-downloads prompt. Stagger stays as the fallback. | Locked |
 
 ### Saving
 
@@ -244,7 +242,7 @@ Written to move into the spec:
 2. **Ship the panel.** Move the Build switch and rows into `ui.js`, the styles
    into `index.html`, and drop `?sheet`. Have `main.js` call `compileShape()`
    in Cut and Fold, take Print's export from `listArtifacts()`, and count job
-   edits as changes to the project. Fix the Fold click and rename Sides.
+   edits as changes to the project. Fix the Fold click.
 3. **Give closed faces a way out.** When no Border opens them, offer the size
    that does, found the same way the Border fix is.
 4. **Links and the zip** (§3, 21 and 23).

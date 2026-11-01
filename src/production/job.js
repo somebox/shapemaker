@@ -67,9 +67,9 @@ export const JOB_DEFS = Object.freeze({
     ], { group: "clips", when: hasClips }),
     // Never thinner than the sheet: its slots have to take the sheet.
     range("clipWidthMm", "Width", 1, 12, 0.5, "mm", 3, { group: "clips", when: printsClips, floor: (m) => m.sheetMm }),
-    choice("weld", "Weld", true, [
-      [true, "On", "Printed corner clips that touch become one piece"],
+    choice("weld", "Weld", false, [
       [false, "Off"],
+      [true, "On", "Printed corner clips that touch become one piece"],
     ], { group: "clips", when: (m) => printsClips(m) && m.clipPlace === "corners" }),
     range("kerfMm", "Kerf", 0, 0.4, 0.01, "mm", 0, { group: "advanced" }),
     // Tenths of a millimetre, as the fit strip's slots are labelled.

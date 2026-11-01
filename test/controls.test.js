@@ -313,8 +313,8 @@ describe("typed values and drag scheduling", () => {
 describe("stripErrorText", () => {
   it("names errors after their control, not the state key", () => {
     assert.equal(
-      stripErrorText([{ key: "openingAxis", message: "Cut sides would come out through a neighbouring face" }]),
-      "Sides: Cut sides would come out through a neighbouring face",
+      stripErrorText([{ key: "openingAxis", message: "Through sides would come out through a neighbouring face" }]),
+      "Sides: Through sides would come out through a neighbouring face",
     );
     assert.equal(stripErrorText([{ key: "borderMm", message: "Too wide" }]), "Border: Too wide");
   });

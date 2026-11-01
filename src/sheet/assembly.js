@@ -150,7 +150,7 @@ export function buildAssembly(skeleton, sheet, opts = {}) {
  * Edge frame for a joint: unit edge direction, and for each panel the
  * in-plane direction into it and its outward normal.
  */
-export function edgeFrameOf(skeleton, panels, j) {
+function edgeFrameOf(skeleton, panels, j) {
   const P = (i) => [skeleton.positions[3 * i], skeleton.positions[3 * i + 1], skeleton.positions[3 * i + 2]];
   const p0 = P(j.v0), e = v.unit(v.sub(P(j.v1), p0));
   const side = (pid) => {

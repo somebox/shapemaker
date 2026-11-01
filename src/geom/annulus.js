@@ -64,7 +64,7 @@ export function radialSample(polyline, angles) {
  * @param {number} [floor=0]
  * @returns {{ mx: number, my: number, h: number, edge: number }[]}
  */
-export function ringHalfPlanes(Bx, By, floor = 0) {
+function ringHalfPlanes(Bx, By, floor = 0) {
   const m = Bx.length;
   let area2 = 0;
   let ref = 0;

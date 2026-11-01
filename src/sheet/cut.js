@@ -40,7 +40,7 @@ const fmt = (n) => String(Math.round(n * 10) / 10);
  * goes through the slot, reach how far the arm runs past it, D the depth of
  * the clip's body behind the arms.
  */
-export const CLIP_SIZES = Object.freeze({
+const CLIP_SIZES = Object.freeze({
   small: (t) => ({ w: Math.max(1.5 * t, 4), reach: Math.max(0.5 * t, 1.5), D: Math.max(1.5 * t, 4.5) }),
   medium: (t) => ({ w: Math.max(2 * t, 5), reach: Math.max(t, 3), D: Math.max(2 * t, 6) }),
   large: (t) => ({ w: Math.max(3 * t, 7), reach: Math.max(1.5 * t, 4), D: Math.max(3 * t, 8) }),

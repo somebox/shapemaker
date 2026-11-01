@@ -12,7 +12,6 @@ export const len = (p) => Math.hypot(p[0], p[1]);
 export const unit = (p) => mul(p, 1 / len(p));
 /** Left normal; for a CCW outline it points into the polygon. */
 export const leftNormal = (d) => [-d[1], d[0]];
-export const lerp = (p, q, s) => [p[0] + (q[0] - p[0]) * s, p[1] + (q[1] - p[1]) * s];
 
 /** Signed area (positive for CCW). */
 export function area(poly) {
@@ -34,7 +33,7 @@ export function centroid(poly) {
 }
 
 /** Intersection of lines p + s·d and q + u·e; null when parallel. */
-export function lineX(p, d, q, e) {
+function lineX(p, d, q, e) {
   const den = cross(d, e);
   if (Math.abs(den) < 1e-12) return null;
   return add(p, mul(d, cross(sub(q, p), e) / den));
@@ -127,12 +126,6 @@ export function convexOverlap(a, b, eps = 1e-3) {
     }
   }
   return true;
-}
-
-/** Shortest distance from point p to segment ab. */
-export function pointSegDist(p, a, b) {
-  const ab = sub(b, a), t = Math.max(0, Math.min(1, dot(sub(p, a), ab) / dot(ab, ab)));
-  return len(sub(p, add(a, mul(ab, t))));
 }
 
 /** Rigid transform {a, t}: rotate by a, then translate by t. */

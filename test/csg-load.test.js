@@ -10,7 +10,7 @@ import { csgLoadError, csgReady, loadCsg, needsCsg } from "../src/solid/csg.js";
 const cut = { ...DEFAULT_STATE, base: "cube", openings: true, openingAxis: "through" };
 
 describe("Cut library loading", () => {
-  it("only Cut sides on an open hollow shell need it", () => {
+  it("only Through sides on an open hollow shell need it", () => {
     assert.equal(needsCsg(cut), true);
     assert.equal(needsCsg({ ...cut, openingAxis: "normal" }), false);
     assert.equal(needsCsg({ ...cut, openings: false }), false);
@@ -24,7 +24,7 @@ describe("Cut library loading", () => {
     assert.equal(csgReady(), false);
   });
 
-  it("reports Cut against Sides until loaded, with Straight as the fix", () => {
+  it("reports Through against Sides until loaded, with Straight as the fix", () => {
     const r = compile(cut);
     assert.equal(r.validation.ok, false);
     const e = r.validation.errors[0];

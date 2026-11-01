@@ -158,7 +158,7 @@ function buildUnitSkeleton(base, cloud, merge, params) {
 }
 
 /** Two slots per stage: enough for the preview/export pair, no unbounded growth. */
-export function createPipeline() {
+function createPipeline() {
   const points = new Map();
   const hulls = new Map();
   const solids = new Map();

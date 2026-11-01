@@ -40,7 +40,7 @@
       "clipPlace": "middle",
       "clipsBy": "cut",
       "clipWidthMm": 3,
-      "weld": true,
+      "weld": false,
       "kerfMm": 0,
       "clearanceMm": 0,
       "printBed": "prusa-core-one",

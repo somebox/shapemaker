@@ -12,7 +12,7 @@
  * you (a mountain fold as cut).
  */
 
-import { add, sub, mul, convexOverlap, apply, circle, pointInPoly, dashes } from "./geom2.js";
+import { add, mul, convexOverlap, apply, circle, pointInPoly, dashes } from "./geom2.js";
 import { insideView, panelOpenings } from "./panels.js";
 import { strokeText, textWidth } from "./font.js";
 import { growNets, placedSide, fits } from "./unfold.js";

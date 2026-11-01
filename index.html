@@ -638,14 +638,6 @@
       gap: 8px;
     }
     .start-header > span:first-child { flex: 1 1 auto; }
-    .start-toggle {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      flex: 1 1 auto;
-      min-width: 0;
-    }
-    .start-toggle::after { display: none; }
     /* Session mode + Undo live at the header's right edge; no trailing rule. */
     .start-header::after { display: none; }
     .session-mode {
@@ -659,40 +651,10 @@
       color: var(--accent);
     }
     .undo-chip { flex-shrink: 0; }
-    .start-strip {
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-      min-width: 0;
-    }
-    .start-subhead {
-      font-family: var(--font-mono);
-      font-size: 0.65rem;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-      color: var(--text-dim);
-      margin-top: 2px;
-    }
     .start-cards {
       display: flex;
       flex-wrap: wrap;
       gap: 6px;
-    }
-    .start-strip--compact {
-      overflow-x: auto;
-      overflow-y: hidden;
-      padding-bottom: 4px;
-      -webkit-overflow-scrolling: touch;
-    }
-    .start-strip--compact .start-cards {
-      flex-wrap: nowrap;
-    }
-    .start-strip--compact .start-subhead {
-      display: none;
-    }
-    .start-strip--compact .start-presets {
-      display: flex;
-      flex-wrap: nowrap;
     }
     .start-card {
       appearance: none;
@@ -753,10 +715,6 @@
       -webkit-box-orient: vertical;
       line-height: 1.3;
     }
-    .control.has-error .num-well {
-      border-color: var(--err);
-      background: color-mix(in srgb, var(--err) 12%, var(--panel-inset));
-    }
     .control-error {
       font-size: 12px;
       color: var(--err);
@@ -812,7 +770,6 @@
     .control-row--number {
       grid-template-columns: 1fr 7ch 2.5ch;
     }
-    .control-row--section,
     .control-row--material {
       grid-template-columns: 5.5rem 1fr;
       margin-top: 4px;
@@ -896,9 +853,6 @@
       font-size: 0.8rem;
       color: var(--text-dim);
     }
-    .num-well {
-      display: contents;
-    }
     .control-row input[type="number"] {
       appearance: textfield;
       -moz-appearance: textfield;
@@ -934,15 +888,6 @@
       opacity: 0.6;
     }
 
-    .slider-wrap { padding: 0 2px; }
-    .slider-limits {
-      display: flex;
-      justify-content: space-between;
-      font-family: var(--font-mono);
-      font-size: 9px;
-      color: var(--text-dim);
-      margin-top: 2px;
-    }
     input[type="range"] {
       -webkit-appearance: none;
       appearance: none;
@@ -1054,21 +999,6 @@
       line-height: 1.35;
     }
 
-    .inspect-grid {
-      display: grid;
-      grid-template-columns: 1fr auto;
-      gap: 4px 8px;
-      font-size: 0.75rem;
-    }
-    .inspect-grid dt { color: var(--text-dim); margin: 0; }
-    .inspect-grid dd {
-      margin: 0;
-      font-family: var(--font-mono);
-      font-variant-numeric: tabular-nums;
-      text-align: right;
-    }
-    .inspect-grid dd .u { color: var(--text-dim); opacity: 0.6; margin-left: 0.25em; }
-
     .actions {
       display: flex;
       flex-direction: column;
@@ -1099,8 +1029,6 @@
       border-color: var(--accent);
       color: var(--accent);
     }
-    #btn-copy-link[data-copy="ok"] { color: var(--ok); }
-    #btn-copy-link[data-copy="err"] { color: var(--err); }
     .btn-accent:hover:not(:disabled) {
       background: var(--accent);
       color: var(--accent-ink);

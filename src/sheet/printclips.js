@@ -118,7 +118,7 @@ export function weldPlates(sheet, skeleton, weldTouching, bed) {
  * on each of its larger flat faces, and keep the pose whose downward-facing
  * area steeper than 45° (off the bed) is smallest. Returns it lying on z = 0.
  */
-export function printPose(P, I) {
+function printPose(P, I) {
   const n = I.length / 3;
   const tri = (i) => [0, 1, 2].map((k) => [P[3 * I[3 * i + k]], P[3 * I[3 * i + k] + 1], P[3 * I[3 * i + k] + 2]]);
   const normals = [], areas = [];

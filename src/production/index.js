@@ -29,7 +29,7 @@ export { PRINT_BEDS };
 export { apply as placePoint } from "../sheet/geom2.js";
 
 /** The state's openings, as the sheet engine takes them; null when closed. */
-export function openingSpec(state) {
+function openingSpec(state) {
   return state.openings
     ? { generator: OPENING_GENERATORS[state.openingStyle], borderFraction: state.borderFraction ?? DEFAULT_STATE.borderFraction, filletMm: state.filletMm }
     : null;

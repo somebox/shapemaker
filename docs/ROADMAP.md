@@ -157,7 +157,7 @@ Consistency and maintainability; none change current product behavior.
 True round beams would require a different solidifier from the current flat
 frame shell. Candidate approaches:
 
-- `manifold-3d` WebAssembly (already vendored for Cut sides) for robust unions
+- `manifold-3d` WebAssembly (already vendored for Through sides) for robust unions
   and smooth rod-and-node forms;
 - lightweight convex node hulls for a smaller, faceted implementation.
 
@@ -194,7 +194,7 @@ performance budget, and export guarantees before promoting it from backlog.
   demonstrated use case.
 - **Origin-star-convex meshes are in scope; general concave modeling is
   not.** Every ray from the origin must hit the surface once. Spike (pyramids
-  and dimples) passes that certificate. Mesh booleans ship inside Cut sides
+  and dimples) passes that certificate. Mesh booleans ship inside Through sides
   and welding (0.15.0 onward), loaded on demand; they are an implementation
   detail, not a modeling feature. Kepler–Poinsot pentagram faces stay
   unscheduled.

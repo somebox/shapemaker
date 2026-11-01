@@ -92,10 +92,10 @@ design, the layer rules and the decisions for the first release are in
 [docs/PRODUCTION.md](docs/PRODUCTION.md). To add a setting, add a row to
 `JOB_DEFS` in `src/production/job.js`: the panel, flags and file format follow.
 
-Cut sides (`openingAxis: "through"`) run on the manifold-3d WebAssembly
+Through sides (`openingAxis: "through"`) run on the manifold-3d WebAssembly
 library, which loads on demand. Scripts that call `compile()` on such a state
 `await loadCsg()` from `src/solid/csg.js` first; `export-stl.mjs` does this
-when the flags ask for Cut.
+when the flags ask for Through.
 
 ## Canonical state
 
@@ -111,8 +111,8 @@ files, the URL hash, and dirty tracking.
 | `wallMm` | 1.4 | minimum wall thickness |
 | `wallMode` | `even` | Inner wall: `even` (face planes offset by the wall) or `scaled` (uniform scale about the origin); absent in a link or project → `scaled` |
 | `openingStyle` | `polygon` | `polygon` (inset + fillet) or `ellipse` (inscribed oval) |
-| `openingAxis` | `center` | Sides: `center` Tapered (origin ray), `normal` Straight (along the face normal; tilts only beside a tight inner edge) or `through` Cut (straight cut by mesh boolean; holes may merge) |
-| `breakOut` | `false` | Cut only: holes may cut through neighbouring faces' outsides; loose pieces are dropped |
+| `openingAxis` | `center` | Sides: `center` Tapered (origin ray), `normal` Straight (along the face normal; tilts only beside a tight inner edge) or `through` Through (straight cut by mesh boolean; holes may merge) |
+| `breakOut` | `false` | Through only: holes may cut through neighbouring faces' outsides; loose pieces are dropped |
 | `filletMm` | 4.5 | requested opening corner radius; clamped per face; inert under `ellipse` |
 | `jitter` | 0 | distort amount |
 | `dual` | false | polar dual (faces ↔ vertices, re-hull with merge) |

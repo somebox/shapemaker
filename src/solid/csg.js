@@ -1,6 +1,6 @@
 /**
  * Mesh booleans via manifold-3d (vendored WASM). The library is about half a
- * megabyte and only Cut sides use it, so it loads on demand: await
+ * megabyte and only Through sides use it, so it loads on demand: await
  * loadCsg() before a build that cuts (needsCsg), and every boolean after
  * that stays synchronous.
  */
@@ -40,7 +40,7 @@ export const csgReady = () => wasm !== null;
 export const csgLoadError = () => failure;
 
 /**
- * Whether a build of `state` subtracts cutters (Cut sides).
+ * Whether a build of `state` subtracts cutters (Through sides).
  * @param {{ openings?: boolean, depth?: string, openingAxis?: string }} state
  */
 export function needsCsg(state) {

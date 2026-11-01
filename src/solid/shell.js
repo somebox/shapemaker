@@ -48,7 +48,7 @@ export function filletSegmentsFor(edgeDiv) {
 }
 
 /** Through openings narrower than this stay closed. */
-export const THROUGH_MIN_OPENING_MM = 0.2;
+const THROUGH_MIN_OPENING_MM = 0.2;
 
 /**
  * Inner flat a Normal opening keeps along every inner edge (about one
@@ -56,10 +56,10 @@ export const THROUGH_MIN_OPENING_MM = 0.2;
  * thin wall still goes straight. Rounding does not raise it: a straight
  * wall wins, and the rim radius shrinks to the inner flat that is left.
  */
-export const NORMAL_MIN_FLAT_MM = 0.4;
+const NORMAL_MIN_FLAT_MM = 0.4;
 
 /** Normal openings tilting less than this count as straight in reports. */
-export const AXIS_TILT_REPORT_DEG = 1;
+const AXIS_TILT_REPORT_DEG = 1;
 
 /**
  * Rim-roundover arc segments from edgeDiv. Draft 2 / Normal 3 / Fine 6.
@@ -349,7 +349,7 @@ export function buildShell(skeleton, opts) {
     });
   }
 
-  // Cut builds the inner surface on its own: a copy of the rounded outer
+  // Through builds the inner surface on its own: a copy of the rounded outer
   // surface would round the cavity's ridges with the full radius, leaving
   // material along them that is thicker than the wall and that the cutters
   // trim into loose slivers. The surface a wall's thickness inside a ridge
@@ -656,9 +656,9 @@ export function buildShell(skeleton, opts) {
           "solid",
           pierces ? "openingAxis" : "wallMm",
           pierces
-            ? "Cut sides would come out through a neighbouring face — " +
+            ? "Through sides would come out through a neighbouring face — " +
               "turn on Break out (Advanced), or set Sides to Straight, a thinner Wall or a wider Border"
-            : `Wall ${wallMm} mm is too thick for Cut sides — a hole ` +
+            : `Wall ${wallMm} mm is too thick for Through sides — a hole ` +
               "would not open into the inside",
           pierces
             ? { clampTo: "normal", faceIds: [fi, pr.keep.exitFace] }

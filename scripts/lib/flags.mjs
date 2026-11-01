@@ -9,7 +9,7 @@
 import { DEFAULT_STATE } from "../../src/schema.js";
 import { BOARD_PROFILES, JOB_DEFS, PROCESSES, settingsOf, validSetting } from "../../src/production/index.js";
 
-export const kebab = (k) => k.replace(/([A-Z])/g, "-$1").toLowerCase();
+const kebab = (k) => k.replace(/([A-Z])/g, "-$1").toLowerCase();
 
 const castFor = (dflt) =>
   typeof dflt === "boolean"

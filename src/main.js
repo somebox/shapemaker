@@ -22,7 +22,7 @@ import {
   depthAfterPopstate,
 } from "./session.js";
 import { adaptStateForBase } from "./adapt-base.js";
-import { BASES, isKnownBase } from "./bases.js";
+import { isKnownBase } from "./bases.js";
 import { hullSkeletonForBase, scaleSkeleton } from "./pipeline.js";
 import { computeLimits } from "./limits.js";
 import { parsePresetsEnvelope } from "./presets.js";
@@ -536,13 +536,13 @@ const SKELETON_KEYS = [
   "soften",
 ];
 
-/** Edits that arrived while the Cut library loads, merged; null when none wait. */
+/** Edits that arrived while the mesh library loads, merged; null when none wait. */
 let csgWaiting = null;
 
 function applyPatch(patch, commit) {
   if (splitActive) return;
   const normalized = normalizePatch(patch);
-  // While Cut sides load, later edits merge into the waiting one, so a
+  // While Through sides load, later edits merge into the waiting one, so a
   // slider dragged meanwhile builds once, not once per step.
   if (csgWaiting) {
     csgWaiting.patch = { ...csgWaiting.patch, ...normalized };
@@ -681,7 +681,7 @@ function deferBehindBadge(run) {
 }
 
 /**
- * Run `run` now, or once the Cut library has loaded when `state` cuts. The
+ * Run `run` now, or once the mesh library has loaded when `state` cuts. The
  * library is fetched on first use; a failed load still runs `run`, so
  * compile() reports the failure against Sides.
  * @param {object} state
@@ -957,7 +957,7 @@ const sheetMockup = new URLSearchParams(location.search).has("sheet")
 // Guarded: a non-validation throw out of the boot compile (an internal
 // invariant bug) must degrade to a readable error, not a dead interface.
 const boot = decodeHash(location.hash);
-// A link to a Cut design waits for the Cut library; a failed load falls
+// A link to a Through design waits for the mesh library; a failed load falls
 // through to compile(), which reports it against Sides.
 if (boot.ok && needsCsg(boot.state)) {
   setBusy(true);

@@ -177,7 +177,7 @@ export function compile(partial = {}) {
   const validation = validateState(state);
   if (!validation.ok) return emptyResult(state, validation);
 
-  // Cut sides run on a mesh library that loads on demand (loadCsg). The app
+  // Through sides run on a mesh library that loads on demand (loadCsg). The app
   // waits for it before building, so this is a failed load or a headless
   // caller that skipped the await.
   if (needsCsg(state) && !csgReady()) {
@@ -186,8 +186,8 @@ export function compile(partial = {}) {
       stage: "solid",
       key: "openingAxis",
       message: csgLoadError()
-        ? "Cut sides couldn't load — reload to try again, or use Straight"
-        : "Cut sides aren't loaded yet (headless callers: await loadCsg() first)",
+        ? "Through sides couldn't load — reload to try again, or use Straight"
+        : "Through sides aren't loaded yet (headless callers: await loadCsg() first)",
       clampTo: "normal",
     });
     return emptyResult(state, validation);
