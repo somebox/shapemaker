@@ -8,7 +8,7 @@
  */
 
 import { packParts } from "./layout.js";
-import { apply, convexHull } from "./geom2.js";
+import { apply, convexHull, compareMm } from "./geom2.js";
 import { printedClipSolid } from "./assembly.js";
 import { chamferedPrism, chamferOf } from "./prism.js";
 
@@ -138,7 +138,7 @@ function printPose(P, I) {
     g.area += areas[i];
     groups.set(key, g);
   });
-  const candidates = [...groups.values()].sort((a, b) => b.area - a.area).slice(0, 12);
+  const candidates = [...groups.values()].sort((a, b) => compareMm(b.area, a.area)).slice(0, 12);
   let best = null;
   for (const { nm: down } of candidates) {
     const h = (p) => -(p[0] * down[0] + p[1] * down[1] + p[2] * down[2]);

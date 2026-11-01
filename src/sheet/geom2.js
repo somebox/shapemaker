@@ -3,6 +3,13 @@
  * polygons are arrays of points, counter-clockwise for outlines.
  */
 
+/**
+ * Orders two measures, a micrometre apart counting as equal. Symmetric shapes
+ * tie everywhere, and rounding noise differs between Node versions, so noise
+ * must never pick the order: the same design has to make the same files.
+ */
+export const compareMm = (a, b) => Math.round(a * 1e3) - Math.round(b * 1e3);
+
 export const add = (p, q) => [p[0] + q[0], p[1] + q[1]];
 export const sub = (p, q) => [p[0] - q[0], p[1] - q[1]];
 export const mul = (p, s) => [p[0] * s, p[1] * s];

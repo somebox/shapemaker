@@ -7,7 +7,7 @@
  * starts the next net.
  */
 
-import { sub, unit, leftNormal, len, convexOverlap, alignSegment, apply, area, minAreaAngle, rotate, bbox } from "./geom2.js";
+import { sub, unit, leftNormal, len, convexOverlap, alignSegment, apply, area, minAreaAngle, rotate, bbox, compareMm } from "./geom2.js";
 
 /**
  * @param {{ panels: object[], joints: object[] }} extracted
@@ -31,7 +31,7 @@ export function growNets({ panels, joints }, views, { fitW, fitH, grow, rootFace
   const netOf = new Array(panels.length).fill(-1);
   const nets = [];
   const folded = new Set();
-  const order = panels.map((p) => p.id).sort((a, b) => area(views[b].outline) - area(views[a].outline));
+  const order = panels.map((p) => p.id).sort((a, b) => compareMm(area(views[b].outline), area(views[a].outline)) || a - b);
   // A chosen face centres the first net; otherwise the largest panel does.
   const rootPanel = Number.isInteger(rootFace) ? panels.findIndex((p) => p.faces.includes(rootFace)) : -1;
   if (rootPanel >= 0) order.unshift(...order.splice(order.indexOf(rootPanel), 1));
@@ -63,7 +63,7 @@ export function growNets({ panels, joints }, views, { fitW, fitH, grow, rootFace
     };
     offer(root);
     while (frontier.length) {
-      frontier.sort((x, y) => x.dist - y.dist);
+      frontier.sort((x, y) => compareMm(x.dist, y.dist) || x.other - y.other || x.j.id - y.j.id);
       const cand = frontier.shift();
       if (netOf[cand.other] >= 0) continue;
       if (net.polys.some((q) => convexOverlap(cand.poly, q, 1e-3))) continue;

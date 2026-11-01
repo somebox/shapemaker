@@ -221,7 +221,8 @@ Written to move into the spec:
 
 - Every shape and preset in the start chooser builds in Cut and Fold, or says
   why not in a warning that offers a way forward.
-- A design built in the app and by the CLI gives byte-identical cut files.
+- A design built in the app and by the CLI gives byte-identical cut files, on
+  any machine. `test/production.test.js` pins this for the examples.
 - Without a job, a project or link behaves exactly as it does today.
 - A project saved in Cut reopens in Cut, with the same files; so does its link.
 - Changing a Cut or Fold setting never rebuilds a shell, and most shapes lay

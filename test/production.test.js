@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -324,6 +325,22 @@ describe("examples", () => {
       assert.equal(prod.sheet.stats.boards, 1, f);
       if (nets) assert.equal(prod.sheet.stats.nets, nets, f);
     }
+  });
+
+  // CI runs this on other Node versions and another CPU. A symmetric shape ties
+  // everywhere, so a sort left to rounding noise shows up here as a new hash.
+  // After an intended change to the output, update the hash.
+  it("make the same bytes on every machine", async () => {
+    const sha = createHash("sha256");
+    for (const f of [...designs].sort()) {
+      const { state, project } = open(f);
+      const prod = await runJob(state, project.production, { applyFixes: true });
+      for (const a of listArtifacts(prod)) {
+        const data = a.bytes();
+        sha.update(a.name).update(typeof data === "string" ? data : Buffer.from(data));
+      }
+    }
+    assert.equal(sha.digest("hex").slice(0, 16), "e638bd468c13f972");
   });
 
   it("felt examples have no whip stitches", async () => {

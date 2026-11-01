@@ -6,7 +6,7 @@
  * ends further left — rows of triangles then nest point to base.
  */
 
-import { minAreaAngle, rotate, bbox, add, convexHull, convexOverlap } from "./geom2.js";
+import { minAreaAngle, rotate, bbox, add, convexHull, convexOverlap, compareMm } from "./geom2.js";
 
 /** Slide step when nesting a part against the row, mm. */
 const SLIDE_STEP = 0.5;
@@ -38,7 +38,7 @@ export function packParts(parts, board, { marginMm = 5, gapMm = 2 } = {}) {
     if (s.w > W && s.h <= W && s.w <= H) s = orient(hull, a + Math.PI / 2);
     return { part, hull, ...s };
   });
-  sized.sort((x, y) => y.h - x.h || y.w - x.w);
+  sized.sort((x, y) => compareMm(y.h, x.h) || compareMm(y.w, x.w));
 
   const boards = [], oversize = [];
   let cur = null, row = [], rowRight = 0, y = 0, rowH = 0;

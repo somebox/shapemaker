@@ -5,7 +5,7 @@
   "createdWith": "0.16.1",
   "state": {
     "base": "dodecahedron",
-    "circumdiameterMm": 106,
+    "circumdiameterMm": 96,
     "borderFraction": 0.36,
     "depth": "hollow",
     "wallMm": 1.4,
