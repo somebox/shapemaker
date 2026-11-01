@@ -22,9 +22,9 @@
 
 import {
   add, sub, mul, dot, unit, leftNormal, offsetEdges, offsetPolygon, area,
-  edgeRect, centroid, len, filletCorners, circle, pointInPoly, polysOverlap,
+  edgeRect, centroid, len, filletCorners, circle, pointInPoly,
 } from "./geom2.js";
-import { insideView, panelOpenings } from "./panels.js";
+import { insideView, panelOpenings, clearOpenings, MAX_BORDER } from "./panels.js";
 import { strokeText, textWidth } from "./font.js";
 
 const D2R = Math.PI / 180;
@@ -32,7 +32,7 @@ const D2R = Math.PI / 180;
 /** Fingers only where square-cut ends leave little play (|cot θ| ≤ 0.6). */
 const FINGER_PLAY_MAX = 0.6;
 /** Widest Border the app allows (schema borderFraction max), as a fraction. */
-export const MAX_BORDER = 0.9;
+export { MAX_BORDER };
 const fmt = (n) => String(Math.round(n * 10) / 10);
 
 /**
@@ -225,26 +225,11 @@ function cutWith(extracted, opts, size) {
     let openings = [];
     if (opts.openings) {
       const { generator, borderFraction, filletMm } = opts.openings;
-      const openingsAt = (b) => panelOpenings(panel, generator, b, filletMm).map(view.flipPoly);
-      const clashes = (ops) => ops.some((o) => footprints.some((f) => polysOverlap(o, f)));
-      openings = openingsAt(borderFraction);
-      // One rule everywhere: an opening that would cross a joint's
-      // footprint closes the whole face, never just part of it.
-      if (clashes(openings)) {
-        openings = [];
+      const cleared = clearOpenings((b) => panelOpenings(panel, generator, b, filletMm).map(view.flipPoly), footprints, borderFraction);
+      openings = cleared.openings;
+      if (cleared.closed) {
         filledPanels++;
-        // The Border that would open it, by the same test (to 1%); past
-        // the app's widest, it can't be opened.
-        let lo = borderFraction, hi = MAX_BORDER;
-        if (clashes(openingsAt(hi))) needBorder = Infinity;
-        else {
-          while (hi - lo > 0.01) {
-            const mid = (lo + hi) / 2;
-            if (clashes(openingsAt(mid))) lo = mid;
-            else hi = mid;
-          }
-          needBorder = Math.max(needBorder, hi);
-        }
+        needBorder = Math.max(needBorder, cleared.needBorder);
       }
     }
 

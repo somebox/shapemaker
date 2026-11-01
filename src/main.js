@@ -421,6 +421,7 @@ function openParsed(parsed) {
   const prevClean = cleanState;
   const prevCleanName = cleanName;
   const prevProduction = openedProduction;
+  const prevJob = sheetMockup?.job();
 
   projectName = parsed.project.name || "Untitled";
   openedProduction = parsed.project.production ?? null;
@@ -445,6 +446,7 @@ function openParsed(parsed) {
   cleanState = prevClean;
   cleanName = prevCleanName;
   openedProduction = prevProduction;
+  sheetMockup?.setJob(prevJob);
   updateProjectStatus();
 }
 
@@ -466,7 +468,10 @@ window.addEventListener("popstate", () => {
       projectName = restored.projectName;
       cleanName = restored.cleanName;
       cleanState = normalizeState(restored.cleanState);
-      openedProduction = restored.production ?? null;
+      const production = restored.production ?? null;
+      // Only across an Open: other entries leave the job as it was set.
+      if (JSON.stringify(production) !== JSON.stringify(openedProduction)) sheetMockup?.setJob(production);
+      openedProduction = production;
     }
     regenerate({ forceFrame: false, fromHistory: true });
     updateProjectStatus();

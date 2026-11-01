@@ -54,8 +54,8 @@ export function sheetViews(prod) {
 function thumbSvg(items, size, fill, stroke, solid = false) {
   const d = items
     .map(({ part, tf }) => part.paths
-      .filter((p) => p.layer === "cut" && p.closed)
-      .map((p) => `M${p.pts.map((q) => apply(tf, q)).map(([x, y]) => `${fmt(x, 1)},${fmt(size.h - y, 1)}`).join("L")}Z`)
+      .filter((p) => p.layer === "cut")
+      .map((p) => `M${p.pts.map((q) => apply(tf, q)).map(([x, y]) => `${fmt(x, 1)},${fmt(size.h - y, 1)}`).join("L")}${p.closed ? "Z" : ""}`)
       .join(""))
     .join("");
   const look = solid ? `fill="${stroke}" stroke="none"` : `fill="none" stroke="${stroke}" stroke-width="${fmt(Math.max(size.w, size.h) / 160, 2)}"`;

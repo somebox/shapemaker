@@ -59,7 +59,7 @@ export function assemblyOf(prod) {
  */
 function shapeFixes(sheet) {
   const { filledPanels, minBorderFraction } = sheet.stats;
-  if (sheet.mode !== "cut" || !filledPanels) return [];
+  if (!filledPanels) return [];
   const need = Math.ceil(minBorderFraction * 100);
   return need <= MAX_BORDER * 100 ? [{ label: `Use ${need}% border`, patch: { borderFraction: need / 100 } }] : [];
 }

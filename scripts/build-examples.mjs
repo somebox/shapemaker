@@ -7,6 +7,7 @@
  */
 import { mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { parseProject } from "../src/project-format.js";
 import { runJob, summarize, listArtifacts, exportNotes } from "../src/production/index.js";
 import { sheetPictures } from "./lib/sheet-pictures.mjs";
@@ -14,7 +15,7 @@ import { parseArgs } from "./lib/flags.mjs";
 
 const { flags } = parseArgs(process.argv.slice(2));
 const out = flags.out ?? "test/out/examples";
-const root = new URL("../docs/examples/", import.meta.url).pathname;
+const root = fileURLToPath(new URL("../docs/examples/", import.meta.url));
 const designs = readdirSync(root, { recursive: true })
   .filter((f) => f.endsWith(".shapemaker.json") && (!flags.only || f.includes(flags.only)))
   .sort();
