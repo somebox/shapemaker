@@ -21,6 +21,7 @@ const KEY_TABS = new Map([
   ["borderMm", "openings"],
   ["base", "shape"],
   ["faceIndex", "build"],
+  ["sheet", "build"],
 ]);
 
 /**

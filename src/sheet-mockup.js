@@ -245,7 +245,7 @@ export function mountSheetMockup({ viewer, ui, getLast, applyPatch, download, pr
   function paintStatus() {
     if (S.job.process === "print") ui.setJobStatus(null);
     else if (!prod?.ok) ui.setJobStatus({ headline: "", error: prod?.error, warnings: [], fixes: [], geometry: [] });
-    else ui.setJobStatus({ headline: headline(prod), warnings: prod.warnings, fixes: prod.fixes, geometry: summarize(prod) });
+    else ui.setJobStatus({ headline: headline(prod), warnings: prod.warnings, problems: prod.problems, fixes: prod.fixes, geometry: summarize(prod) });
   }
 
   /** Leave Flat and light the part up on the model. */

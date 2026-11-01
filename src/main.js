@@ -5,7 +5,7 @@
 
 import { compile, limitsForState } from "./compile.js";
 import { createViewer } from "./viewer.js";
-import { produce, listArtifacts } from "./production/index.js";
+import { produce, pinnedArtifacts } from "./production/index.js";
 import { createPanel, normalizePatch } from "./ui.js";
 import { serializeProjectV1, parseProject } from "./project-format.js";
 import { normalizeState, statesEqual } from "./schema.js";
@@ -144,6 +144,7 @@ const viewer = createViewer(canvasHost, {
         splitData = data;
         splitActive = true;
         viewer.setSplitPreview(splitData);
+        refreshFiles();
         return;
       }
     }
@@ -168,6 +169,7 @@ const viewer = createViewer(canvasHost, {
         },
       };
       viewer.setSplitPreview(splitData);
+      refreshFiles();
     } catch {
       // Keep the last sealed preview — never show an unprintable half.
     }
@@ -263,15 +265,14 @@ function viewCamera() {
   };
 }
 
-/** Print's files, from the model on screen; the drawing takes the view at download. */
+/** Print's files, fixed to the model and cut on screen. */
 function printFiles() {
   if (!draftValid || !last?.mesh) return [];
-  const list = (camera) =>
-    listArtifacts(produce(last, { process: "print" }), { split: splitActive ? splitData : null, camera });
-  return list(null).map((f) => ({
+  const prod = produce(last, { process: "print" });
+  return pinnedArtifacts(prod, { split: splitActive ? splitData : null, view: viewCamera }).map((f) => ({
     ...f,
     run() {
-      const file = list(viewCamera()).find((x) => x.id === f.id);
+      const file = f.atDownload();
       downloadBlob(file.bytes(), file.name, file.mime);
     },
   }));

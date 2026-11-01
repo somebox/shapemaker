@@ -1165,6 +1165,8 @@
     #status-line {
       flex: 1 1 auto;
       min-width: 0;
+      max-height: 30vh;
+      overflow-y: auto;
       display: grid;
       gap: 3px;
       font: 400 0.7rem/1.4 var(--font-mono);
@@ -1238,13 +1240,12 @@
       .section-hud-toggle { min-height: 44px; }
       .reroll,
       .app-header-help { width: 44px; }
-      input[type="range"] { height: 44px; }
-      .value-readout { position: relative; }
-      .value-readout::after {
-        content: "";
-        position: absolute;
-        inset: -10px -8px;
-      }
+      .face-stepper .btn-quiet { min-width: 44px; }
+      .split-reorient { width: 44px; height: 44px; }
+      input[type="range"],
+      .section-hud input[type="range"] { height: 44px; }
+      button.value-readout { min-height: 44px; margin-block: -10px; }
+      button.value-readout:hover { background: transparent; border-color: transparent; }
       .control-row input[type="number"] { min-height: 44px; }
       .panel-tab { min-height: 52px; }
       .start-current { min-height: 58px; }

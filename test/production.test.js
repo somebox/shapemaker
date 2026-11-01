@@ -12,7 +12,7 @@ import { boardSvg } from "../src/sheet/index.js";
 import { pointInPoly } from "../src/sheet/geom2.js";
 import {
   JOB_DEFS, PROCESSES, normalizeJob, serializeJob, settingApplies, produce, finishProduction, runJob,
-  listArtifacts, sheetViews, summarize, headline, exportNotes, designStem, sheetOptions, validSetting,
+  listArtifacts, pinnedArtifacts, sheetViews, summarize, headline, exportNotes, designStem, sheetOptions, validSetting,
 } from "../src/production/index.js";
 import { restoreSessionFromPopstate, sessionHistoryPayload } from "../src/session.js";
 
@@ -155,6 +155,14 @@ describe("produce", () => {
   it("says so when a border in mm can't apply to sheet openings", () => {
     const prod = produce(compileShape({ base: "dodecahedron", circumdiameterMm: 200, borderMm: 12 }), { process: "fold" });
     assert.match(prod.warnings[0], /millimetres/);
+    assert.equal(prod.problems[0].key, "borderMm");
+  });
+
+  it("keys each warning to what it's about", () => {
+    const prod = produce(compileShape(dodeca), { process: "cut", cut: { board: "custom", boardSize: { w: 50, h: 50 } } });
+    const oversize = prod.problems.find((p) => /larger than the board/.test(p.message));
+    assert.equal(oversize.key, "sheet");
+    assert.deepEqual(prod.warnings, prod.problems.map((p) => p.message));
   });
 
   it("passes on the shape's own warnings, but not the shell's", () => {
@@ -218,6 +226,24 @@ describe("artifacts", () => {
         assert.match(f.name, new RegExp(`^${designStem(prod.state)}`));
       }
     }
+  });
+
+  it("pins files to one cut, and takes the view only at download", async () => {
+    const prod = await runJob(dodeca, { process: "print" });
+    const { mesh } = prod.compiled;
+    let views = 0;
+    const view = () => {
+      views++;
+      return { position: { x: 300, y: 0, z: 0 }, target: { x: 0, y: 0, z: 0 }, up: { x: 0, y: 0, z: 1 }, near: 1 };
+    };
+    const files = pinnedArtifacts(prod, { split: { a: mesh, b: mesh, planeZ: 10 }, view });
+    assert.deepEqual(files.map((f) => f.id), ["half-a", "half-b", "drawing"]);
+    assert.equal(views, 0);
+    const half = files[1].atDownload();
+    assert.equal(half.id, "half-b");
+    assert.equal(views, 1);
+    assert.equal(half.bytes().byteLength, files[1].bytes().byteLength);
+    assert.match(files[2].atDownload().bytes(), /<svg/);
   });
 
   it("makes the fit strip its own first file, and leaves its spot empty on the board", async () => {

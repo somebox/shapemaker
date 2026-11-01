@@ -36,6 +36,7 @@ describe("what each tab holds", () => {
     assert.equal(tabOfKey("borderMm"), "openings");
     assert.equal(tabOfKey("base"), "shape");
     assert.equal(tabOfKey("faceIndex"), "build");
+    assert.equal(tabOfKey("sheet"), "build");
     assert.equal(tabOfKey("project"), null);
     assert.equal(tabOfKey(undefined), null);
   });
@@ -305,6 +306,19 @@ describe("status line", () => {
     assert.match(statusOf(doc).textContent, /^95\.1/);
     assert.equal(tabButton(panelEl, "openings").dataset.marked, undefined);
   });
+
+  it("marks tabs for the job on screen, not for Print", () => {
+    const { panelEl, ui } = mount();
+    ui.setResult({ state: state(), metrics: metrics(), validation: valid([{ key: "borderMm", message: "thin border" }]) });
+    assert.equal(tabButton(panelEl, "openings").dataset.marked, "1");
+    ui.setJobStatus({ headline: "32 panels", warnings: [], fixes: [], geometry: [] });
+    assert.equal(tabButton(panelEl, "openings").dataset.marked, undefined);
+    ui.setJobStatus({ headline: "32 panels", warnings: ["3 parts are larger than the board"], problems: [{ key: "sheet", message: "3 parts are larger than the board" }], fixes: [], geometry: [] });
+    assert.equal(tabButton(panelEl, "build").dataset.marked, "1");
+    ui.setJobStatus(null);
+    assert.equal(tabButton(panelEl, "build").dataset.marked, undefined);
+    assert.equal(tabButton(panelEl, "openings").dataset.marked, "1");
+  });
 });
 
 describe("Files tab", () => {
@@ -348,12 +362,27 @@ describe("Files tab", () => {
     assert.ok(tabBody(panelEl, "files").querySelector("#btn-share"));
   });
 
+  it("lists a warning in full, even one alone", () => {
+    const { panelEl, ui } = mount();
+    ui.setResult({ state: state(), metrics: metrics(), validation: valid([{ key: "wallMm", message: "use Wall 2.4 for straight sides" }]) });
+    assert.match(tabBody(panelEl, "files").textContent, /use Wall 2\.4 for straight sides/);
+  });
+
+  it("drops the warnings while the build has failed", () => {
+    const { panelEl, ui } = mount();
+    ui.setResult({ state: state(), metrics: metrics(), validation: valid([{ key: "wallMm", message: "old warning" }]) });
+    ui.setResult({ state: state(), metrics: metrics(), validation: { ok: false, errors: [{ key: "wallMm", message: "too thin" }], warnings: [] } }, { invalid: true });
+    assert.ok(!tabBody(panelEl, "files").textContent.includes("Warnings"));
+  });
+
   it("is where Export goes, and Export stands down there", () => {
     const { doc, panelEl } = mount();
     const exportBtn = doc.getElementById("bottombar").querySelector("#btn-export");
+    exportBtn.focus();
     exportBtn.click();
     assert.ok(visible(tabBody(panelEl, "files")));
     assert.equal(exportBtn.hidden, true);
+    assert.equal(doc.activeElement, tabButton(panelEl, "files"));
     tabButton(panelEl, "shape").click();
     assert.equal(exportBtn.hidden, false);
   });

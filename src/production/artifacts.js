@@ -147,6 +147,17 @@ export function listArtifacts(prod, { split = null, camera = null } = {}) {
   return prod.process === "print" ? printArtifacts(prod, stem, { split, camera }) : sheetArtifacts(prod, stem);
 }
 
+/**
+ * The files of one production and cut, so a later change can't mix a batch.
+ * Each one's `atDownload()` takes the view then, which is what the drawing shows.
+ * @param {ReturnType<import('./index.js').produce>} prod
+ * @param {{ split?: { a: object, b: object, planeZ: number } | null, view?: () => object | null }} [opts]
+ */
+export function pinnedArtifacts(prod, { split = null, view = () => null } = {}) {
+  const list = (camera) => listArtifacts(prod, { split, camera });
+  return list(null).map((f) => ({ ...f, atDownload: () => list(view()).find((x) => x.id === f.id) }));
+}
+
 /** What to do with the files, in order; shown with the export list. */
 export function exportNotes(prod) {
   if (!prod.ok) return [];

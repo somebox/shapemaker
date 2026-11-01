@@ -141,7 +141,10 @@ export function createPanel(panelEl, handlers) {
     id: "btn-export",
     textContent: "Export",
   });
-  exportBtn.addEventListener("click", () => selectTab("files"));
+  exportBtn.addEventListener("click", () => {
+    selectTab("files");
+    tabs.get("files").button.focus();
+  });
 
   /** @type {Map<string, { button: HTMLElement, caption: HTMLElement, body: HTMLElement, scrollTop: number }>} */
   const tabs = new Map();
@@ -733,8 +736,6 @@ export function createPanel(panelEl, handlers) {
   let statusErrors = [];
   /** What a job's status says, in place of Print's; null in Print. @type {object|null} */
   let jobStatus = null;
-  /** @type {{ key?: string, message: string }[]} keyed problems behind the marks */
-  let problems = [];
 
   saveBtn?.addEventListener("click", () => handlers.onSave());
   openBtn?.addEventListener("click", () => handlers.onOpen?.());
@@ -805,7 +806,7 @@ export function createPanel(panelEl, handlers) {
     }
     stripProblem.append(...fixes.map(fixButton));
 
-    const marks = markedTabs(failed ? statusErrors : problems, fixes);
+    const marks = markedTabs(failed ? statusErrors : shown.problems, fixes);
     for (const [id, tab] of tabs) {
       if (marks.has(id)) tab.button.dataset.marked = "1";
       else tab.button.removeAttribute("data-marked");
@@ -816,9 +817,9 @@ export function createPanel(panelEl, handlers) {
       geometry.append(el("div", { className: "group-subheader", textContent: "Geometry" }));
       for (const line of shown.geometry) geometry.append(el("div", { className: "file-geometry-line", textContent: line }));
     }
-    if (shown.warnings.length > 1) {
+    if (warnings.length) {
       geometry.append(el("div", { className: "group-subheader", textContent: "Warnings" }));
-      for (const w of shown.warnings) geometry.append(el("p", { className: "hint status-warning", textContent: w }));
+      for (const w of warnings) geometry.append(el("p", { className: "hint status-warning", textContent: w }));
     }
   }
 
@@ -901,10 +902,11 @@ export function createPanel(panelEl, handlers) {
           edgeInput.value = fmtInput(metrics.edgeMm.mean);
         }
         updateMassReadout();
-        problems = validation?.warnings ?? [];
+        const problems = validation?.warnings ?? [];
         printStatus = {
           headline: statusHeadline(metrics),
           warnings: [...(warnings ?? []), ...problems.map((w) => w.message)],
+          problems,
           fixes: [],
           geometry: geometryLines(metrics),
         };
@@ -948,7 +950,7 @@ export function createPanel(panelEl, handlers) {
 
     /**
      * What a job's status says, in place of Print's; null goes back to it.
-     * @param {{ headline: string, error?: string, warnings: string[], fixes: { label: string, patch: object }[], geometry: string[] } | null} status
+     * @param {{ headline: string, error?: string, warnings: string[], problems?: { key?: string, message: string }[], fixes: { label: string, patch: object }[], geometry: string[] } | null} status
      */
     setJobStatus(status) {
       jobStatus = status;
