@@ -87,7 +87,8 @@ Exit codes: 0 done, 1 the design doesn't build, 2 usage.
 `compile()` makes the shape and printed shell; `src/production/` turns a shape
 and a job into files; `src/sheet/` is the laser and fold engine under it. In
 the app, Cut and Fold run only as a mockup: add `?sheet` to the URL to get the
-Build switch, the Flat view and the Export dialog (`src/sheet-mockup.js`). The
+Build switch, the Flat view and their files in the Files tab
+(`src/sheet-mockup.js`). The
 design, the layer rules and the decisions for the first release are in
 [docs/PRODUCTION.md](docs/PRODUCTION.md). To add a setting, add a row to
 `JOB_DEFS` in `src/production/job.js`: the panel, flags and file format follow.
@@ -107,7 +108,7 @@ files, the URL hash, and dirty tracking.
 |---|---|---|
 | `base` | `icosidodeca` | shape family id (`BASES` in `src/bases.js`) |
 | `circumdiameterMm` | 100 | outer diameter across opposite vertices |
-| `borderFraction` | 0.36 | frame width ÷ face apothem (Form %); legacy `borderMm` via `--border=` |
+| `borderFraction` | 0.36 | frame width ÷ face apothem (Openings %); legacy `borderMm` via `--border=` |
 | `wallMm` | 1.4 | minimum wall thickness |
 | `wallMode` | `even` | Inner wall: `even` (face planes offset by the wall) or `scaled` (uniform scale about the origin); absent in a link or project → `scaled` |
 | `openingStyle` | `polygon` | `polygon` (inset + fillet) or `ellipse` (inscribed oval) |
@@ -168,7 +169,7 @@ src/
   sheet-mockup.js   Cut and Fold panel behind ?sheet; flat-view.js draws the boards
   viewer.js         only module that imports Three.js
 prototype/          Python reference (meshcheck, original generator)
-test/               node --test + fixtures
+test/               node --test + fixtures; mini-dom.js runs the real panel
 scripts/            shapemaker.mjs (CLI), export-stl.mjs, acceptance.sh, build-examples.mjs (+ lib/)
 docs/               spec, roadmap, production design, examples/, research/
 ```

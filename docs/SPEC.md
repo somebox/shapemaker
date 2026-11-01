@@ -278,7 +278,7 @@ are deferred.
 A hollow shell's inner surface is a copy of the outer mesh with every vertex
 displaced inward, so shared vertices stay exact and the shell is watertight
 by construction. Wall thickness specifies the minimum thickness; the actual
-range is reported. **Inner wall** (`wallMode`, in Form → Advanced) picks the
+range is reported. **Inner wall** (`wallMode`, in Build → Advanced) picks the
 displacement:
 
 - **Even** (default) moves every face plane in along its own normal by the
@@ -387,7 +387,7 @@ through another face's outside (sharp ridges; Fix → Straight), or no part of
 the opening reaches the cavity (Wall). Openings under 0.2 mm across stay
 closed, reported as a warning.
 
-**Break out** (`breakOut`, in Form → Advanced, active under Through only,
+**Break out** (`breakOut`, in Build → Advanced, active under Through only,
 default off) lifts the first error. Such a face cuts as shallow as opens its
 own wall, past the cavity's far side if need be, ending at most a quarter
 wall past the entry, and notches the neighbours it crosses; faces that open
@@ -416,7 +416,7 @@ on the right side of the edge in double precision and cross it once the STL
 export rounds positions to float32, folding through its neighbour. Through costs
 5–10× a Tapered build (≈0.5 s on the 288-face globe, ≈4 s at 2,000 faces).
 
-**Rounding** (`roundingMm`) is a separate Form parameter that softens every
+**Rounding** (`roundingMm`) is a separate Build parameter that softens every
 hard edge of the model: quarter-circle roundovers on the opening lips (outer
 face → opening wall, and the inner mirror) AND circular-arc strips along every
 dihedral edge with sphere-patch fans at corners — a rounded cube is a die.
@@ -486,7 +486,7 @@ it must not introduce smooth shading that makes the preview diverge from the
 exported triangle mesh. The viewer uses flat shading so preview ≡ STL.
 
 Border width is authored as a **fraction of each face's apothem**
-(`borderFraction`, shown as % in Form). That scales the frame with every
+(`borderFraction`, shown as % in Openings). That scales the frame with every
 opening so subdiv, globe bands, and mixed face sizes stay valid without a
 global hard-fail on the smallest face. Applied millimetre widths are reported
 as a {min,max} range in status. Legacy **constant `borderMm`** remains valid
@@ -511,10 +511,10 @@ flank, so click-to-rest sits on a pointy side; orientation stays valid.
 Viewport **Split** is a print helper, not canonical state: it is never written
 to the URL hash, project JSON, or `STATE_KEYS`. While Split is on:
 
-- the control panel is locked (`inert`); the bottom bar stays live;
-- Export STL downloads two bed-ready halves (`*_half-a.stl`, `*_half-b.stl`)
+- the panel locks (`inert`) and opens Files, which stays live; so does status;
+- the Files tab lists two bed-ready halves (`*_half-a.stl`, `*_half-b.stl`)
   with half B flipped cut-face-down;
-- Export SVG still exports the unsplit model;
+- the drawing in Files is still of the unsplit model;
 - Share / URL omit the split;
 - regenerating the mesh, Undo/Back, or turning Split off clears the preview;
 - a **reorient** button (⟳) beside the toggle cycles session-only axis
@@ -577,8 +577,8 @@ session, but does not replace explicit project files.
 ### Session model (browse → edit)
 
 Choosing a **starting point** (Platonic / icosidodeca / random / named preset)
-fills the whole panel with that recipe — a hard reset of Form and distort
-defaults, not a mode switch that preserves Form intent. Built-in starts and
+fills the whole panel with that recipe — a hard reset of Build, Openings and
+distort defaults, not a mode switch that preserves those settings. Built-in starts and
 presets share one apply path with project Open. In the UI they appear together
 in a **Start-from chooser**: thumbnail cards (wireframe previews projected
 from each start's skeleton) grouped as built-in shapes and presets. Selecting
@@ -660,18 +660,24 @@ outputs must be a single connected body.
 
 ## UI principles
 
-The canvas is primary; controls are grouped by user intent:
+The canvas is primary. The panel is four tabs, one showing at a time, each
+captioned with its current value so the design reads at a glance:
 
 - **Shape:** base (start chooser, including named star presets), random
   density/seed, jitter, truncate, spike, subdivide, uniform scale.
-- **Form:** solid/hollow, wall, openings, border, fillet, rounding.
-- **Make:** orientation, mesh quality preset, preview overlay, material/mass,
-  project export/load.
+- **Openings:** open or closed faces, outline, border, fillet.
+- **Build:** what only a printed shell reads: solid/hollow, wall, rounding,
+  sides, mesh quality, inner wall, break out; and the resting face and
+  material/mass.
+- **Files:** every file the design makes, the geometry detail, and project
+  save, open and share.
 - **Viewport tools:** section plane, optional print-risk overlay, and session
   Split (see Model split above).
 
-Fabrication dimensions and mesh stats live in the persistent status bar under
-the view (not a separate Inspect group). Share lives next to Export STL/SVG.
+`src/panel-model.js` draws the tabs. From 900 px wide they head a column beside
+the model. Narrower, the model comes first, then status, the rows, and the tabs
+under the thumb. Phone sideways, the tabs are a rail between the model and the
+rows. A finger gets at least 44 px, wherever the pointer is one.
 
 Additional principles:
 
@@ -695,9 +701,11 @@ Additional principles:
   or seed-only edits. Framing fits the bounding *sphere*, so solids of equal
   circumdiameter occupy equal screen presence (box framing zoomed cubes far
   past round solids).
-- A persistent status bar under the view carries the dimension/mesh stats,
-  the busy badge, and Export STL — always visible regardless of panel
-  scroll.
+- A persistent status line says the result first, with the first warning and
+  its fix under it, then the busy badge and an Export button that opens Files.
+  It is always visible, whichever tab is showing. A failed build says so there
+  even while the last good model stays on screen.
+- The tab that holds the cause of an error or warning is marked.
 - Controls that do not apply stay visible and dimmed (`inert`), not hidden, for
   Shape distort knobs (density / seed / jitter) at minimum.
 - Dynamic control limits prevent invalid geometry where possible; structured
@@ -712,15 +720,16 @@ Additional principles:
 - A slim app header shows the product title, version, a link to the source
   repository, and a help control that reopens first-visit onboarding.
 - First-visit onboarding (native `<dialog>`) teaches the core loop: pick a
-  start, adjust Shape/Form, click a face to set the resting side, export.
+  start, adjust the tabs, click a face to set the resting side, get the files.
   A `localStorage` seen-flag suppresses automatic re-show; this is not
   session recovery.
-- Panel controls prefer a single row (label, slider, editable value + unit)
-  with collapsible groups; Start-from stays compact until expanded.
+- A field stacks its label and editable value over its slider, two fields to a
+  row; a choice too long for half the panel takes the whole row. Start-from
+  stays compact until expanded, and Advanced clusters fold.
 - A preview-only section plane may clip the model along bed height for
   inspection; it does not affect export.
 - The plate grid carries millimetre labels on major lines; an in-view
-  dimension callout complements Inspect and the status bar.
+  dimension callout complements the status line on wide screens.
 - Material density presets yield an approximate mass from compiled volume;
   density choice is a UI preference, not canonical geometry state.
 

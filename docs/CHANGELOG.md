@@ -14,6 +14,25 @@ onward every release gets a full entry here, and breaking changes to the
 - Sides option **Cut** is now **Through**, to leave the word Cut for laser
   cutting. Saved designs and links are unaffected: the stored value was
   already `through`.
+- **The panel is four tabs**: Shape, Openings, Build and Files, replacing
+  Shape, Form and Make. Each tab's caption shows its current value. Everything
+  only a printed shell reads is in Build, and the project's name and Undo move
+  to the header. Saved designs and links are unaffected.
+- **Fields are more compact**: label and value sit over the slider, two to a
+  row. No tab scrolls on a 1280 × 720 laptop.
+- **Status says the result first**, with the warning and its fix under it, and
+  marks the tab that holds the cause. The geometry detail moves to Files.
+- **Files replaces Export STL and Export SVG**, listing every file, with
+  Download all. Share, Save and Open are there too, and it stays live under
+  Split, where it lists the two halves.
+- **Phones work.** The panel no longer covers the model: the model, status,
+  rows and tabs stack, with the tabs under the thumb, and sideways the tabs are
+  a rail. Touch targets are at least 44 px.
+
+### Fixed
+
+- A failed rebuild now says so on the status line, even with the last good
+  model on screen. The status used to keep showing the old dimensions.
 
 ## [0.16.1] — 2026-10-11
 
