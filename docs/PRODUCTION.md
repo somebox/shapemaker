@@ -41,7 +41,7 @@ draws:
 
 So a Wall that would fail a print can't fail a laser job, and dragging a
 slider in Cut needn't solidify a shell. The CLI works this way today; the app
-gets there in step 2 of §5.
+gets there in step 3 of §5.
 
 ### Layers
 
@@ -87,7 +87,7 @@ hand-edited job falls back setting by setting; it never fails to open.
 | Describe the job | Build and its rows | Project's `production`, and/or flags |
 | See what you'd get | Status line, 3D, Flat | `plan` (`--json` for scripts) |
 | Accept a fix | The button on the warning | `--fix` |
-| Get the files | Export dialog | `build`, plus `manifest.json` |
+| Get the files | Files tab | `build`, plus `manifest.json` |
 | Keep the design | Save project | `--save=FILE` |
 
 ```bash
@@ -102,7 +102,7 @@ node scripts/shapemaker.mjs build --base=cube --diameter=140 --openings=false --
 node scripts/shapemaker.mjs settings --process=fold
 ```
 
-Both read `listArtifacts()`, so the dialog and the CLI can't disagree about
+Both read `listArtifacts()`, so the Files tab and the CLI can't disagree about
 what a design makes or what the files are called. A new output is one entry in
 that list and appears in both.
 
@@ -114,7 +114,7 @@ that list and appears in both.
 3. Add its files to `listArtifacts()` and its lines to `summarize()`.
 4. If it draws flat layouts, return them from `sheetViews()`.
 
-The Build switch, CLI, Export dialog and project format then follow. The panel
+The Build switch, CLI, Files tab and project format then follow. The panel
 builds its rows from the table; only a new panel group needs a place of its own.
 
 ## 2. What the mockup showed
@@ -148,7 +148,8 @@ dialog. Changed during this review:
   browsers coalesce or block.
 - **Print's Sides option Cut is now Through**, so Cut names one thing.
 
-Still wrong, and fixed by the release (§5):
+The panel around it was the weak part, and §3 replaces it. Also still wrong,
+and fixed by the release (§5):
 
 - **Cut's first impression is a dead end.** Choosing Cut on the default 100 mm
   icosidodecahedron closes all 32 faces and offers no fix, because no Border
@@ -170,8 +171,8 @@ what's left.
 
 | # | Decision | Status |
 |---|---|---|
-| 1 | Three processes on one **Build** switch, first row of Form: Print, Cut, Fold. Print is the default, so every existing link and project opens as it does now. | Locked |
-| 2 | Every shape works in every process. Start and Shape don't change. | Locked |
+| 1 | Three processes on one **Build** switch, at the top of the Build tab: Print, Cut, Fold. Print is the default, so every existing link and project opens as it does now. | Locked |
+| 2 | Every shape works in every process. Shape and Openings don't change with the process. | Locked |
 | 3 | Cut joins: Clips, Ties, Fingers. One choice per design; edges it can't serve fall back and the status line counts them. | Locked |
 | 4 | Clip options stay, collapsed: Size (Auto, S, M, L), Per edge, Place. | Locked |
 | 5 | Printed clips ship in the first release, with Width and Print bed. Hybrid laser and print is the distinctive output, and the plates are checked as closed solids. | Locked |
@@ -182,13 +183,31 @@ what's left.
 
 ### The panel
 
+Chosen 2026-11-01 from four layouts built and measured at phone, sideways,
+tablet and laptop sizes. Form, Make and Build were near-synonyms, Build sat
+620 px down the panel, and on a phone the panel hid the model. Nobody has used
+this layout yet, so step 2 of §5 ends with a test.
+
+| Tab | Holds |
+|---|---|
+| **Shape** | Start, Size, Dual, Truncate, Spike, Subdivide, Jitter. |
+| **Openings** | Faces, Outline, Border, Fillet. |
+| **Build** | The Build switch, then that process's rows only. |
+| **Files** | The file list, Download all, the geometry detail, Save, Open, Share. |
+
 | # | Decision | Status |
 |---|---|---|
-| 10 | Cut and Fold hide Shell, Wall, Rounding, Sides, the print Advanced rows, Quality, and Material and Mass. | Locked |
-| 11 | Board is in Make: machine profiles, sheet sizes and Custom. Cut defaults to the Falcon A1, Fold to A4. Each process keeps its own. | Locked |
+| 10 | Every process-only row lives in Build, so switching process changes one tab. Print's rows are Shell, Wall, Rounding, Sides, Inner wall, Break out, Quality, Rests on, Material and Mass. | Locked |
+| 11 | Board and Labels are in Build: machine profiles, sheet sizes and Custom. Cut defaults to the Falcon A1, Fold to A4. Each process keeps its own. | Locked |
 | 12 | Labels: edge numbers on the inside of each pair, with a Labels switch; numbers go on the seam allowance when sewn. | Locked |
 | 13 | The word in the UI is **Build**; the word in code and files is `process`. | Locked |
 | 14 | Print's Sides option **Cut** is renamed **Through**. Its stored value was already `through`, so no file changes. | Locked, built |
+| 25 | Four tabs on every screen: Shape, Openings, Build, Files. Form and Make go. Each tab's caption shows its current value, so the design stays readable at a glance. | Locked |
+| 26 | One field replaces the three-column row: label and value above the slider, two side by side, and at least 44 px to touch on a phone. | Locked |
+| 27 | Status says the result first. The warning and its fix sit on one line that stays on screen, and the tab that holds the cause is marked. The geometry detail moves to Files. | Locked |
+| 28 | From 900 px wide, the tabs head a 340 px column beside the model. Narrower, the model comes first, then status, the tab's rows, and the tabs under the thumb. Phone sideways, the tabs are a rail between the model and the rows. | Locked |
+| 29 | Fold shows the face its net centres on where Print shows Rests on. Cut has neither row; clicking a face still works. | Locked |
+| 30 | Split locks Shape, Openings and Build. Files stays live and lists the two halves, as the bottom bar does today. | Locked |
 
 ### The viewer
 
@@ -202,7 +221,7 @@ what's left.
 
 | # | Decision | Status |
 |---|---|---|
-| 18 | One Export button and dialog in every process, replacing Export STL and Export SVG. Print goes through `listArtifacts()` too. | Locked |
+| 18 | One list of files, in the Files tab, in every process, replacing Export STL, Export SVG and the Export dialog. The Export button beside the status opens that tab. Print goes through `listArtifacts()` too. | Locked |
 | 19 | Sheet files are SVG in millimetres, one per board, one colour per operation: red cut, blue valley, light blue mountain, black engrave. No DXF. | Locked |
 | 20 | Files are named `<stem>_<process>_<join>[_<sheet>mm][_boardN \| _fit-strip \| _fold-strip \| _clipsA \| _corners]`. | Locked |
 | 21 | Download all makes one `.zip`, from a small store-only writer with no dependency, because a five-file job otherwise trips the browser's multiple-downloads prompt. Stagger stays as the fallback. | Locked |
@@ -229,6 +248,11 @@ Written to move into the spec:
   out within 0.3 s (1.4 s for a globe).
 - Every warning names what to change. A fix, when offered, works.
 - Plates pass the mesh check as closed solids, one body per clip.
+- The model keeps over a third of a 375 × 667 phone, and over 40% sideways at
+  667 × 375. Every control on a phone is at least 44 px to touch.
+- With Clips and Advanced open, no tab scrolls at 1280 × 720, and none needs
+  more than 2.2 screens on a phone. These are the measured layout's numbers.
+- A new user finds Wall and Border without help.
 
 ## 5. Order of work
 
@@ -240,14 +264,25 @@ Written to move into the spec:
    - 2 mm plywood, clips: does the fit strip give a reading, and does it hold?
    - 2 mm plywood, fingers.
    - A felt seam sample, and one printed clip in the fit strip.
-2. **Ship the panel.** Move the Build switch and rows into `ui.js`, the styles
-   into `index.html`, and drop `?sheet`. Have `main.js` call `compileShape()`
-   in Cut and Fold, take Print's export from `listArtifacts()`, and count job
-   edits as changes to the project. Fix the Fold click.
-3. **Give closed faces a way out.** When no Border opens them, offer the size
+2. **Rebuild the panel.** This doesn't wait for step 1: nothing a test cut can
+   show changes where a control sits, and phones get a usable app sooner. It
+   starts once this branch is merged, and it ships for Print alone, with Cut
+   and Fold still behind `?sheet`. The spec, README and onboarding change with
+   it, because it changes what ships today.
+   1. Move the rows into the four tabs, with `?sheet` still working.
+   2. Replace the row with the one field.
+   3. Rebuild status and Files, Split included.
+   4. Lay it out for phones and sideways.
+   5. Try it on a new user, and check §4's panel numbers on the real app.
+3. **Ship Cut and Fold.** Needs steps 1 and 2. Move the Build switch and rows
+   out of `sheet-mockup.js` into `ui.js`, the styles into `index.html`, and
+   drop `?sheet`. Have `main.js` call `compileShape()` in Cut and Fold, take
+   Print's files from `listArtifacts()`, and count job edits as changes to the
+   project. Fix the Fold click.
+4. **Give closed faces a way out.** When no Border opens them, offer the size
    that does, found the same way the Border fix is.
-4. **Links and the zip** (§3, 21 and 23).
-5. **Promote.** Move §1 and §4 into the spec, cut the release, and update the
+5. **Links and the zip** (§3, 21 and 23).
+6. **Promote.** Move §1 and §4 into the spec, cut the release, and update the
    README and changelog.
 
 ## 6. Later
