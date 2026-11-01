@@ -13,7 +13,7 @@
  */
 
 import { add, mul, convexOverlap, apply, circle, pointInPoly, dashes } from "./geom2.js";
-import { insideView, panelOpenings } from "./panels.js";
+import { insideView, panelOpenings, clearOpenings, MAX_BORDER } from "./panels.js";
 import { strokeText, textWidth } from "./font.js";
 import { growNets, placedSide, fits } from "./unfold.js";
 import { seamFor, dartFor, SEAM_FULL, SEAM_REST } from "./seams.js";
@@ -61,6 +61,8 @@ export function buildFold(extracted, opts) {
 
   let flapFallbacks = 0, seamFallbacks = 0, seamsNarrowed = 0, labelsSkipped = 0;
   const open = [];
+  /** Whip-stitch holes by panel, each with room for thread around it. */
+  const whipFootprints = new Map();
   const flapMm = opts.flapMm ?? 8;
   const seamMm = opts.seamMm ?? 6, sewHoles = opts.sewHoles ?? false;
   const sewD = opts.sewHoleMm ?? 1.5, pitch = opts.sewPitchMm ?? (opts.join === "sew" ? 5 : 6), sewDepth = Math.max(3, 2 * sewD);
@@ -157,6 +159,7 @@ export function buildFold(extracted, opts) {
         for (let i = 0; i < n; i++) {
           const cen = add(add(s.p0, mul(s.u, start + i * pitch)), mul(s.m, sewDepth));
           netPaths[net].push({ layer: "cut", closed: true, pts: circle(cen, sewD / 2, 16) });
+          whipFootprints.set(pid, [...(whipFootprints.get(pid) ?? []), circle(cen, sewD, 16)]);
         }
         depth = sewDepth + sewD;
       }
@@ -165,12 +168,20 @@ export function buildFold(extracted, opts) {
   }
 
   // Openings and labels, per panel in placed coordinates.
+  const filledFaces = [];
+  let needBorder = 0;
   for (const panel of panels) {
     const net = netOf[panel.id], tf = placedTf[panel.id];
     let openings = [];
     if (opts.openings) {
-      openings = panelOpenings(panel, opts.openings.generator, opts.openings.borderFraction, opts.openings.filletMm)
-        .map((o) => views[panel.id].flipPoly(o).map((p) => apply(tf, p)));
+      const { generator, borderFraction, filletMm } = opts.openings;
+      const openingsAt = (b) => panelOpenings(panel, generator, b, filletMm).map((o) => views[panel.id].flipPoly(o).map((p) => apply(tf, p)));
+      const cleared = clearOpenings(openingsAt, whipFootprints.get(panel.id) ?? [], borderFraction);
+      openings = cleared.openings;
+      if (cleared.closed) {
+        filledFaces.push(panel.id);
+        needBorder = Math.max(needBorder, cleared.needBorder);
+      }
       for (const o of openings) netPaths[net].push({ layer: "cut", closed: true, pts: o });
     }
     if (!labels) continue;
@@ -187,6 +198,10 @@ export function buildFold(extracted, opts) {
     });
   }
 
+  if (filledFaces.length) {
+    const closed = `${filledFaces.length} faces stay closed so their whip-stitch holes have material around them`;
+    warnings.push(needBorder <= MAX_BORDER ? `${closed}: raise Border to ${Math.ceil(needBorder * 100)}% to open them` : closed);
+  }
   if (flapFallbacks) warnings.push(`${flapFallbacks} open edges had no room for a flap: tape them`);
   if (seamFallbacks) warnings.push(`${seamFallbacks === 1 ? "1 seam has" : `${seamFallbacks} seams have`} no room for an allowance and get${seamFallbacks === 1 ? "s" : ""} whip-stitch holes instead`);
   if (seamsNarrowed) warnings.push(`${seamsNarrowed === 1 ? "1 seam allowance was" : `${seamsNarrowed} seam allowances were`} narrowed to fit beside the next face`);
@@ -201,6 +216,7 @@ export function buildFold(extracted, opts) {
   return {
     parts,
     warnings,
+    filledFaces,
     // Fold and open edges, for the 3D assembly view.
     joins: joints.map((j) => {
       const o = open.find((x) => x.joint === j);
@@ -217,6 +233,8 @@ export function buildFold(extracted, opts) {
         ? { seams: open.filter((o) => o.seam && !o.seam.dart).length, darts: open.filter((o) => o.seam?.dart).length, whipStitched: seamFallbacks }
         : {}),
       largestNet: Math.max(...nets.map((n) => n.members.length)),
+      filledPanels: filledFaces.length,
+      minBorderFraction: needBorder,
     },
   };
 }

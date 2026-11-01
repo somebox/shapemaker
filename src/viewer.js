@@ -866,20 +866,24 @@ export function createViewer(container, opts = {}) {
 
   /** Tint the alt model's parts with these keys for `ms`, then restore them. */
   function highlightAlt(keys, color, ms) {
-    const meshes = keys.flatMap((k) => altByKey.get(k) ?? []);
-    for (const m of meshes) {
+    clearAltHighlight();
+    altPicked = keys.flatMap((k) => altByKey.get(k) ?? []);
+    for (const m of altPicked) {
       m.material.emissive.setHex(0x6a4e00);
       m.material.color.setHex(color);
     }
+    altPickTimer = setTimeout(clearAltHighlight, ms);
+  }
+  function clearAltHighlight() {
     clearTimeout(altPickTimer);
-    altPickTimer = setTimeout(() => {
-      for (const m of meshes) {
-        m.material.emissive.setHex(0x000000);
-        m.material.color.setHex(m.userData.color);
-      }
-    }, ms);
+    for (const m of altPicked) {
+      m.material.emissive.setHex(0x000000);
+      m.material.color.setHex(m.userData.color);
+    }
+    altPicked = [];
   }
   let altByKey = new Map();
+  let altPicked = [];
   let altPickTimer = null;
 
   return {

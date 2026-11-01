@@ -287,6 +287,7 @@ export function mountSheetMockup({ viewer, getLast, applyPatch, download }) {
     if (!keys.length) return;
     S.flat = false;
     changed(false);
+    flatInput.focus();
     viewer.highlightAlt(keys, COLORS.pick, 2400);
   }
 
@@ -603,11 +604,14 @@ ${borrowed.join("\n")}
 .sheet-part-hit { fill: transparent; stroke: none; pointer-events: fill; }
 .sheet-part-fill { fill: rgba(0,0,0,0.04); stroke: none; pointer-events: none; transition: fill 120ms ease; }
 .sheet-line { pointer-events: none; }
-.sheet-part:hover .sheet-part-fill { fill: color-mix(in srgb, #ffcc44 45%, transparent); }
+.sheet-part:hover .sheet-part-fill,
+.sheet-part:focus-visible .sheet-part-fill { fill: color-mix(in srgb, #ffcc44 45%, transparent); }
+.sheet-part:focus { outline: none; }
 .sheet-part--coupon { cursor: help; }
 .sheet-part--printed .sheet-part-fill { fill: ${PLATE_CLIP}; }
 .sheet-part--printed .sheet-line--cut { stroke: #8a4a20; }
-.sheet-part--printed:hover .sheet-part-fill { fill: #ffcc44; }
+.sheet-part--printed:hover .sheet-part-fill,
+.sheet-part--printed:focus-visible .sheet-part-fill { fill: #ffcc44; }
 .sheet-line { fill: none; stroke-width: 0.45; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
 .sheet-line--cut { stroke-width: 1.2; }
 .sheet-line--mark { stroke-width: 0.8; opacity: 0.75; }

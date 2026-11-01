@@ -45,6 +45,7 @@ export function buildSheet(skeleton, opts) {
     joins: res.joins,
     dims: res.dims,
     warnings,
+    filledFaces: res.filledFaces ?? [],
     stats: { ...res.stats, boards: boards.length, plates: plates.length },
   };
 }

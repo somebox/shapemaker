@@ -90,14 +90,29 @@ export function createFlatView(host, { onPick }) {
         const d = part.paths.filter((p) => p.layer === layer).map((p) => `M${p.pts.map((q) => P(tf, q)).join("L")}${p.closed ? "Z" : ""}`).join("");
         if (d) g.append(svgEl("path", { d, stroke: color, class: `sheet-line sheet-line--${layer}` }));
       }
-      g.addEventListener("pointerenter", () => {
+      const showTip = () => {
         tip.hidden = false;
         tip.textContent = partLabel(part);
-      });
-      g.addEventListener("pointerleave", () => {
+      };
+      const hideTip = () => {
         tip.hidden = true;
-      });
+      };
+      g.addEventListener("pointerenter", showTip);
+      g.addEventListener("pointerleave", hideTip);
       g.addEventListener("click", () => onPick(part));
+      // The fit strip has nothing to find on the model.
+      if (part.kind !== "coupon") {
+        g.setAttribute("tabindex", "0");
+        g.setAttribute("role", "button");
+        g.setAttribute("aria-label", partLabel(part));
+        g.addEventListener("focus", showTip);
+        g.addEventListener("blur", hideTip);
+        g.addEventListener("keydown", (e) => {
+          if (e.key !== "Enter" && e.key !== " ") return;
+          e.preventDefault();
+          onPick(part);
+        });
+      }
       svg.append(g);
     }
     stage.replaceChildren(svg);

@@ -9,7 +9,10 @@
  */
 
 import { toFaceFrame, projectToFrame } from "../faceframe.js";
-import { sub, dot, cross, area, centroid } from "./geom2.js";
+import { sub, dot, cross, area, centroid, polysOverlap } from "./geom2.js";
+
+/** The widest Border the app offers. */
+export const MAX_BORDER = 0.9;
 
 /** Seams flatter than this are merged into one panel. */
 const COPLANAR_DEG = 0.05;
@@ -147,6 +150,31 @@ export function panelOpenings(panel, generator, borderFraction, filletMm, segmen
     for (let i = 0; i < opening.length; i += 2) hole.push([opening[i] + c[0], opening[i + 1] + c[1]]);
     return area(hole) < 0 ? hole.reverse() : hole;
   });
+}
+
+/**
+ * A face's openings, if they stay clear of what it must carry. One rule
+ * everywhere: an opening that crosses a footprint closes the whole face,
+ * never just part of it.
+ * @param {(border: number) => number[][][]} openingsAt
+ * @param {number[][][]} footprints
+ * @param {number} borderFraction
+ * @returns {{ openings: number[][][], closed: boolean, needBorder: number }}
+ *   needBorder: what would open a closed face; past the app's widest, Infinity
+ */
+export function clearOpenings(openingsAt, footprints, borderFraction) {
+  const clashes = (ops) => ops.some((o) => footprints.some((f) => polysOverlap(o, f)));
+  const openings = openingsAt(borderFraction);
+  if (!clashes(openings)) return { openings, closed: false, needBorder: 0 };
+  if (clashes(openingsAt(MAX_BORDER))) return { openings: [], closed: true, needBorder: Infinity };
+  // By the same test, to 1%.
+  let lo = borderFraction, hi = MAX_BORDER;
+  while (hi - lo > 0.01) {
+    const mid = (lo + hi) / 2;
+    if (clashes(openingsAt(mid))) lo = mid;
+    else hi = mid;
+  }
+  return { openings: [], closed: true, needBorder: hi };
 }
 
 /**

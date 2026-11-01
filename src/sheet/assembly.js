@@ -95,7 +95,7 @@ export function buildAssembly(skeleton, sheet, opts = {}) {
   for (const panel of panels) {
     const f = panel.frame;
     const to3 = ([x, y]) => fromFaceFrame(f, x, y);
-    const holes = opts.openings
+    const holes = opts.openings && !sheet.filledFaces.includes(panel.id)
       ? panelOpenings(panel, opts.openings.generator, opts.openings.borderFraction, opts.openings.filletMm)
       : [];
     solids.push({ ...extrude(panel.outline, holes, to3, f.normal, skin, d.join === "sew" ? "felt" : "paper"), panel: panel.id, anchor: f.origin });

@@ -5,6 +5,7 @@ import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { compile, compileShape } from "../src/compile.js";
 import { DEFAULT_STATE, PRINT_KEYS } from "../src/schema.js";
 import { parseProject, serializeProjectV1 } from "../src/project-format.js";
@@ -16,7 +17,7 @@ import {
 } from "../src/production/index.js";
 import { restoreSessionFromPopstate, sessionHistoryPayload } from "../src/session.js";
 
-const root = new URL("..", import.meta.url).pathname;
+const root = fileURLToPath(new URL("..", import.meta.url));
 const closed = { openings: false };
 const dodeca = { base: "dodecahedron", circumdiameterMm: 160, ...closed };
 
@@ -181,6 +182,22 @@ describe("produce", () => {
     assert.equal(fixed.fixes.length, 0);
   });
 
+  it("closes faces whose whip-stitch holes would fall in their openings", async () => {
+    const state = { base: "cube", circumdiameterMm: 100, borderFraction: 0.05, filletMm: 0 };
+    const job = { process: "fold", fold: { join: "sew", board: "custom", boardSize: { w: 68, h: 68 }, marginMm: 5 } };
+    const prod = produce(compileShape(state), job);
+    assert.equal(prod.sheet.stats.whipStitched, 12);
+    assert.equal(prod.sheet.filledFaces.length, 6);
+    assert.match(prod.warnings[0], /6 faces stay closed/);
+    assert.equal(prod.fixes.length, 1);
+    const openings = (p) => p.sheet.parts.flatMap((part) => part.paths).filter((x) => x.layer === "cut" && x.closed && x.pts.length !== 16);
+    assert.equal(openings(prod).length, 0);
+    const fixed = await runJob(state, job, { applyFixes: true });
+    assert.deepEqual(fixed.sheet.filledFaces, []);
+    assert.equal(openings(fixed).length, 6);
+    assert.deepEqual(fixed.fixes, []);
+  });
+
   it("offers no fix when no Border can open the faces", () => {
     const prod = produce(compileShape({}), { process: "cut" });
     assert.ok(prod.sheet.stats.filledPanels > 0);
@@ -218,6 +235,14 @@ describe("artifacts", () => {
         assert.match(f.name, new RegExp(`^${designStem(prod.state)}`));
       }
     }
+  });
+
+  it("draws a fold net's open outline in its thumbnail", () => {
+    const prod = produce(compileShape(dodeca), { process: "fold" });
+    const drawn = listArtifacts(prod).filter((f) => f.id.startsWith("board")).map((f) => f.thumb().match(/ d="([^"]*)"/)[1]).join("");
+    const opens = prod.sheet.parts.flatMap((p) => p.paths).filter((p) => p.layer === "cut" && !p.closed).length;
+    assert.ok(opens > 0);
+    assert.equal(drawn.split("M").length - 1, opens);
   });
 
   it("makes the fit strip its own first file, and leaves its spot empty on the board", async () => {
