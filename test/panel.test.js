@@ -284,12 +284,13 @@ describe("status line", () => {
   });
 
   it("says a failed build even when old metrics are still on screen", () => {
-    const { doc, ui } = mount();
+    const { doc, panelEl, ui } = mount();
     ui.setResult({ state: state(), metrics: metrics(), validation: valid() });
     const fail = { ok: false, errors: [{ key: "wallMm", message: "too thick", clampTo: 2 }], warnings: [] };
     ui.setResult({ state: state(), metrics: metrics(), validation: fail }, { invalid: true });
     assert.match(statusOf(doc).textContent, /Wall: too thick/);
     assert.ok(!statusOf(doc).textContent.includes("95.1"));
+    assert.doesNotMatch(tabBody(panelEl, "files").textContent, /longest flat/, "no measurements of the last good model");
   });
 
   it("offers a failed build's fix, which lands as a patch", () => {

@@ -818,9 +818,11 @@ export function createPanel(panelEl, handlers) {
     }
 
     geometry.replaceChildren();
-    if (shown.geometry.length) {
+    // A failed build's measurements would be the last good model's.
+    const lines = failed ? [] : shown.geometry;
+    if (lines.length) {
       geometry.append(el("div", { className: "group-subheader", textContent: "Geometry" }));
-      for (const line of shown.geometry) geometry.append(el("div", { className: "file-geometry-line", textContent: line }));
+      for (const line of lines) geometry.append(el("div", { className: "file-geometry-line", textContent: line }));
     }
     if (warnings.length) {
       geometry.append(el("div", { className: "group-subheader", textContent: "Warnings" }));
