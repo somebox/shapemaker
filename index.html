@@ -80,7 +80,7 @@
       align-items: center;
       justify-content: space-between;
       gap: 12px;
-      padding: 6px 14px;
+      padding: calc(6px + env(safe-area-inset-top)) max(14px, env(safe-area-inset-right)) 6px max(14px, env(safe-area-inset-left));
       background: var(--panel);
       border-bottom: 1px solid var(--line);
       min-width: 0;
@@ -398,7 +398,7 @@
       display: flex;
       align-items: center;
       gap: 10px;
-      padding: 8px 14px;
+      padding: 8px max(14px, env(safe-area-inset-right)) 8px 14px;
       background: var(--panel);
       border-top: 1px solid var(--line);
       border-left: 1px solid var(--line);
@@ -514,7 +514,7 @@
       flex: 1;
       min-height: 0;
       overflow-y: auto;
-      padding: 12px 14px 10px;
+      padding: 12px max(14px, env(safe-area-inset-right)) 10px 14px;
     }
     /* Two fields side by side; anything that isn't a field takes the row. */
     .tab-body,
@@ -1228,6 +1228,7 @@
        small box and grows its reach, so a field doesn't get taller. */
     @media (pointer: coarse), (max-width: 899px) {
       .segments button,
+      .sheet-tab,
       .btn,
       .btn-quiet,
       .preset-chip,
@@ -1240,7 +1241,12 @@
       .section-hud-toggle { min-height: 44px; }
       .reroll,
       .app-header-help { width: 44px; }
+      .segments { flex-wrap: wrap; }
+      .segments button,
+      .sheet-tab,
+      .file-row .btn,
       .face-stepper .btn-quiet { min-width: 44px; }
+      .sheet-flat-tabs { flex-wrap: wrap; }
       .split-reorient { width: 44px; height: 44px; }
       input[type="range"],
       .section-hud input[type="range"] { height: 44px; }
@@ -1261,7 +1267,7 @@
       #app-header {
         position: absolute;
         inset: 0 0 auto;
-        padding: 6px 8px;
+        padding: calc(6px + env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) 6px max(8px, env(safe-area-inset-left));
         background: none;
         border: none;
         pointer-events: none;
@@ -1284,7 +1290,7 @@
       #bottombar {
         grid-column: 1;
         grid-row: 2;
-        padding: 6px 12px;
+        padding: 6px max(12px, env(safe-area-inset-right)) 6px max(12px, env(safe-area-inset-left));
         border-left: none;
       }
       #btn-export { display: none; }
@@ -1292,7 +1298,7 @@
       #panel-scroll {
         grid-column: 1;
         grid-row: 3;
-        padding: 10px 12px;
+        padding: 10px max(12px, env(safe-area-inset-right)) 10px max(12px, env(safe-area-inset-left));
         background: var(--panel);
         border-top: 1px solid var(--line);
       }
@@ -1309,9 +1315,15 @@
         border-bottom: none;
       }
       .panel-tab[aria-selected="true"] { border-top-color: var(--accent); }
+      /* The header floats over the viewport, so Flat starts below it. */
+      #canvas-host .sheet-flat {
+        padding-top: calc(62px + env(safe-area-inset-top));
+        padding-left: max(12px, env(safe-area-inset-left));
+        padding-right: max(12px, env(safe-area-inset-right));
+      }
       .section-hud {
-        left: 8px;
-        right: 8px;
+        left: max(8px, env(safe-area-inset-left));
+        right: max(8px, env(safe-area-inset-right));
         bottom: 8px;
         padding: 0 8px;
         gap: 6px;
@@ -1330,10 +1342,15 @@
       }
       #app-header { right: calc(50% + 36px); }
       .session-mode { display: none; }
-      #bottombar { grid-column: 1; grid-row: 2; }
+      #bottombar {
+        grid-column: 1;
+        grid-row: 2;
+        padding-bottom: max(6px, env(safe-area-inset-bottom));
+      }
       #panel-scroll {
         grid-column: 3;
         grid-row: 1 / -1;
+        padding-bottom: max(10px, env(safe-area-inset-bottom));
         border-top: none;
       }
       .panel-tabs {

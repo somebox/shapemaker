@@ -221,6 +221,18 @@ describe("produce", () => {
     assert.deepEqual(prod.fixes, []);
   });
 
+  it("warns on the status when welding fails and the clips stay loose", async (t) => {
+    t.mock.method(console, "error", () => {});
+    const shape = compileShape({ base: "octahedron", spike: 1, circumdiameterMm: 200, ...closed });
+    const cut = { clipsBy: "print", clipPlace: "corners", clipSize: "large", clipWidthMm: 6, weld: true };
+    const prod = { ...produce(shape, { process: "cut", cut }), skeleton: null };
+    const done = await finishProduction(prod);
+    assert.ok(done.weld.error);
+    assert.match(done.warnings.at(-1), /loose clips/);
+    assert.equal(done.problems.at(-1).key, "sheet");
+    assert.equal(prod.warnings.some((w) => /loose clips/.test(w)), false);
+  });
+
   it("welds printed corner clips as a later step, on a new production", async () => {
     const shape = compileShape({ base: "octahedron", spike: 1, circumdiameterMm: 200, ...closed });
     const cut = { clipsBy: "print", clipPlace: "corners", clipSize: "large", clipWidthMm: 6 };

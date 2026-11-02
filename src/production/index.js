@@ -119,7 +119,8 @@ export async function finishProduction(prod) {
     };
   } catch (err) {
     console.error("weld:", err);
-    return { ...prod, weld: { error: err.message } };
+    const message = `Corner clips weren't welded, so the print files are loose clips: ${err.message}`;
+    return { ...prod, warnings: [...prod.warnings, message], problems: [...prod.problems, { key: "sheet", message }], weld: { error: err.message } };
   }
 }
 
