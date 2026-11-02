@@ -111,8 +111,8 @@ export function validSetting(def, v) {
   switch (def.kind) {
     case "range": return typeof v === "number" && v >= def.min && v <= def.max;
     case "choice": return def.options.some(([value]) => value === v);
-    case "board": return v === "custom" || Object.hasOwn(BOARD_PROFILES, v ?? "");
-    case "bed": return Object.hasOwn(PRINT_BEDS, v ?? "");
+    case "board": return typeof v === "string" && (v === "custom" || Object.hasOwn(BOARD_PROFILES, v));
+    case "bed": return typeof v === "string" && Object.hasOwn(PRINT_BEDS, v);
     case "size": return [v?.w, v?.h].every((n) => typeof n === "number" && n >= BOARD_MIN && n <= BOARD_MAX);
     default: return false;
   }

@@ -98,6 +98,12 @@ if (splitFlag !== undefined && prod.process === "print" && !split) {
 }
 
 const files = listArtifacts(prod, { split });
+let pics = [];
+if (pictures !== undefined && prod.sheet) {
+  const { sheetPictures } = await import("./lib/sheet-pictures.mjs");
+  pics = sheetPictures(prod.skeleton, prod.sheet, { openings: prod.openings })
+    .map((p, i) => ({ ...p, file: `${designStem(prod.state)}-${i + 1}.png` }));
+}
 const report = {
   name, process: prod.process, createdWith: VERSION,
   summary: summarize(prod),
@@ -106,7 +112,10 @@ const report = {
   notes: exportNotes(prod),
   state: prod.state,
   production: serializeJob(prod.job),
-  files: files.map(({ name: file, group, detail }) => ({ file, group, detail })),
+  files: [
+    ...files.map(({ name: file, group, detail }) => ({ file, group, detail })),
+    ...pics.map(({ file, label }) => ({ file, group: "Picture", detail: label })),
+  ],
 };
 
 if (save) {
@@ -121,14 +130,7 @@ if (command === "build") {
     const data = f.bytes();
     writeFileSync(join(dir, f.name), typeof data === "string" ? data : Buffer.from(data));
   }
-  if (pictures !== undefined && prod.sheet) {
-    const { sheetPictures } = await import("./lib/sheet-pictures.mjs");
-    sheetPictures(prod.skeleton, prod.sheet, { openings: prod.openings }).forEach((p, i) => {
-      const file = `${designStem(prod.state)}-${i + 1}.png`;
-      writeFileSync(join(dir, file), p.png);
-      report.files.push({ file, group: "Picture", detail: p.label });
-    });
-  }
+  for (const p of pics) writeFileSync(join(dir, p.file), p.render());
   writeFileSync(join(dir, "manifest.json"), `${JSON.stringify(report, null, 2)}\n`);
   report.out = dir;
 }

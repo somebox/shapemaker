@@ -239,12 +239,14 @@ export function buildFold(extracted, opts) {
   };
 }
 
+export const FOLD_STRIP_MM = { w: 90, h: 26 };
+
 /**
  * A strip to tune scoring before the real sheet: a valley line, a mountain
  * line and a perforated line, each with its letter, on their own layers.
  */
 export function foldTestStrip() {
-  const W = 90, H = 26, paths = [];
+  const { w: W, h: H } = FOLD_STRIP_MM, paths = [];
   paths.push({ layer: "cut", closed: true, pts: [[0, 0], [W, 0], [W, H], [0, H]] });
   const xs = [15, 45, 75];
   paths.push({ layer: "valley", closed: false, pts: [[xs[0], 0], [xs[0], H - 8]] });

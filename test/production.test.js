@@ -16,6 +16,7 @@ import {
   listArtifacts, pinnedArtifacts, sheetViews, summarize, headline, exportNotes, designStem, sheetOptions, validSetting,
 } from "../src/production/index.js";
 import { restoreSessionFromPopstate, sessionHistoryPayload } from "../src/session.js";
+import { boundingSphere } from "../scripts/lib/render3d.mjs";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const closed = { openings: false };
@@ -135,6 +136,14 @@ describe("jobs", () => {
     assert.deepEqual(restored.production, production);
     const older = sessionHistoryPayload({ projectName: "B", cleanName: "B", cleanState: {}, depth: 0 });
     assert.equal(restoreSessionFromPopstate({ decoded: { ok: true, state: {} }, historyState: older }).production, null);
+  });
+});
+
+describe("saved settings", () => {
+  it("fall back from a board or bed that isn't a name, rather than throw", () => {
+    const job = normalizeJob({ cut: { board: { toString: null }, printBed: { toString: null } } });
+    assert.equal(job.cut.board, normalizeJob({}).cut.board);
+    assert.equal(job.cut.printBed, normalizeJob({}).cut.printBed);
   });
 });
 
@@ -261,6 +270,35 @@ describe("artifacts", () => {
     assert.equal(views, 1);
     assert.equal(half.bytes().byteLength, files[1].bytes().byteLength);
     assert.match(files[2].atDownload().bytes(), /<svg/);
+  });
+
+  it("gives the score strip a scrap when the board can't hold it", () => {
+    const prod = produce(compileShape({ base: "cube", circumdiameterMm: 40, ...closed }), { process: "fold", fold: { board: "custom", boardSize: { w: 50, h: 50 }, foldStyle: "score" } });
+    const strip = listArtifacts(prod).find((f) => f.id === "fold-strip");
+    const [, w, h] = strip.thumb().match(/viewBox="0 0 (\S+) (\S+)"/).map(Number);
+    assert.deepEqual([w, h], [100, 50]);
+    const top = strip.thumb().match(/ d="([^"]*)"/)[1].match(/-?[\d.]+/g).map(Number);
+    assert.ok(top.every((n) => n >= 0 && n <= 100));
+  });
+
+  it("sizes the fit strip for a printed clip's tab, and has it stand in for the key", async () => {
+    const { state, project } = parseProject(readFileSync(join(root, "docs/examples/cut-spiked-octahedron-printed-corners.shapemaker.json"), "utf8"));
+    const prod = await runJob(state, project.production, { applyFixes: true });
+    const { w, c, tw } = prod.sheet.dims;
+    const strip = prod.sheet.parts.find((p) => p.kind === "coupon");
+    const rects = strip.paths.filter((p) => p.closed && p.layer === "cut" && p.pts.length === 4).slice(1);
+    assert.equal(rects.length, 5, "five slots, no key");
+    for (const r of rects) assert.ok(Math.abs(r.pts[2][1] - r.pts[0][1]) >= w + c - 1e-6);
+    assert.ok(Math.abs(rects[2].pts[1][0] - rects[2].pts[0][0] - tw) < 0.5);
+    assert.match(exportNotes(prod)[0], /printed clip's tab/);
+    assert.match(listArtifacts(prod)[0].detail, /printed clip's tab/);
+  });
+
+  it("keeps the key for sheet clips", () => {
+    const prod = produce(compileShape(dodeca), { process: "cut" });
+    const strip = prod.sheet.parts.find((p) => p.kind === "coupon");
+    assert.equal(strip.paths.filter((p) => p.closed && p.layer === "cut" && p.pts.length === 4).length, 7);
+    assert.match(exportNotes(prod)[0], /push the key/);
   });
 
   it("draws a fold net's open outline in its thumbnail", () => {
@@ -391,7 +429,7 @@ describe("examples", () => {
         sha.update(a.name).update(typeof data === "string" ? data : Buffer.from(data));
       }
     }
-    assert.equal(sha.digest("hex").slice(0, 16), "e638bd468c13f972");
+    assert.equal(sha.digest("hex").slice(0, 16), "03009ec8495dd259");
   });
 
   it("felt examples have no whip stitches", async () => {
@@ -400,6 +438,13 @@ describe("examples", () => {
       const prod = await runJob(state, project.production);
       assert.equal(prod.sheet.stats.whipStitched, 0, f);
     }
+  });
+});
+
+describe("pictures", () => {
+  it("bound more points than a call can take as arguments", () => {
+    const points = Array.from({ length: 300_000 }, (_, i) => [i % 2 ? 1 : -1, 0, 0]);
+    assert.equal(boundingSphere(points).radius, 1);
   });
 });
 
@@ -414,6 +459,16 @@ describe("command line", () => {
     assert.equal(report.production.cut.join, "fingers");
     assert.equal(report.state.circumdiameterMm, 140);
     assert.deepEqual(report.files.map((f) => f.file), ["cube_140mm_cut_fingers_3mm_fit-strip.svg", "cube_140mm_cut_fingers_3mm.svg"]);
+  });
+
+  it("plans the pictures a build writes", () => {
+    const args = ["--base=cube", "--diameter=140", "--openings=false", "--process=cut", "--join=fingers", "--pictures", "--json"];
+    const planned = JSON.parse(cli("plan", ...args).stdout).files;
+    assert.ok(planned.some((f) => f.group === "Picture"));
+    const out = mkdtempSync(join(tmpdir(), "shapemaker-"));
+    const built = JSON.parse(cli("build", ...args, `--out=${out}`).stdout).files;
+    assert.deepEqual(built, planned);
+    for (const f of built) assert.ok(readdirSync(out).includes(f.file), f.file);
   });
 
   it("builds the same bytes as the library, with a manifest", async () => {
