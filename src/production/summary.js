@@ -44,6 +44,32 @@ function printLines(prod) {
   return [`print ${metrics.triangleCount} triangles · ${metrics.volumeCm3.toFixed(2)} cm³ · ⌀ ${state.circumdiameterMm} mm`];
 }
 
+function cutHeadline(prod) {
+  const st = prod.sheet.stats;
+  const clips = Object.values(st.clips ?? {}).reduce((a, n) => a + n, 0);
+  const joins = [
+    clips && plural(clips, st.plates ? "printed clip" : "clip"),
+    st.ties && plural(st.ties, "tie"),
+    st.fingers && plural(st.fingers, "finger joint"),
+  ].filter(Boolean);
+  return [plural(st.panels, "panel"), ...joins, plural(st.boards, "board")].join(" · ");
+}
+
+function foldHeadline(prod) {
+  const st = prod.sheet.stats;
+  return [plural(st.nets, "net"), plural(st.folds, "fold"), plural(st.boards, "board")].join(" · ");
+}
+
+/**
+ * A production in one short line, for a status bar; `summarize` has the rest.
+ * @param {ReturnType<import('./index.js').produce>} prod
+ */
+export function headline(prod) {
+  if (!prod.ok) return prod.error;
+  if (!settingsOf(prod.job)) return printLines(prod)[0];
+  return prod.process === "cut" ? cutHeadline(prod) : foldHeadline(prod);
+}
+
 /**
  * @param {ReturnType<import('./index.js').produce>} prod
  * @returns {string[]} status lines; warnings and fixes are on the production

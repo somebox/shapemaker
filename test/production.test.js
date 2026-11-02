@@ -13,7 +13,7 @@ import { boardSvg } from "../src/sheet/index.js";
 import { pointInPoly } from "../src/sheet/geom2.js";
 import {
   JOB_DEFS, PROCESSES, normalizeJob, serializeJob, settingApplies, produce, finishProduction, runJob,
-  listArtifacts, sheetViews, summarize, exportNotes, designStem, sheetOptions, validSetting,
+  listArtifacts, pinnedArtifacts, sheetViews, summarize, headline, exportNotes, designStem, sheetOptions, validSetting,
 } from "../src/production/index.js";
 import { restoreSessionFromPopstate, sessionHistoryPayload } from "../src/session.js";
 import { boundingSphere } from "../scripts/lib/render3d.mjs";
@@ -167,6 +167,14 @@ describe("produce", () => {
   it("says so when a border in mm can't apply to sheet openings", () => {
     const prod = produce(compileShape({ base: "dodecahedron", circumdiameterMm: 200, borderMm: 12 }), { process: "fold" });
     assert.match(prod.warnings[0], /millimetres/);
+    assert.equal(prod.problems[0].key, "borderMm");
+  });
+
+  it("keys each warning to what it's about", () => {
+    const prod = produce(compileShape(dodeca), { process: "cut", cut: { board: "custom", boardSize: { w: 50, h: 50 } } });
+    const oversize = prod.problems.find((p) => /larger than the board/.test(p.message));
+    assert.equal(oversize.key, "sheet");
+    assert.deepEqual(prod.warnings, prod.problems.map((p) => p.message));
   });
 
   it("passes on the shape's own warnings, but not the shell's", () => {
@@ -215,6 +223,18 @@ describe("produce", () => {
     assert.deepEqual(prod.fixes, []);
   });
 
+  it("warns on the status when welding fails and the clips stay loose", async (t) => {
+    t.mock.method(console, "error", () => {});
+    const shape = compileShape({ base: "octahedron", spike: 1, circumdiameterMm: 200, ...closed });
+    const cut = { clipsBy: "print", clipPlace: "corners", clipSize: "large", clipWidthMm: 6, weld: true };
+    const prod = { ...produce(shape, { process: "cut", cut }), skeleton: null };
+    const done = await finishProduction(prod);
+    assert.ok(done.weld.error);
+    assert.match(done.warnings.at(-1), /loose clips/);
+    assert.equal(done.problems.at(-1).key, "sheet");
+    assert.equal(prod.warnings.some((w) => /loose clips/.test(w)), false);
+  });
+
   it("says when a clip or corner piece is too big for the bed", async () => {
     const clip = { name: "clip A", paths: [{ layer: "cut", closed: true, pts: [[0, 0], [300, 0], [300, 10], [0, 10]] }] };
     const plates = clipPlates([clip], { w: 100, h: 100 });
@@ -239,6 +259,7 @@ describe("produce", () => {
     const done = await finishProduction(prod);
     assert.notEqual(done, prod);
     assert.ok(done.weld.pieces > 0);
+    assert.deepEqual(done.warnings, done.problems.map((w) => w.message));
     assert.equal(prod.weld.pending, true);
     assert.ok(sheetViews(done).some((v) => v.id === "corners"));
     assert.ok(listArtifacts(done).some((f) => f.name.endsWith("_corners.stl")));
@@ -259,6 +280,24 @@ describe("artifacts", () => {
         assert.match(f.name, new RegExp(`^${designStem(prod.state)}`));
       }
     }
+  });
+
+  it("pins files to one cut, and takes the view only at download", async () => {
+    const prod = await runJob(dodeca, { process: "print" });
+    const { mesh } = prod.compiled;
+    let views = 0;
+    const view = () => {
+      views++;
+      return { position: { x: 300, y: 0, z: 0 }, target: { x: 0, y: 0, z: 0 }, up: { x: 0, y: 0, z: 1 }, near: 1 };
+    };
+    const files = pinnedArtifacts(prod, { split: { a: mesh, b: mesh, planeZ: 10 }, view });
+    assert.deepEqual(files.map((f) => f.id), ["half-a", "half-b", "drawing"]);
+    assert.equal(views, 0);
+    const half = files[1].atDownload();
+    assert.equal(half.id, "half-b");
+    assert.equal(views, 1);
+    assert.equal(half.bytes().byteLength, files[1].bytes().byteLength);
+    assert.match(files[2].atDownload().bytes(), /<svg/);
   });
 
   it("numbers plates apart from clip classes that end in a digit", () => {
@@ -518,5 +557,25 @@ describe("command line", () => {
     assert.equal(r.status, 0);
     assert.match(r.stdout, /--seam-mm=/);
     assert.doesNotMatch(r.stdout, /--sheet-mm=/);
+  });
+});
+
+describe("status headline", () => {
+  const made = (job) => produce(compileShape({ ...DEFAULT_STATE, circumdiameterMm: 200 }), job);
+
+  it("says a job in a few words", () => {
+    assert.match(headline(made({ process: "cut" })), /^32 panels · \d+ clips · \d boards?$/);
+    assert.match(headline(made({ process: "fold" })), /^\d+ nets? · \d+ folds · \d boards?$/);
+  });
+
+  it("names the join in use", () => {
+    assert.match(headline(made({ process: "cut", cut: { join: "ties" } })), /\d+ ties/);
+    const cube = compileShape({ ...DEFAULT_STATE, base: "cube", circumdiameterMm: 140, openings: false });
+    assert.match(headline(produce(cube, { process: "cut", cut: { join: "fingers" } })), /finger joints?/);
+    assert.match(headline(made({ process: "cut", cut: { clipsBy: "print" } })), /printed clips/);
+  });
+
+  it("carries a failure's own words", () => {
+    assert.equal(headline(produce({ state: DEFAULT_STATE }, { process: "cut" })), "No model to lay out");
   });
 });

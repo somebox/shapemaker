@@ -21,8 +21,8 @@ import { MAX_BORDER } from "../sheet/cut.js";
 import { normalizeJob, boardOf } from "./job.js";
 
 export { JOB_DEFS, PROCESSES, PROCESS_STOCK, normalizeJob, serializeJob, settingsOf, settingApplies, validSetting, boardOf } from "./job.js";
-export { designStem, listArtifacts, sheetViews, exportNotes, LAYER_NAMES, PLATE_CLIP, SHEET_FILL } from "./artifacts.js";
-export { summarize, fmt, plural } from "./summary.js";
+export { designStem, listArtifacts, pinnedArtifacts, sheetViews, exportNotes, LAYER_NAMES, PLATE_CLIP, SHEET_FILL } from "./artifacts.js";
+export { summarize, headline, fmt, plural } from "./summary.js";
 export { BOARD_PROFILES } from "../sheet/layout.js";
 export { LAYERS } from "../sheet/svg.js";
 export { PRINT_BEDS };
@@ -87,13 +87,14 @@ export function produce(shape, rawJob) {
     const pending = job.process === "cut" && m.clipsBy === "print" && m.clipPlace === "corners" && m.weld && sheet.plates.length > 0;
     // Sheet openings scale with each face, so a border in mm can't apply.
     const mmBorder = opts.openings && shape.state.borderMm != null
-      ? [`Border is set in millimetres, which sheet openings can't use: using ${Math.round(opts.openings.borderFraction * 100)}%`]
+      ? [{ key: "borderMm", message: `Border is set in millimetres, which sheet openings can't use: using ${Math.round(opts.openings.borderFraction * 100)}%` }]
       : [];
     // Of the shape's own warnings; the rest are about the printed shell.
-    const shapeWarnings = (shape.validation?.warnings ?? []).filter((w) => w.stage === "orient").map((w) => w.message);
+    const shapeWarnings = (shape.validation?.warnings ?? []).filter((w) => w.stage === "orient");
+    const problems = [...shapeWarnings, ...mmBorder, ...sheet.warnings.map((message) => ({ key: "sheet", message }))];
     return {
       ...base, ok: true, sheet, board: opts.board, openings: opts.openings,
-      warnings: [...shapeWarnings, ...mmBorder, ...sheet.warnings], fixes: shapeFixes(sheet), weld: pending ? { pending: true } : null,
+      warnings: problems.map((p) => p.message), problems, fixes: shapeFixes(sheet), weld: pending ? { pending: true } : null,
     };
   } catch (err) {
     console.error("produce:", err);
@@ -113,15 +114,18 @@ export async function finishProduction(prod) {
     const res = weldPlates(prod.sheet, prod.skeleton, weldTouching, PRINT_BEDS[prod.job.cut.printBed]);
     // Welding replaced the plates, so what's said about the bed changes too.
     const stale = bedWarning(prod.sheet.plates), offBed = bedWarning(res.plates);
+    const problems = [...prod.problems.filter((w) => w.message !== stale), ...(offBed ? [{ key: "sheet", message: offBed }] : [])];
     return {
       ...prod,
-      warnings: [...prod.warnings.filter((w) => w !== stale), ...(offBed ? [offBed] : [])],
+      warnings: problems.map((w) => w.message),
+      problems,
       sheet: { ...prod.sheet, plates: res.plates, stats: { ...prod.sheet.stats, plates: res.plates.length } },
       weld: { pieces: res.welded, clips: res.weldedClips },
     };
   } catch (err) {
     console.error("weld:", err);
-    return { ...prod, weld: { error: err.message } };
+    const message = `Corner clips weren't welded, so the print files are loose clips: ${err.message}`;
+    return { ...prod, warnings: [...prod.warnings, message], problems: [...prod.problems, { key: "sheet", message }], weld: { error: err.message } };
   }
 }
 

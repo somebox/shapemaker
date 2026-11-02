@@ -80,10 +80,10 @@ export function createChrome({ version, onHelp }) {
     <form method="dialog" class="onboarding-body">
       <h2>Design a printable form</h2>
       <ol class="onboarding-steps">
-        <li><strong>Pick a start</strong> — choose a built-in shape or preset from the panel.</li>
-        <li><strong>Adjust</strong> — tune Size, Form, and distort controls until the look fits.</li>
+        <li><strong>Pick a start</strong> — choose a built-in shape or preset in the Shape tab.</li>
+        <li><strong>Adjust</strong> — work through the Shape, Openings and Build tabs until the look fits.</li>
         <li><strong>Click a face</strong> — set which side rests on the print bed. This is easy to miss; the model orients to that face.</li>
-        <li><strong>Export</strong> — download STL for printing or SVG for a line drawing.</li>
+        <li><strong>Export</strong> — the Files tab has the STL for printing and an SVG line drawing.</li>
       </ol>
       <p class="onboarding-note">Reopen this tip anytime with <kbd>?</kbd> in the header.</p>
       <button type="submit" class="btn btn-accent onboarding-dismiss" value="ok">Got it</button>

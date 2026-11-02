@@ -5,9 +5,7 @@
 
 import { compile, limitsForState } from "./compile.js";
 import { createViewer } from "./viewer.js";
-import { writeBinaryStl } from "./export/stl.js";
-import { exportSvg } from "./export/svg.js";
-import { designStem } from "./production/names.js";
+import { produce, pinnedArtifacts } from "./production/index.js";
 import { createPanel, normalizePatch } from "./ui.js";
 import { serializeProjectV1, parseProject } from "./project-format.js";
 import { normalizeState, statesEqual } from "./schema.js";
@@ -59,10 +57,6 @@ const chrome = createChrome({
 });
 appEl?.prepend(chrome.header);
 document.body.appendChild(chrome.dialog);
-{
-  const h = chrome.header.getBoundingClientRect().height;
-  document.documentElement.style.setProperty("--header-offset", `${Math.ceil(h)}px`);
-}
 
 /** @type {ReturnType<typeof compile> | null} */
 let last = null;
@@ -90,8 +84,8 @@ let sessionPushDepth = 0;
 let splitActive = false;
 /** A project's production block, kept so saving it again doesn't lose it. */
 let openedProduction = null;
-/** Re-entry guard for the two-download split export stagger. */
-let splitExportPending = false;
+/** The Cut and Fold mockup, with ?sheet in the URL. */
+let sheetMockup = null;
 /** @type {{ a: object, b: object, planeZ: number, gapMm: number } | null} */
 let splitData = null;
 /** @type {{ list: object[], index: number } | null} session reorient cycle */
@@ -150,6 +144,7 @@ const viewer = createViewer(canvasHost, {
         splitData = data;
         splitActive = true;
         viewer.setSplitPreview(splitData);
+        refreshFiles();
         return;
       }
     }
@@ -174,6 +169,7 @@ const viewer = createViewer(canvasHost, {
         },
       };
       viewer.setSplitPreview(splitData);
+      refreshFiles();
     } catch {
       // Keep the last sealed preview — never show an unprintable half.
     }
@@ -233,12 +229,6 @@ ui = createPanel(panelEl, {
   onPrepareShare() {
     if (draftValid && last?.state) writeUrl(encodeHash(last.state), "replace");
   },
-  onExport() {
-    exportStl();
-  },
-  onExportSvg() {
-    exportSvgFile();
-  },
   onMaterial() {
     /* mass readout updates inside the panel */
   },
@@ -263,68 +253,40 @@ function downloadText(text, filename) {
   downloadBlob(text, filename, "application/json");
 }
 
-/** Prefer the last successful compile so export matches the on-screen mesh. */
-function exportResult() {
-  if (draftValid && last?.validation?.ok && last.mesh) return last;
-  const result = compile(draft);
-  if (!result.validation.ok || !result.mesh) {
-    ui.setResult(result, { limits: null, invalid: true });
-    return null;
-  }
-  return result;
-}
-
-function exportStl() {
-  const result = exportResult();
-  if (!result) return;
-  const stem = designStem(result.state);
-  if (splitActive && splitData) {
-    if (splitExportPending) return; // second click inside the stagger window
-    splitExportPending = true;
-    const { a, b, planeZ } = splitData;
-    const { matrixA, matrixB } = halfExportMatrices(planeZ);
-    downloadBlob(
-      writeBinaryStl(a, { header: `shapemaker_${stem}_half-a`, matrix: matrixA }),
-      `${stem}_half-a.stl`,
-      "model/stl",
-    );
-    // Stagger avoids programmatic-click coalescing; Chrome may still show a
-    // one-time multiple-downloads prompt.
-    setTimeout(() => {
-      downloadBlob(
-        writeBinaryStl(b, { header: `shapemaker_${stem}_half-b`, matrix: matrixB }),
-        `${stem}_half-b.stl`,
-        "model/stl",
-      );
-      splitExportPending = false;
-    }, 200);
-    return;
-  }
-  const buf = writeBinaryStl(result.mesh, {
-    header: `shapemaker_${stem}`,
-    matrix: result.orientation.matrix,
-  });
-  downloadBlob(buf, `${stem}.stl`, "model/stl");
-}
-
-function exportSvgFile() {
-  const result = exportResult();
-  if (!result) return;
-  const stem = designStem(result.state);
+/** The view the line drawing is taken from. */
+function viewCamera() {
   const cam = viewer.camera;
   const tgt = viewer.controls.target;
-  const svg = exportSvg({
-    mesh: result.mesh,
-    orientation: result.orientation,
-    camera: {
-      position: { x: cam.position.x, y: cam.position.y, z: cam.position.z },
-      target: { x: tgt.x, y: tgt.y, z: tgt.z },
-      up: { x: cam.up.x, y: cam.up.y, z: cam.up.z },
-      near: cam.near,
+  return {
+    position: { x: cam.position.x, y: cam.position.y, z: cam.position.z },
+    target: { x: tgt.x, y: tgt.y, z: tgt.z },
+    up: { x: cam.up.x, y: cam.up.y, z: cam.up.z },
+    near: cam.near,
+  };
+}
+
+/** Print's files, fixed to the model and cut on screen. */
+function printFiles() {
+  if (!draftValid || !last?.mesh) return [];
+  const prod = produce(last, { process: "print" });
+  return pinnedArtifacts(prod, { split: splitActive ? splitData : null, view: viewCamera }).map((f) => ({
+    ...f,
+    run() {
+      const file = f.atDownload();
+      downloadBlob(file.bytes(), file.name, file.mime);
     },
-    label: stem,
-  });
-  downloadBlob(svg, `${stem}.svg`, "image/svg+xml");
+  }));
+}
+
+/** In Cut and Fold the mockup owns the list. */
+function refreshFiles() {
+  if (!sheetMockup?.job()) ui.setFiles({ files: printFiles() });
+}
+
+/** A failed rebuild: no files are offered for the last good model. */
+function dropFiles() {
+  if (sheetMockup?.job()) sheetMockup.onInvalid();
+  else refreshFiles();
 }
 
 /**
@@ -343,6 +305,7 @@ function enableSplit() {
     splitActive = true;
     ui.setLocked(true);
     viewer.setSplitPreview(splitData);
+    refreshFiles();
   } else {
     splitActive = false;
     splitData = null;
@@ -359,6 +322,7 @@ function disableSplit() {
   splitOrients = null;
   ui.setLocked(false);
   viewer.setSplitPreview(null);
+  refreshFiles();
 }
 
 
@@ -597,6 +561,7 @@ function schedulePatch(normalized, commit) {
 function applyEdit(patchIn, commit) {
   let normalized = patchIn;
   let warnings = [];
+  let reduced = [];
 
   // Any skeleton-shaping edit (base switch, seed reroll, density, jitter)
   // adapts wall/border to the NEW skeleton's limits — same policy as base
@@ -640,12 +605,13 @@ function applyEdit(patchIn, commit) {
         });
         normalized = normalizePatch({ ...normalized, ...adapted.patch });
         warnings = adapted.warnings;
+        reduced = adapted.reduced;
       }
     }
   }
 
   draft = { ...draft, ...normalized };
-  regenerate({ commit, warnings });
+  regenerate({ commit, warnings, reduced });
 }
 /** Last measured valid-compile duration; drives the heavy-config policy. */
 let lastCompileMs = 0;
@@ -733,6 +699,7 @@ function regenerate({
   commit = true,
   fromHistory = false,
   warnings = [],
+  reduced = [],
 } = {}) {
   if (splitActive) disableSplit();
   const t0 = performance.now();
@@ -764,6 +731,7 @@ function regenerate({
       { limits: limitsForState(draft) ?? lastLimits, invalid: true, warnings },
     );
     ui.setEmptyNote(last ? null : { errors: [suspect] });
+    dropFiles();
     updateProjectStatus();
     return;
   }
@@ -773,6 +741,7 @@ function regenerate({
     ui.setResult(next, { limits: next.limits, invalid: true, warnings });
     // The last good model stays on screen; with none, the viewport says why.
     ui.setEmptyNote(last ? null : next.validation);
+    dropFiles();
     updateProjectStatus();
     // Do not write an invalid hash.
     return;
@@ -845,7 +814,7 @@ function regenerate({
     flatEdgeIndices: printRisk.flatEdgeIndices,
     overhangFaceIndices: printRisk.overhangFaceIndices,
   });
-  ui.setResult(stable, { limits: lastLimits, warnings });
+  ui.setResult(stable, { limits: lastLimits, warnings, warningKeys: reduced });
   ui.setEmptyNote(null);
   sheetMockup?.onResult();
   // Focus on frame or deliberate face pick — not on distort remaps.
@@ -926,6 +895,7 @@ function updateProjectStatus() {
     canSave: canSaveProject({ draftValid, last }),
     canUndo: sessionPushDepth > 0,
   });
+  refreshFiles();
   ui.setStartStatus(
     startStatuses({ draft, projectName, presets }),
   );
@@ -953,14 +923,17 @@ function fallbackCopy(url) {
 
 // Cut and Fold mockup over the real panel, only with ?sheet in the URL
 // (docs/PRODUCTION.md).
-const sheetMockup = new URLSearchParams(location.search).has("sheet")
-  ? (await import("./sheet-mockup.js")).mountSheetMockup({
-      viewer,
-      getLast: () => last,
-      applyPatch,
-      download: downloadBlob,
-    })
-  : null;
+if (new URLSearchParams(location.search).has("sheet")) {
+  const { mountSheetMockup } = await import("./sheet-mockup.js");
+  sheetMockup = mountSheetMockup({
+    viewer,
+    ui,
+    getLast: () => last,
+    applyPatch,
+    download: downloadBlob,
+    printFiles,
+  });
+}
 
 // Boot: prefer URL hash, else defaults. Seed the URL without a live-edit entry.
 // Guarded: a non-validation throw out of the boot compile (an internal

@@ -1,9 +1,9 @@
 /**
  * Clickable mockup of the Cut and Fold modes, mounted over the real app
- * when the URL carries ?sheet. It adds the Build switch to Form, swaps the
+ * when the URL carries ?sheet. It adds the switch to the Build tab, swaps the
  * rows each mode doesn't use for its own, shows the cut parts put together
- * in the viewer, adds a Flat view of the boards, and replaces the export
- * buttons with one dialog.
+ * in the viewer, adds a Flat view of the boards, and lists each mode's files
+ * in the Files tab.
  *
  * This file is only the panel. The rows come from JOB_DEFS and everything
  * they make comes from src/production/, the same path the CLI runs. It
@@ -13,12 +13,12 @@
  */
 
 import {
-  produce, finishProduction, assemblyOf, listArtifacts, exportNotes, summarize, designStem, normalizeJob, serializeJob,
+  produce, finishProduction, assemblyOf, listArtifacts, exportNotes, summarize, headline, normalizeJob, serializeJob,
   settingsOf, settingApplies, boardOf, fmt, JOB_DEFS, PROCESSES, PROCESS_STOCK, BOARD_PROFILES, PRINT_BEDS, PLATE_CLIP,
 } from "./production/index.js";
 import { createFlatView } from "./flat-view.js";
 import { PRINT_KEYS } from "./schema.js";
-import { el } from "./controls.js";
+import { el, isWideField } from "./controls.js";
 
 const STORE_KEY = "shapemaker.sheetMockup";
 
@@ -61,12 +61,14 @@ function saveSettings(s) {
 /**
  * @param {{
  *   viewer: ReturnType<import("./viewer.js").createViewer>,
+ *   ui: ReturnType<import("./ui.js").createPanel>,
  *   getLast: () => any,
  *   applyPatch: (patch: object, commit: boolean) => void,
  *   download: (data: BlobPart, filename: string, mime: string) => void,
+ *   printFiles: () => object[],
  * }} app
  */
-export function mountSheetMockup({ viewer, getLast, applyPatch, download }) {
+export function mountSheetMockup({ viewer, ui, getLast, applyPatch, download, printFiles }) {
   const S = loadSettings();
   /** The latest production; null in Print. @type {any} */
   let prod = null;
@@ -76,34 +78,32 @@ export function mountSheetMockup({ viewer, getLast, applyPatch, download }) {
 
   const panelEl = document.getElementById("panel");
   const canvasHost = document.getElementById("canvas-host");
-  const appStrip = document.getElementById("dimension-strip");
-  const formBody = panelEl.querySelector('section[data-group="form"] .group-body');
-  const makeBody = panelEl.querySelector('section[data-group="make"] .group-body');
+  const buildBody = panelEl.querySelector('section[data-tab="build"]');
   const hud = canvasHost.querySelector(".section-hud");
 
   // The app's own rows each mode hides.
   const byKey = (k) => panelEl.querySelector(`.control[data-key="${k}"]`);
   const printRows = [
     ...PRINT_KEYS.map(byKey),
-    formBody.querySelector('[data-cluster="form-advanced"]'),
-    ...makeBody.querySelectorAll(".control-row--material"),
+    buildBody.querySelector('[data-cluster="build-advanced"]'),
+    ...buildBody.querySelectorAll(".control-row--material"),
   ].filter(Boolean);
-  const faceHint = [...makeBody.querySelectorAll("p.hint")].find((p) => /click a face/i.test(p.textContent));
-  const faceHintPrint = faceHint?.textContent ?? "";
+  const faceRow = buildBody.querySelector("[data-face-row]");
+  const faceLabel = buildBody.querySelector("[data-face-label]");
+  const faceHint = faceRow.querySelector("p.hint");
+  const faceHintPrint = faceHint.textContent;
   // Print's viewport overlays don't apply to sheet parts: switched off on
   // the way out of Print (through their own checkboxes, so the app keeps
   // its state) and Print risk and Section switched back on the way in.
   const overlayInputs = ["[data-print-risk]", "[data-section-on]", "[data-split-on]"].map((q) => hud?.querySelector(q)).filter(Boolean);
   let printOverlays = [];
-  const exportStl = document.getElementById("btn-export");
-  const exportSvg = document.getElementById("btn-export-svg");
 
   // ── Header chip ──
   const header = document.querySelector("#app > header, #app header");
   const chip = el("span", { className: "sheet-chip", textContent: "Sheet mockup", title: "Cut and Fold modes, mocked up over the real app (?sheet)" });
   header?.querySelector("h1, .brand, .title")?.after(chip) ?? header?.prepend(chip);
 
-  // ── Form: Build switch and each mode's rows ──
+  // ── Build: the switch and each mode's rows ──
   const buildRow = segControl("Build", PROCESSES.map((p) => [p, p[0].toUpperCase() + p.slice(1)]), () => S.job.process, (v) => {
     if (v === S.job.process) return;
     switchOverlays(S.job.process, v);
@@ -111,9 +111,10 @@ export function mountSheetMockup({ viewer, getLast, applyPatch, download }) {
     changed();
   });
   buildRow.root.classList.add("sheet-build");
+  buildRow.root.dataset.wide = "1";
   const materialNote = el("p", { className: "hint sheet-material" });
   buildRow.root.append(materialNote);
-  formBody.prepend(buildRow.root);
+  buildBody.prepend(buildRow.root);
 
   // One row per job setting, sorted into its place in the panel.
   const rows = [];
@@ -137,12 +138,14 @@ export function mountSheetMockup({ viewer, getLast, applyPatch, download }) {
     const fit = def.options.find(([v]) => v === m.clearanceMm)[1];
     return `kerf ${fmt(m.kerfMm, 2)} · fit ${fit}${m.clipsBy === "print" && m.join !== "ties" ? ` · ${PRINT_BEDS[m.printBed].label.split(" /")[0]}` : ""}`;
   });
-  buildRow.root.after(...rowsIn("cut", "main"), clipCluster.root, ...rowsIn("fold", "main"));
-  formBody.querySelector('[data-cluster="form-advanced"]')?.after(cutAdvanced.root);
-  if (!cutAdvanced.root.isConnected) formBody.append(cutAdvanced.root);
-
-  // ── Make: Board and Labels ──
-  makeBody.prepend(...rowsIn("cut", "make"), ...rowsIn("fold", "make"));
+  // Sheet and Labels are half-width, so they share a row.
+  const [cutSheet, ...cutMain] = rowsIn("cut", "main");
+  const [cutBoard, cutLabels] = rowsIn("cut", "stock");
+  buildRow.root.after(
+    cutSheet, cutLabels, ...cutMain, clipCluster.root, cutBoard,
+    ...rowsIn("fold", "main"), ...rowsIn("fold", "stock"),
+  );
+  buildBody.append(cutAdvanced.root);
 
   // ── Viewport: Flat toggle, board tabs ──
   const flatToggle = el("label", { className: "section-hud-toggle sheet-flat-toggle", title: "Show the boards laid out flat" });
@@ -154,16 +157,6 @@ export function mountSheetMockup({ viewer, getLast, applyPatch, download }) {
   });
   hud?.append(flatToggle);
   const flatView = createFlatView(canvasHost, { onPick: showPart });
-
-  // ── Bottom bar ──
-  // One Export button opens a dialog with every file this mode makes.
-  const exportBtn = el("button", { type: "button", className: "btn btn-accent", textContent: "Export" });
-  exportBtn.addEventListener("click", openExport);
-  exportStl?.before(exportBtn);
-  const exportDialog = el("dialog", { className: "onboarding sheet-export", "aria-label": "Export" });
-  document.body.append(exportDialog);
-  const strip = el("div", { id: "sheet-strip", "aria-live": "polite", hidden: true });
-  appStrip.after(strip);
 
   // ── Wiring ──
   function switchOverlays(from, to) {
@@ -179,6 +172,7 @@ export function mountSheetMockup({ viewer, getLast, applyPatch, download }) {
 
   function changed(rebuild = true) {
     saveSettings(S);
+    ui.setJob(S.job);
     syncPanel();
     if (rebuild) scheduleBuild();
     else render();
@@ -195,18 +189,12 @@ export function mountSheetMockup({ viewer, getLast, applyPatch, download }) {
     cutAdvanced.root.hidden = process !== "cut";
     materialNote.textContent = PROCESS_STOCK[process] ?? "";
     materialNote.hidden = !sheetMode;
-    if (faceHint) {
-      faceHint.textContent =
-        process === "cut" ? "Click a face on the model to find its panel on the board."
-        : process === "fold" ? "Click a face on the model to centre the first net on it."
-        : faceHintPrint;
-    }
+    // Cut has no face to choose; a click there still finds the panel.
+    faceRow.hidden = process === "cut";
+    faceLabel.textContent = process === "fold" ? "Net centres on" : "Rests on";
+    faceHint.textContent = process === "fold" ? "Click a face on the model to centre the first net on it." : faceHintPrint;
     hud?.classList.toggle("sheet-mode", sheetMode);
     flatInput.checked = S.flat;
-    if (exportStl) exportStl.hidden = true;
-    if (exportSvg) exportSvg.hidden = true;
-    appStrip.hidden = sheetMode;
-    strip.hidden = !sheetMode;
     buildRow.sync();
     cutAdvanced.sync();
     clipCluster.sync();
@@ -220,7 +208,7 @@ export function mountSheetMockup({ viewer, getLast, applyPatch, download }) {
       render();
       return;
     }
-    strip.textContent = "laying out…";
+    ui.setJobStatus({ headline: "laying out…", warnings: [], fixes: [], geometry: [] });
     buildTimer = setTimeout(build, 60);
   }
 
@@ -241,7 +229,6 @@ export function mountSheetMockup({ viewer, getLast, applyPatch, download }) {
         if (prod !== pending) return;
         prod = done;
         render();
-        if (exportDialog.open) openExport();
       });
     }
     render();
@@ -249,31 +236,16 @@ export function mountSheetMockup({ viewer, getLast, applyPatch, download }) {
 
   function render() {
     syncPanel();
-    paintStrip();
+    paintStatus();
+    paintFiles();
     flatView.show(S.job.process !== "print" && S.flat && prod?.ok ? prod : null);
   }
 
   // ── Status line ──
-  function paintStrip() {
-    strip.replaceChildren();
-    if (S.job.process === "print" || !prod) return;
-    if (!prod.ok) {
-      strip.append(el("span", { className: "err", textContent: prod.error }));
-      return;
-    }
-    strip.append(document.createTextNode(summarize(prod).join("\n")));
-    const warn = prod.warnings[0];
-    if (warn) {
-      const w = el("span", { className: "sheet-warn", textContent: `\n▲ ${warn}${prod.warnings.length > 1 ? ` (+${prod.warnings.length - 1})` : ""}` });
-      w.title = prod.warnings.join("\n");
-      strip.append(w);
-      // Same "fix" pattern as the print warnings.
-      for (const f of prod.fixes) {
-        const fix = el("button", { type: "button", className: "control-fix", textContent: f.label });
-        fix.addEventListener("click", () => applyPatch(f.patch, true));
-        strip.append(" ", fix);
-      }
-    }
+  function paintStatus() {
+    if (S.job.process === "print") ui.setJobStatus(null);
+    else if (!prod?.ok) ui.setJobStatus({ headline: "", error: prod?.error, warnings: [], fixes: [], geometry: [] });
+    else ui.setJobStatus({ headline: headline(prod), warnings: prod.warnings, problems: prod.problems, fixes: prod.fixes, geometry: summarize(prod) });
   }
 
   /** Leave Flat and light the part up on the model. */
@@ -315,67 +287,23 @@ export function mountSheetMockup({ viewer, getLast, applyPatch, download }) {
     return { parts, lines: new Float32Array(linePts), lineColor: 0x3a2a1a };
   }
 
-  // ── Export dialog ──
-  /** Every file this mode makes. Print's two run through the app's own buttons, which know the view and the split. */
-  function exportFiles() {
-    if (S.job.process !== "print") {
-      return prod?.ok ? listArtifacts(prod).map((f) => ({ ...f, run: () => download(f.bytes(), f.name, f.mime) })) : [];
-    }
-    const stem = getLast()?.state ? designStem(getLast().state) : "shape";
-    return [
-      { group: "3D print", name: `${stem}.stl`, detail: "The shell as shown (two halves when Split is on)", run: () => exportStl?.click() },
-      { group: "Drawing", name: `${stem}.svg`, detail: "Line drawing of the model from the current view", run: () => exportSvg?.click() },
-    ];
-  }
-
-  function exportIntro() {
+  // ── Files tab ──
+  function fileIntro() {
     const { process } = S.job;
-    if (process === "print") return "Print: the shell for a 3D printer, and a line drawing.";
     const m = settingsOf(S.job), board = boardOf(m).label;
-    if (process === "fold") return `Fold: thin stock on ${board}.`;
-    return `Cut: ${fmt(m.sheetMm)} mm sheet on ${board}.${prod?.sheet?.plates?.length ? ` Clips print on ${PRINT_BEDS[m.printBed].label}.` : ""}`;
+    if (process === "fold") return `Thin stock on ${board}.`;
+    return `${fmt(m.sheetMm)} mm sheet on ${board}.${prod?.sheet?.plates?.length ? ` Clips print on ${PRINT_BEDS[m.printBed].label}.` : ""}`;
   }
 
-  function openExport() {
-    const files = exportFiles();
-    const body = el("form", { method: "dialog", className: "onboarding-body sheet-export-body" });
-    const head = el("div", { className: "sheet-export-head" });
-    head.append(
-      el("h2", { textContent: "Export" }),
-      el("button", { type: "submit", className: "btn-quiet sheet-export-close", "aria-label": "Close", textContent: "×" }),
-    );
-    body.append(head, el("p", { className: "onboarding-note", textContent: exportIntro() }));
-    if (prod?.weld?.pending) body.append(el("p", { className: "onboarding-note", textContent: "Welding corner pieces… the print files follow in a moment." }));
-    let group = null, list = null;
-    for (const f of files) {
-      if (f.group !== group) {
-        group = f.group;
-        list = el("div", { className: "sheet-export-list" });
-        body.append(el("div", { className: "group-subheader", textContent: group }), list);
-      }
-      const row = el("div", { className: "sheet-export-row" });
-      const thumb = el("div", { className: "sheet-export-thumb" });
-      if (f.thumb) thumb.innerHTML = f.thumb();
-      const text = el("div", { className: "sheet-export-text" });
-      text.append(el("div", { className: "sheet-export-name", textContent: f.name }), el("div", { className: "sheet-export-detail", textContent: f.detail }));
-      const btn = el("button", { type: "button", className: "btn", textContent: "Download" });
-      btn.addEventListener("click", () => f.run());
-      row.append(thumb, text, btn);
-      list.append(row);
+  function paintFiles() {
+    if (S.job.process === "print") {
+      ui.setFiles({ files: printFiles() });
+      return;
     }
-    if (prod?.ok) for (const note of exportNotes(prod)) body.append(el("p", { className: "onboarding-note", textContent: note }));
-    const foot = el("div", { className: "sheet-export-foot" });
-    const all = el("button", { type: "button", className: "btn btn-accent", textContent: files.length > 1 ? `Download all (${files.length})` : "Download" });
-    all.disabled = !files.length;
-    all.addEventListener("click", () => {
-      // Staggered: browsers coalesce or block clicks in the same tick.
-      files.forEach((f, i) => setTimeout(() => f.run(), i * 200));
-      exportDialog.close();
-    });
-    foot.append(all);
-    body.append(foot);
-    exportDialog.replaceChildren(body);
-    if (!exportDialog.open) exportDialog.showModal();
+    const files = prod?.ok ? listArtifacts(prod).map((f) => ({ ...f, run: () => download(f.bytes(), f.name, f.mime) })) : [];
+    const notes = prod?.ok ? exportNotes(prod) : [];
+    if (prod?.weld?.pending) notes.unshift("Welding corner pieces… the print files follow in a moment.");
+    ui.setFiles({ intro: fileIntro(), files, notes });
   }
 
   // ── Controls in the app's markup ──
@@ -470,7 +398,13 @@ export function mountSheetMockup({ viewer, getLast, applyPatch, download }) {
       m()[def.key] = v;
       changed();
     };
-    if (def.kind === "board") return boardControl(process);
+    const control = rowFor(def, m, set);
+    if (isWideField(def)) control.root.dataset.wide = "1";
+    return control;
+  }
+
+  function rowFor(def, m, set) {
+    if (def.kind === "board") return boardControl(m);
     if (def.kind === "bed") {
       return selectControl(def.label, Object.entries(PRINT_BEDS).map(([id, b]) => [id, `${b.label} · ${b.w}×${b.h}`]), () => m()[def.key], set);
     }
@@ -481,8 +415,7 @@ export function mountSheetMockup({ viewer, getLast, applyPatch, download }) {
     return segControl(def.label, def.options.map(([v, text]) => [v, text]), () => m()[def.key], set, titles);
   }
 
-  function boardControl(process) {
-    const m = () => S.job[process];
+  function boardControl(m) {
     const root = el("div", { className: "control sheet-control" });
     const row = el("div", { className: "control-row control-row--material" });
     const select = el("select", { className: "material-select", "aria-label": "Board" });
@@ -524,10 +457,17 @@ export function mountSheetMockup({ viewer, getLast, applyPatch, download }) {
   }
 
   syncPanel();
+  ui.setJob(S.job);
   return {
     /** Called after every rebuild of the model. */
     onResult() {
       if (S.job.process !== "print") scheduleBuild();
+    },
+    /** Called when a rebuild fails: the last layout's files go, and so does any build or weld still on its way. */
+    onInvalid() {
+      clearTimeout(buildTimer);
+      prod = { ok: false, error: "Fix the shape to lay it out" };
+      render();
     },
     /** The job in use; null means Print. */
     job: () => (S.job.process === "print" ? null : serializeJob(S.job)),
@@ -554,35 +494,20 @@ export function mountSheetMockup({ viewer, getLast, applyPatch, download }) {
 }
 
 function injectStyles() {
-  // The bottom-bar strip borrows the app's own #dimension-strip rules.
-  const borrowed = [];
-  for (const sheet of document.styleSheets) {
-    let rules;
-    try {
-      rules = sheet.cssRules;
-    } catch {
-      continue;
-    }
-    for (const r of rules) {
-      if (r.selectorText?.includes("#dimension-strip")) borrowed.push(r.cssText.replaceAll("#dimension-strip", "#sheet-strip"));
-    }
-  }
   const style = document.createElement("style");
   style.textContent = `
-${borrowed.join("\n")}
 #panel .control[hidden], #panel .control-cluster[hidden], #panel .control-row[hidden], #panel p[hidden],
-#sheet-strip[hidden], .sheet-control[hidden], .sheet-custom[hidden], .sheet-flat[hidden], .sheet-flat-tip[hidden],
+.sheet-control[hidden], .sheet-custom[hidden], .sheet-flat[hidden], .sheet-flat-tip[hidden],
 .section-hud.sheet-mode > :not(.sheet-flat-toggle), .section-hud:not(.sheet-mode) > .sheet-flat-toggle,
-#dimension-strip[hidden], .btn[hidden], .sheet-material[hidden] { display: none; }
-#sheet-strip .sheet-warn { color: var(--warn); }
-#sheet-strip .control-fix { color: var(--warn); font-size: 0.68rem; }
+.sheet-material[hidden] { display: none; }
+@media (max-width: 899px) { .sheet-chip { display: none; } }
 .sheet-chip {
   margin-left: 10px; padding: 1px 7px; border: 1px solid var(--accent); border-radius: 3px;
   font: 500 0.62rem var(--font-mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent);
 }
 .sheet-build .control-row { margin-bottom: 2px; }
 .sheet-material { margin: 0 0 6px; }
-.sheet-custom { grid-template-columns: var(--label-col, 88px) 1fr auto 1fr auto; align-items: center; gap: 6px; }
+.sheet-custom { grid-template-columns: 4.5rem 1fr auto 1fr auto; align-items: center; gap: 6px; margin-top: 4px; }
 .sheet-num {
   width: 100%; min-width: 0; padding: 3px 6px; font: 0.75rem var(--font-mono); color: var(--text);
   background: var(--panel-inset); border: 1px solid var(--line); border-radius: 3px;
@@ -625,20 +550,6 @@ ${borrowed.join("\n")}
 .sheet-line--valley, .sheet-line--mountain, .sheet-line--score { stroke-width: 1.1; }
 .sheet-line--mountain { stroke-dasharray: 6 3; }
 .sheet-line--valley { stroke-dasharray: 6 2 1.5 2; }
-.sheet-export { width: min(640px, calc(100vw - 32px)); max-width: none; }
-.sheet-export-body { gap: 10px; max-height: min(80vh, 760px); overflow: auto; }
-.sheet-export-head { display: flex; align-items: center; justify-content: space-between; }
-.sheet-export-close { font-size: 1.2rem; line-height: 1; padding: 2px 8px; }
-.sheet-export-list { display: flex; flex-direction: column; gap: 6px; }
-.sheet-export-row {
-  display: grid; grid-template-columns: 72px 1fr auto; gap: 12px; align-items: center;
-  padding: 6px 8px; border: 1px solid var(--line); border-radius: 3px; background: var(--panel-inset);
-}
-.sheet-export-thumb svg { display: block; width: 72px; height: 54px; border-radius: 2px; }
-.sheet-export-text { min-width: 0; }
-.sheet-export-name { font: 500 0.75rem var(--font-mono); color: var(--text); overflow-wrap: anywhere; }
-.sheet-export-detail { font-size: 0.72rem; color: var(--text-dim); line-height: 1.35; margin-top: 2px; }
-.sheet-export-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
 .sheet-flat-tip {
   position: absolute; left: 12px; bottom: 12px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 3px;
   background: color-mix(in srgb, var(--panel) 92%, transparent); font: 500 0.72rem var(--font-mono); color: var(--accent);

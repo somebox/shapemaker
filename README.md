@@ -15,10 +15,10 @@ Open the [live app](https://somebox.github.io/shapemaker/). No install is
 required. On first visit, a short tip walks through the loop:
 
 1. **Pick a start** — choose a built-in shape from the Start from row.
-2. **Adjust** — tune Size, Form (hollow/solid, wall, border, fillet), and
-   optional distort (jitter, dual, truncate, spike, subdivide, smooth).
+2. **Adjust** — the tabs hold Shape (size, jitter, dual, truncate, spike,
+   subdivide, smooth), Openings (border, fillet) and Build (hollow/solid, wall).
 3. **Click a face** — set which side rests on the print bed.
-4. **Export** — download STL for the slicer, or SVG for a clean outline.
+4. **Export** — the Files tab has the STL for the slicer and an SVG outline.
 
 Share a design with the **Share** control (copies a link that restores the
 same settings). **Export** / **Load** under JSON Model File save and reopen
@@ -30,9 +30,9 @@ a `.shapemaker.json` project on your machine.
 |---|---|---|
 | [![Hidden-line SVG export](media/example-export.png)](media/example-export.svg) | [![Rendered STL export](media/example-stl-render.png)](media/example-export.stl) | [![Prusaslicer screenshot](media/prusa-slicer-screenshot-thumb.png)](media/prusa-slicer-screenshot.png) |
 
-- **Export STL** — binary mesh in millimetres, already oriented to the resting
+- **STL** — binary mesh in millimetres, already oriented to the resting
   face. Filenames include size (and seed / point count when those matter).
-- **Export SVG** — camera-matched hidden-line drawing (silhouette and crease
+- **SVG** — camera-matched hidden-line drawing (silhouette and crease
   edges), editable in vector tools.
 
 Optional **Print risk** and **Section** tools sit on the viewport: overhang /
@@ -42,13 +42,14 @@ flat-bridge overlays, and a height clip to inspect cavities.
 
 | Area | Controls |
 |---|---|
-| Start | Platonic solids, icosidodecahedron, cuboctahedron, rhombicosidodecahedron, rhombic 12/30/90, globe, twisted globe, sphere, random hull; named star and ring-ball presets |
-| Size | Overall diameter; Edge length on regular shapes |
-| Form | Hollow or solid, wall, rounding; openings: open or closed faces, polygon or ellipse outline, border, fillet, tapered / straight / cut sides; advanced: inner wall (even or scaled about the centre), break out |
-| Distort | Jitter (amount, direction, seed), dual, truncate, spike, subdivide, smooth |
-| Make | Resting face, mesh quality (Draft / Normal / Fine), material / mass estimate |
+| Shape: start | Platonic solids, icosidodecahedron, cuboctahedron, rhombicosidodecahedron, rhombic 12/30/90, globe, twisted globe, sphere, random hull; named star and ring-ball presets |
+| Shape: size | Overall diameter; Edge length on regular shapes |
+| Shape: distort | Jitter (amount, direction, seed), dual, truncate, spike, subdivide, smooth |
+| Openings | Open or closed faces, polygon or ellipse outline, border, fillet |
+| Build | Hollow or solid, wall, rounding, tapered / straight / through sides, mesh quality (Draft / Normal / Fine), resting face, material / mass estimate; advanced: inner wall (even or scaled about the centre), break out |
+| Files | STL, SVG and project files, geometry detail, share link |
 
-**Ring balls.** Turn **Dual** on and set **Opening** to Ellipse: Dual swaps
+**Ring balls.** Turn **Dual** on and set **Outline** to Ellipse: Dual swaps
 faces for vertices, so a triangulated sphere becomes pentagon and hexagon
 cells, and each cell opens with its largest inscribed oval. Neighbouring rings
 meet along a short neck. The *Ring ball* and *Ring lantern* presets start

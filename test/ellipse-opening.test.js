@@ -149,7 +149,7 @@ describe("openingStyle through compile", () => {
   it("is canonical, polygon by default, and a Form control that idles Fillet", () => {
     assert.equal(DEFAULT_STATE.openingStyle, "polygon");
     const def = CONTROL_DEFS.find((d) => d.key === "openingStyle");
-    assert.equal(def.group, "form");
+    assert.equal(def.group, "openings");
     assert.equal(def.inertWhen({ openings: false }), true);
     assert.equal(def.inertWhen({ openings: true }), false);
     const fillet = CONTROL_DEFS.find((d) => d.key === "filletMm");

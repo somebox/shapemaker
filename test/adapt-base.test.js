@@ -69,6 +69,16 @@ describe("adaptStateForBase", () => {
     assert.ok(warnings.length >= 1);
   });
 
+  it("names the settings it reduced", () => {
+    const { reduced } = adaptStateForBase({
+      currentState: { base: "cube", wallMm: 30, borderMm: 20, openings: true },
+      nextBase: "cube",
+      nextLimits: { wallMmMax: 3, borderMmMax: 8 },
+    });
+    assert.deepEqual(reduced, ["wallMm", "borderMm"]);
+    assert.deepEqual(adaptStateForBase({ currentState: { base: "cube", wallMm: 1 }, nextBase: "cube", nextLimits: { wallMmMax: 3, borderMmMax: 8 } }).reduced, []);
+  });
+
   it("clamps wall and border but never fillet", () => {
     const { patch, warnings } = adaptStateForBase({
       currentState: {
