@@ -9,10 +9,12 @@ export const FORMAT_ID = "shapemaker-project";
 export const FORMAT_VERSION = 1;
 
 /**
- * @param {{ name?: string, state: object }} args
+ * @param {{ name?: string, state: object, production?: object | null }} args
+ *   production: a serializeJob() result, kept beside state; it never changes
+ *   the shape, so it needs no format version of its own
  * @returns {string} two-space JSON + trailing newline
  */
-export function serializeProjectV1({ name, state }) {
+export function serializeProjectV1({ name, state, production = null }) {
   const project = {
     format: FORMAT_ID,
     formatVersion: FORMAT_VERSION,
@@ -20,6 +22,7 @@ export function serializeProjectV1({ name, state }) {
   if (name != null && name !== "") project.name = name;
   project.createdWith = VERSION;
   project.state = serializeState(state);
+  if (production) project.production = production;
   return `${JSON.stringify(project, null, 2)}\n`;
 }
 
@@ -85,6 +88,7 @@ export function parseProject(text) {
       name: typeof project.name === "string" ? project.name : "Untitled",
       createdWith: project.createdWith,
       state,
+      production: project.production && typeof project.production === "object" ? project.production : undefined,
       view: project.view,
       metadata: project.metadata,
       extensions: project.extensions,

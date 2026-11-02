@@ -66,10 +66,36 @@ node scripts/export-stl.mjs out.stl --wall=2.0 --border=4 --fillet=4.5
 node scripts/export-stl.mjs out.stl --base=dodecahedron --depth=solid --openings=false
 ```
 
-Cut sides (`openingAxis: "through"`) run on the manifold-3d WebAssembly
+### Command line
+
+`scripts/shapemaker.mjs` runs any process on any design, by the same path as
+the app:
+
+```bash
+node scripts/shapemaker.mjs plan docs/examples/cut-cube-fingers.shapemaker.json
+node scripts/shapemaker.mjs build --base=cube --diameter=140 --process=cut --join=ties --out=out/cube
+node scripts/shapemaker.mjs build design.shapemaker.json --process=fold --join=sew --fix --pictures
+node scripts/shapemaker.mjs settings --process=cut      # every setting and its range
+node scripts/build-examples.mjs                         # docs/examples → test/out/examples/index.html
+```
+
+`plan` writes nothing and takes `--json`. `build` also writes `manifest.json`.
+Exit codes: 0 done, 1 the design doesn't build, 2 usage.
+
+### Production and the sheet engine
+
+`compile()` makes the shape and printed shell; `src/production/` turns a shape
+and a job into files; `src/sheet/` is the laser and fold engine under it. In
+the app, Cut and Fold run only as a mockup: add `?sheet` to the URL to get the
+Build switch, the Flat view and the Export dialog (`src/sheet-mockup.js`). The
+design, the layer rules and the decisions for the first release are in
+[docs/PRODUCTION.md](docs/PRODUCTION.md). To add a setting, add a row to
+`JOB_DEFS` in `src/production/job.js`: the panel, flags and file format follow.
+
+Through sides (`openingAxis: "through"`) run on the manifold-3d WebAssembly
 library, which loads on demand. Scripts that call `compile()` on such a state
 `await loadCsg()` from `src/solid/csg.js` first; `export-stl.mjs` does this
-when the flags ask for Cut.
+when the flags ask for Through.
 
 ## Canonical state
 
@@ -85,8 +111,8 @@ files, the URL hash, and dirty tracking.
 | `wallMm` | 1.4 | minimum wall thickness |
 | `wallMode` | `even` | Inner wall: `even` (face planes offset by the wall) or `scaled` (uniform scale about the origin); absent in a link or project → `scaled` |
 | `openingStyle` | `polygon` | `polygon` (inset + fillet) or `ellipse` (inscribed oval) |
-| `openingAxis` | `center` | Sides: `center` Tapered (origin ray), `normal` Straight (along the face normal; tilts only beside a tight inner edge) or `through` Cut (straight cut by mesh boolean; holes may merge) |
-| `breakOut` | `false` | Cut only: holes may cut through neighbouring faces' outsides; loose pieces are dropped |
+| `openingAxis` | `center` | Sides: `center` Tapered (origin ray), `normal` Straight (along the face normal; tilts only beside a tight inner edge) or `through` Through (straight cut by mesh boolean; holes may merge) |
+| `breakOut` | `false` | Through only: holes may cut through neighbouring faces' outsides; loose pieces are dropped |
 | `filletMm` | 4.5 | requested opening corner radius; clamped per face; inert under `ellipse` |
 | `jitter` | 0 | distort amount |
 | `dual` | false | polar dual (faces ↔ vertices, re-hull with merge) |
@@ -137,10 +163,14 @@ src/
   solid/spike.js    face pyramids / dimples (origin-star-convex)
   export/stl.js     binary STL writer
   export/svg.js     camera-projected SVG
+  sheet/            laser and fold engine: panels, cut, fold, unfold, seams, layout, svg, assembly
+  production/       shape + job → files: job schema, produce(), listArtifacts(), summarize()
+  sheet-mockup.js   Cut and Fold panel behind ?sheet; flat-view.js draws the boards
   viewer.js         only module that imports Three.js
 prototype/          Python reference (meshcheck, original generator)
 test/               node --test + fixtures
-scripts/            export-stl.mjs, acceptance.sh
+scripts/            shapemaker.mjs (CLI), export-stl.mjs, acceptance.sh, build-examples.mjs (+ lib/)
+docs/               spec, roadmap, production design, examples/, research/
 ```
 
 `solid/shell.js` learns the polyhedron only through `skeleton.js` and
@@ -171,7 +201,11 @@ from a branch" — `docs/` is documentation, not the site root.
 
 - Geometry modules must not import Three.js; the pipeline runs under
   `node --test`.
-- `compile(state)` is the only regeneration API.
+- `compile(state)` is the only regeneration API; `compileShape(state)` is the
+  same path without the shell.
+- `src/production/` and `src/sheet/` must not touch the DOM or a viewer, and the
+  shape pipeline must not import them (`test/production.test.js` checks).
+- What a design makes is `listArtifacts()`, for the app and the CLI alike.
 - Product razor: a change should improve physical design, fabrication handoff,
   or the experience of creating interesting forms; otherwise it waits.
 
@@ -179,5 +213,8 @@ from a branch" — `docs/` is documentation, not the site root.
 
 - [`docs/SPEC.md`](docs/SPEC.md) — product behavior and architecture
 - [`docs/PROJECT_FORMAT.md`](docs/PROJECT_FORMAT.md) — portable projects
+- [`docs/PRODUCTION.md`](docs/PRODUCTION.md) — shape vs production, and first-release decisions
+- [`docs/examples/`](docs/examples/) — designs for each output, and test cuts
+- [`docs/research/`](docs/research/sheet-output.md) — research notes, not binding
 - [`docs/ROADMAP.md`](docs/ROADMAP.md) — future work
 - [`docs/CHANGELOG.md`](docs/CHANGELOG.md) — releases

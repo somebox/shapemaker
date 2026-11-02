@@ -36,7 +36,6 @@ const GROUPS = [
 ];
 
 export const GROUPS_OPEN_KEY = "shapemaker.groups.open";
-export const START_EXPANDED_KEY = "shapemaker.start.expanded";
 
 /** Jitter is a sub-cluster of Shape; it starts folded. */
 const DEFAULT_OPEN = { shape: true, form: true, make: true, jitter: false };
@@ -83,29 +82,6 @@ export function loadGroupsOpen(store = localStorage) {
 export function saveGroupsOpen(open, store = localStorage) {
   try {
     store.setItem(GROUPS_OPEN_KEY, JSON.stringify(open));
-  } catch {
-    /* ignore */
-  }
-}
-
-/**
- * @param {Storage} [store]
- */
-export function loadStartExpanded(store = localStorage) {
-  try {
-    return store.getItem(START_EXPANDED_KEY) === "1";
-  } catch {
-    return false;
-  }
-}
-
-/**
- * @param {boolean} expanded
- * @param {Storage} [store]
- */
-export function saveStartExpanded(expanded, store = localStorage) {
-  try {
-    store.setItem(START_EXPANDED_KEY, expanded ? "1" : "0");
   } catch {
     /* ignore */
   }

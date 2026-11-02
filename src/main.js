@@ -7,6 +7,7 @@ import { compile, limitsForState } from "./compile.js";
 import { createViewer } from "./viewer.js";
 import { writeBinaryStl } from "./export/stl.js";
 import { exportSvg } from "./export/svg.js";
+import { designStem } from "./production/names.js";
 import { createPanel, normalizePatch } from "./ui.js";
 import { serializeProjectV1, parseProject } from "./project-format.js";
 import { normalizeState, statesEqual } from "./schema.js";
@@ -21,7 +22,7 @@ import {
   depthAfterPopstate,
 } from "./session.js";
 import { adaptStateForBase } from "./adapt-base.js";
-import { BASES, isKnownBase } from "./bases.js";
+import { isKnownBase } from "./bases.js";
 import { hullSkeletonForBase, scaleSkeleton } from "./pipeline.js";
 import { computeLimits } from "./limits.js";
 import { parsePresetsEnvelope } from "./presets.js";
@@ -87,6 +88,8 @@ let presets = [];
 let sessionPushDepth = 0;
 /** Session-only split preview (never in STATE_KEYS / URL). */
 let splitActive = false;
+/** A project's production block, kept so saving it again doesn't lose it. */
+let openedProduction = null;
 /** Re-entry guard for the two-download split export stagger. */
 let splitExportPending = false;
 /** @type {{ a: object, b: object, planeZ: number, gapMm: number } | null} */
@@ -190,7 +193,11 @@ ui = createPanel(panelEl, {
   },
   onSave() {
     if (!canSaveProject({ draftValid, last })) return;
-    const text = serializeProjectV1({ name: projectName, state: last.state });
+    const text = serializeProjectV1({
+      name: projectName,
+      state: last.state,
+      production: sheetMockup ? sheetMockup.savedJob() : openedProduction,
+    });
     downloadText(text, `${safeName(projectName)}.shapemaker.json`);
     cleanState = normalizeState(last.state);
     cleanName = projectName;
@@ -237,20 +244,6 @@ ui = createPanel(panelEl, {
   },
 });
 
-function exportStem(state) {
-  const { base, circumdiameterMm: size, seed, jitter, points } = state;
-  // Seed and point count go in the filename whenever the shape depends on
-  // them — the reproducibility story survives outside the URL (spec rule),
-  // and two exports of different densities don't overwrite each other.
-  const parts = [];
-  if (BASES[base]?.seeded || jitter > 0) parts.push(`s${seed}`);
-  if (BASES[base]?.parametric) parts.push(`p${points}`);
-  if (state.truncate > 0) parts.push(`t${state.truncate}`);
-  if (state.spike > 0) parts.push(`k${Number(state.spike.toFixed(2))}`);
-  const tag = parts.length ? `_${parts.join("_")}` : "";
-  return `${base}_${size}mm${tag}`;
-}
-
 /**
  * Shared blob → download path for Save / STL / SVG.
  * @param {BlobPart} data
@@ -284,7 +277,7 @@ function exportResult() {
 function exportStl() {
   const result = exportResult();
   if (!result) return;
-  const stem = exportStem(result.state);
+  const stem = designStem(result.state);
   if (splitActive && splitData) {
     if (splitExportPending) return; // second click inside the stagger window
     splitExportPending = true;
@@ -317,7 +310,7 @@ function exportStl() {
 function exportSvgFile() {
   const result = exportResult();
   if (!result) return;
-  const stem = exportStem(result.state);
+  const stem = designStem(result.state);
   const cam = viewer.camera;
   const tgt = viewer.controls.target;
   const svg = exportSvg({
@@ -416,9 +409,11 @@ fileInput.addEventListener("change", async () => {
 function applyStart(id) {
   const start = startFromRecipe(id, presets);
   if (!start) return;
+  // A new shape keeps the job in hand: browsing starts doesn't leave Cut.
   const text = serializeProjectV1({
     name: start.name,
     state: start.state,
+    production: sheetMockup?.job(),
   });
   openProjectText(text);
 }
@@ -467,9 +462,14 @@ function openParsed(parsed) {
   const prevDraft = draft;
   const prevClean = cleanState;
   const prevCleanName = cleanName;
+  const prevProduction = openedProduction;
+  const prevJob = sheetMockup?.job();
 
   projectName = parsed.project.name || "Untitled";
+  openedProduction = parsed.project.production ?? null;
+  sheetMockup?.setJob(openedProduction);
   draft = normalizeState(parsed.state);
+  const depthBefore = sessionPushDepth;
   regenerate({ forceFrame: true, commit: true });
   if (
     shouldEstablishCleanBaseline({
@@ -479,8 +479,11 @@ function openParsed(parsed) {
   ) {
     cleanState = normalizeState(last.state);
     cleanName = projectName;
+    // Same shape, another job: the URL didn't move, but Undo must still step back.
+    const jobOnly = sessionPushDepth === depthBefore && JSON.stringify(openedProduction) !== JSON.stringify(prevProduction);
+    if (jobOnly) writeUrl(encodeHash(last.state), "push");
     // regenerate pushed this entry before the baseline existed — rewrite it.
-    refreshHistoryPayload();
+    else refreshHistoryPayload();
     updateProjectStatus();
     return;
   }
@@ -488,6 +491,8 @@ function openParsed(parsed) {
   draft = prevDraft;
   cleanState = prevClean;
   cleanName = prevCleanName;
+  openedProduction = prevProduction;
+  sheetMockup?.setJob(prevJob);
   updateProjectStatus();
 }
 
@@ -509,6 +514,10 @@ window.addEventListener("popstate", () => {
       projectName = restored.projectName;
       cleanName = restored.cleanName;
       cleanState = normalizeState(restored.cleanState);
+      const production = restored.production ?? null;
+      // Only across an Open: other entries leave the job as it was set.
+      if (JSON.stringify(production) !== JSON.stringify(openedProduction)) sheetMockup?.setJob(production);
+      openedProduction = production;
     }
     regenerate({ forceFrame: false, fromHistory: true });
     updateProjectStatus();
@@ -536,13 +545,13 @@ const SKELETON_KEYS = [
   "soften",
 ];
 
-/** Edits that arrived while the Cut library loads, merged; null when none wait. */
+/** Edits that arrived while the mesh library loads, merged; null when none wait. */
 let csgWaiting = null;
 
 function applyPatch(patch, commit) {
   if (splitActive) return;
   const normalized = normalizePatch(patch);
-  // While Cut sides load, later edits merge into the waiting one, so a
+  // While Through sides load, later edits merge into the waiting one, so a
   // slider dragged meanwhile builds once, not once per step.
   if (csgWaiting) {
     csgWaiting.patch = { ...csgWaiting.patch, ...normalized };
@@ -681,7 +690,7 @@ function deferBehindBadge(run) {
 }
 
 /**
- * Run `run` now, or once the Cut library has loaded when `state` cuts. The
+ * Run `run` now, or once the mesh library has loaded when `state` cuts. The
  * library is fetched on first use; a failed load still runs `run`, so
  * compile() reports the failure against Sides.
  * @param {object} state
@@ -838,6 +847,7 @@ function regenerate({
   });
   ui.setResult(stable, { limits: lastLimits, warnings });
   ui.setEmptyNote(null);
+  sheetMockup?.onResult();
   // Focus on frame or deliberate face pick — not on distort remaps.
   const facePick =
     prevFace != null &&
@@ -877,6 +887,7 @@ function writeUrl(hash, action) {
     cleanName,
     cleanState,
     depth: sessionPushDepth,
+    production: openedProduction,
   });
   applyingHistory = true;
   if (action === "push") history.pushState(payload, "", url);
@@ -898,6 +909,7 @@ function refreshHistoryPayload() {
       cleanName,
       cleanState,
       depth: sessionPushDepth,
+      production: openedProduction,
     }),
     "",
     location.href,
@@ -939,11 +951,22 @@ function fallbackCopy(url) {
   return ok;
 }
 
+// Cut and Fold mockup over the real panel, only with ?sheet in the URL
+// (docs/PRODUCTION.md).
+const sheetMockup = new URLSearchParams(location.search).has("sheet")
+  ? (await import("./sheet-mockup.js")).mountSheetMockup({
+      viewer,
+      getLast: () => last,
+      applyPatch,
+      download: downloadBlob,
+    })
+  : null;
+
 // Boot: prefer URL hash, else defaults. Seed the URL without a live-edit entry.
 // Guarded: a non-validation throw out of the boot compile (an internal
 // invariant bug) must degrade to a readable error, not a dead interface.
 const boot = decodeHash(location.hash);
-// A link to a Cut design waits for the Cut library; a failed load falls
+// A link to a Through design waits for the mesh library; a failed load falls
 // through to compile(), which reports it against Sides.
 if (boot.ok && needsCsg(boot.state)) {
   setBusy(true);

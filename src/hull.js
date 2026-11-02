@@ -21,7 +21,7 @@ export const MERGE_SKIP_ID = "none";
  * Named merge tolerances. Defaults suit exact regular solids (unit sphere).
  * Size-relative values are multiplied by the cloud's circumradius.
  */
-export const DEFAULT_MERGE = Object.freeze({
+const DEFAULT_MERGE = Object.freeze({
   planeDistanceRel: 1e-7,
   normalAngleRad: 1e-6,
   collinearRel: 1e-7,

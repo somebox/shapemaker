@@ -1,13 +1,15 @@
 /**
  * THE regeneration entrypoint.
  * compile(state) → { skeleton, mesh, metrics, validation, orientation }
+ * compileShape(state) → { skeleton, validation, state }, the same shape with
+ * no printed shell, for production steps that don't need one.
  *
- * UI, hash parsing, export buttons, and tests all call this. It never throws
+ * UI, hash parsing, export buttons, and tests all call these. They never throw
  * for bad input: every user-reachable failure comes back as `validation`, so a
  * stale URL hash or an out-of-range preset degrades instead of blanking.
  */
 
-import { DEFAULT_STATE } from "./schema.js";
+import { DEFAULT_STATE, PRINT_KEYS } from "./schema.js";
 import { runPipeline, hullSkeletonForBase, scaleSkeleton } from "./pipeline.js";
 import { computeOrientation, defaultRestingFace } from "./orient.js";
 import { computeMetrics } from "./metrics.js";
@@ -101,14 +103,14 @@ function limitsFor(skeleton, state) {
 }
 
 /**
- * @param {Partial<typeof DEFAULT_STATE>} [partial]
+ * Full state from partial input. Border has two mutually exclusive spellings.
+ * Fraction scales with face size; millimetres keep a constant strut (legacy /
+ * headless fits). An explicit spelling displaces the other — including the
+ * default fraction.
+ * @param {Partial<typeof DEFAULT_STATE>} partial
  */
-export function compile(partial = {}) {
+function withDefaults(partial) {
   const state = { ...DEFAULT_STATE, ...partial };
-
-  // Border has two mutually exclusive spellings. Fraction scales with face
-  // size; millimetres keep a constant strut (legacy / headless fits). An
-  // explicit spelling displaces the other — including the default fraction.
   const inMm = partial.borderMm !== undefined && partial.borderMm !== null;
   const inFrac =
     partial.borderFraction !== undefined && partial.borderFraction !== null;
@@ -121,12 +123,61 @@ export function compile(partial = {}) {
   } else if (!inMm && !inFrac) {
     state.borderMm = null;
   }
+  return state;
+}
+
+/**
+ * The resting face. An unknown index is recoverable — fall back and warn
+ * rather than fail, so shared links survive shape changes.
+ */
+function resolveFace(skeleton, faceIndex, validation) {
+  if (Number.isInteger(faceIndex) && faceIndex >= 0 && faceIndex < skeleton.faces.length) return faceIndex;
+  const fallback = defaultRestingFace(skeleton);
+  if (Number.isInteger(faceIndex) && faceIndex >= 0) {
+    validation.warnings.push({
+      stage: "orient",
+      key: "faceIndex",
+      message: `Resting face ${faceIndex} does not exist on this shape — using face ${fallback}`,
+      clampTo: fallback,
+    });
+  }
+  return fallback;
+}
+
+/**
+ * The shape alone: the same skeleton compile() builds, with no shell, so
+ * what only a printed shell cares about (wall, rounding, quality) can
+ * neither fail it nor slow it down.
+ * @param {Partial<typeof DEFAULT_STATE>} [partial]
+ */
+export function compileShape(partial = {}) {
+  const state = withDefaults(partial);
+  const printDefaults = Object.fromEntries(PRINT_KEYS.map((k) => [k, DEFAULT_STATE[k]]));
+  const validation = validateState({ ...state, ...printDefaults });
+  if (!validation.ok) return { skeleton: null, validation, state };
+  let skeleton;
+  try {
+    skeleton = scaleSkeleton(hullSkeletonForBase(state.base, state), state.circumdiameterMm / 2);
+  } catch (err) {
+    if (!err?.validation) throw err; // internal invariant — a bug, not bad input
+    validation.ok = false;
+    validation.errors.push(asValidationEntry(err, "pipeline"));
+    return { skeleton: null, validation, state };
+  }
+  return { skeleton, validation, state: { ...state, faceIndex: resolveFace(skeleton, state.faceIndex, validation) } };
+}
+
+/**
+ * @param {Partial<typeof DEFAULT_STATE>} [partial]
+ */
+export function compile(partial = {}) {
+  const state = withDefaults(partial);
 
   // 1. Pure parameter checks — before any geometry runs.
   const validation = validateState(state);
   if (!validation.ok) return emptyResult(state, validation);
 
-  // Cut sides run on a mesh library that loads on demand (loadCsg). The app
+  // Through sides run on a mesh library that loads on demand (loadCsg). The app
   // waits for it before building, so this is a failed load or a headless
   // caller that skipped the await.
   if (needsCsg(state) && !csgReady()) {
@@ -135,8 +186,8 @@ export function compile(partial = {}) {
       stage: "solid",
       key: "openingAxis",
       message: csgLoadError()
-        ? "Cut sides couldn't load — reload to try again, or use Straight"
-        : "Cut sides aren't loaded yet (headless callers: await loadCsg() first)",
+        ? "Through sides couldn't load — reload to try again, or use Straight"
+        : "Through sides aren't loaded yet (headless callers: await loadCsg() first)",
       clampTo: "normal",
     });
     return emptyResult(state, validation);
@@ -153,21 +204,8 @@ export function compile(partial = {}) {
     validation.errors.push(asValidationEntry(err, "pipeline"));
     return emptyResult(state, validation);
   }
-  // 3. Resting face. An unknown index is recoverable — fall back and warn
-  //    rather than fail, so shared links survive shape changes.
-  let faceIndex = state.faceIndex;
-  if (!Number.isInteger(faceIndex) || faceIndex < 0 || faceIndex >= skeleton.faces.length) {
-    const fallback = defaultRestingFace(skeleton);
-    if (Number.isInteger(faceIndex) && faceIndex >= 0) {
-      validation.warnings.push({
-        stage: "orient",
-        key: "faceIndex",
-        message: `Resting face ${faceIndex} does not exist on this shape — using face ${fallback}`,
-        clampTo: fallback,
-      });
-    }
-    faceIndex = fallback;
-  }
+  // 3. Resting face.
+  const faceIndex = resolveFace(skeleton, state.faceIndex, validation);
 
   let orientation, metrics;
   try {

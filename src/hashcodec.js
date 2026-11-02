@@ -5,7 +5,7 @@
 
 import { normalizeSavedState, serializeState } from "./schema.js";
 
-export const HASH_VERSION = 1;
+const HASH_VERSION = 1;
 const PREFIX = `v${HASH_VERSION}.`;
 
 /**

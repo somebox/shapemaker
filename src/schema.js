@@ -37,6 +37,20 @@ export const STATE_KEYS = Object.freeze([
   "faceIndex",
 ]);
 
+/**
+ * State keys only the printed shell reads. The shape and its openings are
+ * everything else, and Cut and Fold use nothing but those.
+ */
+export const PRINT_KEYS = Object.freeze([
+  "depth",
+  "wallMm",
+  "wallMode",
+  "openingAxis",
+  "breakOut",
+  "roundingMm",
+  "edgeDiv",
+]);
+
 /** Spike slider / validation ceiling (apex radius in parent circumradius units). */
 export const SPIKE_T_MAX = 4;
 
@@ -387,7 +401,7 @@ export const CONTROL_DEFS = [
     // Tapered (center) follows the ray to the origin, so sides lean on
     // off-axis faces and holes narrow inward. Straight (normal) runs each
     // side along the face normal; only the stretch beside an inner edge
-    // that would leave no inner rim tilts. Cut (through) cuts each opening
+    // that would leave no inner rim tilts. Through cuts each opening
     // straight in out of the closed shell, so holes may run into
     // neighbouring inner faces and each other.
     key: "openingAxis",
@@ -398,7 +412,7 @@ export const CONTROL_DEFS = [
     options: [
       { value: "center", label: "Tapered", title: "Sides follow the line to the centre, so holes narrow inward" },
       { value: "normal", label: "Straight", title: "Sides run straight through, square to the face" },
-      { value: "through", label: "Cut", title: "Holes cut straight in from the closed shell and may run into neighbouring faces (slower)" },
+      { value: "through", label: "Through", title: "Holes cut straight in from the closed shell and may run into neighbouring faces (slower)" },
     ],
     inertWhen: (s) => !s.openings,
   },
@@ -419,7 +433,7 @@ export const CONTROL_DEFS = [
     inertWhen: (s) => s.depth === "solid",
   },
   {
-    // Cut sides only. Off, a hole that would come out through a
+    // Through sides only. Off, a hole that would come out through a
     // neighbouring face's outside is an error; On, it cuts that notch, and
     // loose pieces the crossing cuts free are dropped.
     key: "breakOut",
@@ -430,7 +444,7 @@ export const CONTROL_DEFS = [
     boolean: true,
     options: [
       { value: "false", label: "Off" },
-      { value: "true", label: "On", title: "Cut sides may notch neighbouring faces; loose pieces are dropped" },
+      { value: "true", label: "On", title: "Through sides may notch neighbouring faces; loose pieces are dropped" },
     ],
     inertWhen: (s) => !s.openings || s.openingAxis !== "through",
   },
@@ -456,7 +470,7 @@ export const CONTROL_DEFS = [
  * @param {number} points
  * @returns {number}
  */
-export function clampPointsForBase(baseId, points) {
+function clampPointsForBase(baseId, points) {
   const pr = BASES[baseId]?.pointsRange;
   if (!pr || !Number.isFinite(points)) return points;
   return Math.max(pr.min, Math.min(pr.max, Math.floor(points)));
@@ -528,6 +542,19 @@ export function normalizeSavedState(input = {}) {
   return normalizeState(
     input.wallMode == null ? { ...input, wallMode: "scaled" } : input,
   );
+}
+
+/**
+ * A state with a patch over it. Border has two mutually exclusive spellings,
+ * so a patch that sets one clears the other.
+ * @param {object} state
+ * @param {object} patch
+ */
+export function patchState(state, patch) {
+  const next = { ...state, ...patch };
+  if (patch.borderFraction != null) delete next.borderMm;
+  else if (patch.borderMm != null) delete next.borderFraction;
+  return next;
 }
 
 /**

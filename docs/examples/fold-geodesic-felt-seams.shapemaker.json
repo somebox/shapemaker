@@ -1,0 +1,50 @@
+{
+  "format": "shapemaker-project",
+  "formatVersion": 1,
+  "name": "Felt geodesic, seams and darts",
+  "createdWith": "0.16.1",
+  "state": {
+    "base": "icosahedron",
+    "circumdiameterMm": 220,
+    "borderFraction": 0.36,
+    "depth": "hollow",
+    "wallMm": 1.4,
+    "wallMode": "even",
+    "openings": false,
+    "openingStyle": "polygon",
+    "openingAxis": "center",
+    "breakOut": false,
+    "filletMm": 4.5,
+    "roundingMm": 0,
+    "edgeDiv": 10,
+    "points": 24,
+    "seed": 1337,
+    "separation": 0.5,
+    "jitter": 0,
+    "jitterMode": "surface",
+    "dual": false,
+    "truncate": 0,
+    "spike": 0,
+    "subdiv": 1,
+    "subdivStyle": "radial",
+    "soften": 1,
+    "faceIndex": 4
+  },
+  "production": {
+    "process": "fold",
+    "fold": {
+      "join": "sew",
+      "seamMm": 6,
+      "sewHoles": false,
+      "foldStyle": "score",
+      "board": "falcon-a1",
+      "boardSize": {
+        "w": 300,
+        "h": 200
+      },
+      "labels": true,
+      "marginMm": 5,
+      "gapMm": 2
+    }
+  }
+}

@@ -12,7 +12,7 @@ import { toMesh, assertMeshInvariants } from "./mesh.js";
 import { triangulateRegions, shoelace, segmentsCross } from "./geom/capfill.js";
 
 /** Cap triangles use this faceId sentinel (face-pick disabled during split). */
-export const CAP_FACE_ID = 0xffffffff;
+const CAP_FACE_ID = 0xffffffff;
 
 /** Minimum z-gap a snapped plane keeps from any vertex (mm). */
 const PLANE_GAP_MIN_MM = 0.02;
@@ -27,7 +27,7 @@ const BED_EPS_MM = 0.01;
 const MAX_ORIENT_CANDIDATES = 24;
 
 /** Full seals tried on enable; reorient continues one-at-a-time. */
-export const MAX_SPLIT_SEAL_TRIES = 8;
+const MAX_SPLIT_SEAL_TRIES = 8;
 
 /** Geometric split failure (vs a programming error) — probe-skippable. */
 function splitError(message) {
@@ -310,7 +310,7 @@ export function skeletonSeamLevels(skeleton, matrix) {
  * @param {number} seamZ
  * @returns {number[]} 0–2 candidate z values, nearest first
  */
-export function seamPlaneCandidates(positions, seamZ, minGap = PLANE_GAP_MIN_MM) {
+function seamPlaneCandidates(positions, seamZ, minGap = PLANE_GAP_MIN_MM) {
   const n = positions.length / 3;
   /** @type {number[]} */
   const zs = [];
@@ -352,7 +352,7 @@ export function seamPlaneCandidates(positions, seamZ, minGap = PLANE_GAP_MIN_MM)
  * @param {number} [minGap] vertex clearance (mm)
  * @returns {number|null}
  */
-export function snapPlaneZInBand(positions, target, lo, hi, minGap = PLANE_GAP_MIN_MM) {
+function snapPlaneZInBand(positions, target, lo, hi, minGap = PLANE_GAP_MIN_MM) {
   const n = positions.length / 3;
   const zs = [];
   for (let i = 0; i < n; i++) zs.push(positions[i * 3 + 2]);
@@ -523,7 +523,7 @@ export function overhangProjection(mesh, matrix = null) {
  * @param {number} planeZ
  * @returns {{ support: number, a: number, b: number }}
  */
-export function estimateSplitOverhang(placedMesh, planeZ) {
+function estimateSplitOverhang(placedMesh, planeZ) {
   const pos = placedMesh.positions64 ?? placedMesh.positions;
   const idx = placedMesh.indices;
   let a = 0, b = 0;

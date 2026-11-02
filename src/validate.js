@@ -142,7 +142,7 @@ export function validateState(state) {
     });
   }
   if (!OPENING_AXES.has(state.openingAxis)) {
-    err("solid", "openingAxis", "Sides must be Tapered, Straight or Cut", {
+    err("solid", "openingAxis", "Sides must be Tapered, Straight or Through", {
       clampTo: "center",
     });
   }

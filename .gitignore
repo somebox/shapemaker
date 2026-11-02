@@ -8,5 +8,6 @@ __pycache__/
 # Generated files.
 !prototype/icosidodecahedron_100mm_TPU.stl
 test/out/
+out/
 .claude/scheduled_tasks.lock
-.pi-subagents/artifacts/*
+.pi-subagents/

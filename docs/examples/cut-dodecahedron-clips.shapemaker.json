@@ -1,0 +1,57 @@
+{
+  "format": "shapemaker-project",
+  "formatVersion": 1,
+  "name": "Dodecahedron in plywood, clips",
+  "createdWith": "0.16.1",
+  "state": {
+    "base": "dodecahedron",
+    "circumdiameterMm": 160,
+    "borderFraction": 0.36,
+    "depth": "hollow",
+    "wallMm": 1.4,
+    "wallMode": "even",
+    "openings": false,
+    "openingStyle": "polygon",
+    "openingAxis": "center",
+    "breakOut": false,
+    "filletMm": 4.5,
+    "roundingMm": 0,
+    "edgeDiv": 10,
+    "points": 24,
+    "seed": 1337,
+    "separation": 0.5,
+    "jitter": 0,
+    "jitterMode": "surface",
+    "dual": false,
+    "truncate": 0,
+    "spike": 0,
+    "subdiv": 0,
+    "subdivStyle": "radial",
+    "soften": 0,
+    "faceIndex": 0
+  },
+  "production": {
+    "process": "cut",
+    "cut": {
+      "sheetMm": 3,
+      "join": "clips",
+      "clipSize": "auto",
+      "clipsPerEdge": "auto",
+      "clipPlace": "middle",
+      "clipsBy": "cut",
+      "clipWidthMm": 3,
+      "weld": false,
+      "kerfMm": 0,
+      "clearanceMm": 0.1,
+      "printBed": "prusa-core-one",
+      "board": "falcon-a1",
+      "boardSize": {
+        "w": 300,
+        "h": 200
+      },
+      "labels": true,
+      "marginMm": 5,
+      "gapMm": 2
+    }
+  }
+}

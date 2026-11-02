@@ -8,15 +8,16 @@
  * Hash carries authoring geometry; this carries name + dirty baseline +
  * this entry's same-document push depth (so Back AND Forward can restore
  * the Undo budget exactly instead of guessing from a counter).
- * @param {{ projectName: string, cleanName: string, cleanState: object, depth: number }} args
+ * @param {{ projectName: string, cleanName: string, cleanState: object, depth: number, production?: object | null }} args
  */
-export function sessionHistoryPayload({ projectName, cleanName, cleanState, depth }) {
+export function sessionHistoryPayload({ projectName, cleanName, cleanState, depth, production = null }) {
   return {
     shapemaker: true,
     projectName,
     cleanName,
     cleanState,
     depth,
+    production,
   };
 }
 
@@ -50,11 +51,12 @@ export function depthAfterPopstate({ historyState, previousDepth }) {
  *   projectName?: string,
  *   cleanName?: string,
  *   cleanState?: object,
+ *   production?: object | null,
  * }}
  */
 export function restoreSessionFromPopstate({ decoded, historyState }) {
   if (!decoded.ok || !decoded.state) return { ok: false };
-  /** @type {{ ok: true, draft: object, projectName?: string, cleanName?: string, cleanState?: object }} */
+  /** @type {{ ok: true, draft: object, projectName?: string, cleanName?: string, cleanState?: object, production?: object | null }} */
   const out = { ok: true, draft: decoded.state };
   if (
     historyState &&
@@ -67,6 +69,7 @@ export function restoreSessionFromPopstate({ decoded, historyState }) {
     out.projectName = historyState.projectName;
     out.cleanName = historyState.cleanName;
     out.cleanState = historyState.cleanState;
+    out.production = historyState.production ?? null;
   }
   return out;
 }
