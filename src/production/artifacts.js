@@ -43,8 +43,8 @@ export function sheetViews(prod) {
     const corners = plate.letter === "corners";
     const nth = count.get(plate.letter) > 1 ? k : "";
     return {
-      kind: "plate", plate, id: `${corners ? "corners" : `clips${plate.letter}`}${k > 1 ? k : ""}`,
-      label: `Print ${corners ? "corners" : plate.letter}${nth}`, items: plate.items, size: bed,
+      kind: "plate", plate, id: `${corners ? "corners" : `clips${plate.letter}`}${k > 1 ? `-${k}` : ""}`,
+      label: `Print ${corners ? "corners" : plate.letter}${nth && `-${nth}`}`, items: plate.items, size: bed,
     };
   });
   return [...boards, ...plates];
@@ -99,7 +99,8 @@ function sheetArtifacts(prod, stem0) {
     const layers = Object.keys(LAYERS).filter((k) => used.has(k)).reverse().map((k) => LAYER_NAMES[k]);
     files.push(file(view.id, name, items, `${plural(items.length, "part")} on ${fmt(size.w)} × ${fmt(size.h)} mm · ${layers.join(", ")}`));
   });
-  // One STL per print plate: …_clipsA.stl, …_clipsA2.stl, …_corners.stl
+  // One STL per print plate: …_clipsA.stl, …_clipsA-2.stl, …_corners.stl.
+  // The hyphen numbers a plate; a clip class may end in a digit of its own.
   // Not while welding, which will change them.
   const bed = cutting ? PRINT_BEDS[m.printBed] : null;
   for (const view of prod.weld?.pending ? [] : views.filter((v) => v.kind === "plate")) {

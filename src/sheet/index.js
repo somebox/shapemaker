@@ -11,7 +11,7 @@ import { buildCut, fitCoupon } from "./cut.js";
 import { buildFold } from "./fold.js";
 import { packParts, BOARD_PROFILES } from "./layout.js";
 import { boardSvg, LAYERS } from "./svg.js";
-import { clipPlates, PRINT_BEDS } from "./printclips.js";
+import { clipPlates, bedWarning, PRINT_BEDS } from "./printclips.js";
 
 export { BOARD_PROFILES, PRINT_BEDS, LAYERS, boardSvg };
 
@@ -37,6 +37,8 @@ export function buildSheet(skeleton, opts) {
   const plates = printed.length ? clipPlates(printed, opts.printBed ?? PRINT_BEDS["prusa-core-one"]) : [];
   const warnings = [...res.warnings];
   if (oversize.length) warnings.push(`${oversize.length} parts are larger than the board (${oversize.slice(0, 3).join(", ")}…)`);
+  const offBed = bedWarning(plates);
+  if (offBed) warnings.push(offBed);
   return {
     mode: opts.mode,
     extracted,
