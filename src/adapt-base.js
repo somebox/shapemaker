@@ -12,7 +12,7 @@
  *   nextBase: string,
  *   nextLimits: { wallMmMax: number|null, borderMmMax: number|null },
  * }} args
- * @returns {{ patch: object, warnings: string[] }}
+ * @returns {{ patch: object, warnings: string[], reduced: string[] }} reduced: the settings changed to fit
  */
 export function adaptStateForBase({ currentState, nextBase, nextLimits }) {
   /** @type {Record<string, unknown>} */
@@ -24,7 +24,8 @@ export function adaptStateForBase({ currentState, nextBase, nextLimits }) {
   if (currentState.base !== nextBase) {
     patch.faceIndex = -1;
   }
-  let reduced = false;
+  /** @type {string[]} */
+  const reduced = [];
 
   // Start-from hard-reset owns jitter zeroing. Adaptation only clamps wall/border.
 
@@ -36,7 +37,7 @@ export function adaptStateForBase({ currentState, nextBase, nextLimits }) {
     currentState.wallMm > wallMax
   ) {
     patch.wallMm = floor1(wallMax);
-    reduced = true;
+    reduced.push("wallMm");
   }
 
   // Relative border always fits; only constant-mm mode can exceed a ceiling.
@@ -51,13 +52,13 @@ export function adaptStateForBase({ currentState, nextBase, nextLimits }) {
   ) {
     if (Number.isFinite(currentState.borderMm) && currentState.borderMm > borderMax) {
       patch.borderMm = positiveClamp(borderMax);
-      reduced = true;
+      reduced.push("borderMm");
     } else if (!(currentState.borderMm > 0) && currentState.borderFraction == null) {
       // Heal a non-positive mm border (past over-eager clamp). Prefer
       // switching to the default relative border when mm is broken.
       patch.borderMm = null;
       patch.borderFraction = 0.36;
-      reduced = true;
+      reduced.push("borderFraction");
     }
   }
 
@@ -73,12 +74,13 @@ export function adaptStateForBase({ currentState, nextBase, nextLimits }) {
   ) {
     patch.borderFraction = 0.36;
     patch.borderMm = null;
-    reduced = true;
+    if (!reduced.includes("borderFraction")) reduced.push("borderFraction");
   }
 
   return {
     patch,
-    warnings: reduced ? ["Some settings were reduced to fit this shape"] : [],
+    warnings: reduced.length ? ["Some settings were reduced to fit this shape"] : [],
+    reduced,
   };
 }
 

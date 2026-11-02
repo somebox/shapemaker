@@ -146,7 +146,7 @@ export function createPanel(panelEl, handlers) {
     tabs.get("files").button.focus();
   });
 
-  /** @type {Map<string, { button: HTMLElement, caption: HTMLElement, body: HTMLElement, scrollTop: number }>} */
+  /** @type {Map<string, { button: HTMLElement, caption: HTMLElement, note: HTMLElement, body: HTMLElement, scrollTop: number }>} */
   const tabs = new Map();
   let activeTab = loadPanelTab();
   /** The tab to go back to when Split lets go; null while unlocked. */
@@ -154,7 +154,8 @@ export function createPanel(panelEl, handlers) {
 
   function selectTab(id, { remember = true } = {}) {
     const from = tabs.get(activeTab);
-    if (from && id !== activeTab) from.scrollTop = scroll.scrollTop;
+    const moved = id !== activeTab;
+    if (from && moved) from.scrollTop = scroll.scrollTop;
     activeTab = id;
     for (const [tabId, tab] of tabs) {
       const on = tabId === id;
@@ -162,7 +163,8 @@ export function createPanel(panelEl, handlers) {
       tab.button.setAttribute("aria-selected", String(on));
       tab.button.tabIndex = on ? 0 : -1;
     }
-    scroll.scrollTop = tabs.get(id).scrollTop;
+    // The tab already open keeps its place.
+    if (moved) scroll.scrollTop = tabs.get(id).scrollTop;
     if (remember) savePanelTab(id);
     exportBtn.hidden = id === "files";
     lockNote.hidden = tabBeforeLock == null || id === "files";
@@ -170,6 +172,8 @@ export function createPanel(panelEl, handlers) {
 
   for (const t of TABS) {
     const caption = el("span", { className: "panel-tab-caption" });
+    // The mark's words, for screen readers; the ▲ itself is CSS.
+    const note = el("span", { className: "panel-tab-note" });
     const button = el("button", {
       type: "button",
       className: "panel-tab",
@@ -177,7 +181,7 @@ export function createPanel(panelEl, handlers) {
       id: `tab-${t.id}`,
       "aria-controls": `tabpanel-${t.id}`,
     });
-    button.append(el("span", { className: "panel-tab-title", textContent: t.title }), caption);
+    button.append(el("span", { className: "panel-tab-title", textContent: t.title }), caption, note);
     button.addEventListener("click", () => selectTab(t.id));
     tabBar.appendChild(button);
     const body = el("section", {
@@ -188,7 +192,7 @@ export function createPanel(panelEl, handlers) {
       dataset: { tab: t.id },
     });
     scroll.appendChild(body);
-    tabs.set(t.id, { button, caption, body, scrollTop: 0 });
+    tabs.set(t.id, { button, caption, note, body, scrollTop: 0 });
   }
   // Arrow keys move along the tabs, as a tablist does.
   tabBar.addEventListener("keydown", (e) => {
@@ -810,6 +814,7 @@ export function createPanel(panelEl, handlers) {
     for (const [id, tab] of tabs) {
       if (marks.has(id)) tab.button.dataset.marked = "1";
       else tab.button.removeAttribute("data-marked");
+      tab.note.textContent = marks.has(id) ? (failed ? ", has an error" : ", has a warning") : "";
     }
 
     geometry.replaceChildren();
@@ -839,7 +844,7 @@ export function createPanel(panelEl, handlers) {
   }
 
   return {
-    setResult(result, { limits, invalid, warnings } = {}) {
+    setResult(result, { limits, invalid, warnings, warningKeys } = {}) {
       const state = result?.state;
       const metrics = result?.metrics;
       const validation = result?.validation;
@@ -906,7 +911,8 @@ export function createPanel(panelEl, handlers) {
         printStatus = {
           headline: statusHeadline(metrics),
           warnings: [...(warnings ?? []), ...problems.map((w) => w.message)],
-          problems,
+          // The edit's own warnings mark the tabs of the settings they changed.
+          problems: [...(warningKeys ?? []).map((key) => ({ key, message: warnings.join(" · ") })), ...problems],
           fixes: [],
           geometry: geometryLines(metrics),
         };

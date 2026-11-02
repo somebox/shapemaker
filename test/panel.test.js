@@ -107,6 +107,9 @@ describe("panel tabs", () => {
     assert.equal(scroll.scrollTop, 0);
     tabButton(panelEl, "shape").click();
     assert.equal(scroll.scrollTop, 120);
+    scroll.scrollTop = 300;
+    tabButton(panelEl, "shape").click();
+    assert.equal(scroll.scrollTop, 300, "the open tab keeps its place");
   });
 
   it("put every control in its own tab, and the rest where people look", () => {
@@ -144,10 +147,12 @@ describe("panel tabs", () => {
     const fail = { ok: false, errors: [{ key: "wallMm", message: "too thick" }], warnings: [] };
     ui.setResult({ state: state(), validation: fail }, { invalid: true });
     assert.equal(tabButton(panelEl, "build").dataset.marked, "1");
+    assert.match(tabButton(panelEl, "build").textContent, /has an error/);
     assert.equal(tabButton(panelEl, "shape").dataset.marked, undefined);
     assert.equal(panelEl.querySelector("#err-wallMm").textContent.includes("too thick"), true);
     ui.setResult({ state: state(), validation: { ok: true, errors: [], warnings: [] } });
     assert.equal(tabButton(panelEl, "build").dataset.marked, undefined);
+    assert.doesNotMatch(tabButton(panelEl, "build").textContent, /has an/);
   });
 });
 
@@ -269,10 +274,13 @@ describe("status line", () => {
     assert.ok(!statusOf(doc).textContent.includes("▲"));
   });
 
-  it("carries a warning that came with the edit", () => {
-    const { doc, ui } = mount();
-    ui.setResult({ state: state(), metrics: metrics(), validation: valid() }, { warnings: ["Some settings were reduced"] });
+  it("carries a warning that came with the edit, marking the settings it changed", () => {
+    const { doc, panelEl, ui } = mount();
+    ui.setResult({ state: state(), metrics: metrics(), validation: valid() }, { warnings: ["Some settings were reduced"], warningKeys: ["wallMm", "borderMm"] });
     assert.match(statusOf(doc).textContent, /Some settings were reduced/);
+    assert.equal(tabButton(panelEl, "build").dataset.marked, "1");
+    assert.equal(tabButton(panelEl, "openings").dataset.marked, "1");
+    assert.match(tabButton(panelEl, "build").textContent, /has a warning/);
   });
 
   it("says a failed build even when old metrics are still on screen", () => {

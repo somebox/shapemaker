@@ -472,6 +472,7 @@
     }
     .panel-tab {
       appearance: none;
+      position: relative;
       display: grid;
       justify-items: center;
       gap: 1px;
@@ -499,6 +500,14 @@
       content: " ▲";
       color: var(--warn);
       font-size: 0.62rem;
+    }
+    .panel-tab-note {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
     }
     .panel-tab-caption {
       max-width: 100%;

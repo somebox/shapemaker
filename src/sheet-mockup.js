@@ -463,6 +463,12 @@ export function mountSheetMockup({ viewer, ui, getLast, applyPatch, download, pr
     onResult() {
       if (S.job.process !== "print") scheduleBuild();
     },
+    /** Called when a rebuild fails: the last layout's files go, and so does any build or weld still on its way. */
+    onInvalid() {
+      clearTimeout(buildTimer);
+      prod = { ok: false, error: "Fix the shape to lay it out" };
+      render();
+    },
     /** The job in use; null means Print. */
     job: () => (S.job.process === "print" ? null : serializeJob(S.job)),
     /** The job for a saved project, unused settings too; none when it's all defaults. */

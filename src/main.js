@@ -283,6 +283,12 @@ function refreshFiles() {
   if (!sheetMockup?.job()) ui.setFiles({ files: printFiles() });
 }
 
+/** A failed rebuild: no files are offered for the last good model. */
+function dropFiles() {
+  if (sheetMockup?.job()) sheetMockup.onInvalid();
+  else refreshFiles();
+}
+
 /**
  * Overhang-ranked search. Canonical rest is a candidate, not the default.
  */
@@ -555,6 +561,7 @@ function schedulePatch(normalized, commit) {
 function applyEdit(patchIn, commit) {
   let normalized = patchIn;
   let warnings = [];
+  let reduced = [];
 
   // Any skeleton-shaping edit (base switch, seed reroll, density, jitter)
   // adapts wall/border to the NEW skeleton's limits — same policy as base
@@ -598,12 +605,13 @@ function applyEdit(patchIn, commit) {
         });
         normalized = normalizePatch({ ...normalized, ...adapted.patch });
         warnings = adapted.warnings;
+        reduced = adapted.reduced;
       }
     }
   }
 
   draft = { ...draft, ...normalized };
-  regenerate({ commit, warnings });
+  regenerate({ commit, warnings, reduced });
 }
 /** Last measured valid-compile duration; drives the heavy-config policy. */
 let lastCompileMs = 0;
@@ -691,6 +699,7 @@ function regenerate({
   commit = true,
   fromHistory = false,
   warnings = [],
+  reduced = [],
 } = {}) {
   if (splitActive) disableSplit();
   const t0 = performance.now();
@@ -722,6 +731,7 @@ function regenerate({
       { limits: limitsForState(draft) ?? lastLimits, invalid: true, warnings },
     );
     ui.setEmptyNote(last ? null : { errors: [suspect] });
+    dropFiles();
     updateProjectStatus();
     return;
   }
@@ -731,6 +741,7 @@ function regenerate({
     ui.setResult(next, { limits: next.limits, invalid: true, warnings });
     // The last good model stays on screen; with none, the viewport says why.
     ui.setEmptyNote(last ? null : next.validation);
+    dropFiles();
     updateProjectStatus();
     // Do not write an invalid hash.
     return;
@@ -803,7 +814,7 @@ function regenerate({
     flatEdgeIndices: printRisk.flatEdgeIndices,
     overhangFaceIndices: printRisk.overhangFaceIndices,
   });
-  ui.setResult(stable, { limits: lastLimits, warnings });
+  ui.setResult(stable, { limits: lastLimits, warnings, warningKeys: reduced });
   ui.setEmptyNote(null);
   sheetMockup?.onResult();
   // Focus on frame or deliberate face pick — not on distort remaps.
