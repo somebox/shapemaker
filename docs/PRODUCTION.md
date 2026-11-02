@@ -223,7 +223,7 @@ this layout yet, so step 2 of §5 ends with a test.
 |---|---|---|
 | 18 | One list of files, in the Files tab, in every process, replacing Export STL, Export SVG and the Export dialog. The Export button beside the status opens that tab. Print goes through `listArtifacts()` too. | Locked |
 | 19 | Sheet files are SVG in millimetres, one per board, one colour per operation: red cut, blue valley, light blue mountain, black engrave. No DXF. | Locked |
-| 20 | Files are named `<stem>_<process>_<join>[_<sheet>mm][_boardN \| _fit-strip \| _fold-strip \| _clipsA \| _corners]`. | Locked |
+| 20 | Files are named `<stem>_<process>_<join>[_<sheet>mm][_boardN \| _fit-strip \| _fold-strip \| _clipsA[-n] \| _corners[-n]]`. | Locked |
 | 21 | Download all makes one `.zip`, from a small store-only writer with no dependency, because a five-file job otherwise trips the browser's multiple-downloads prompt. Stagger stays as the fallback. | Locked |
 
 ### Saving

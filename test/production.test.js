@@ -17,6 +17,8 @@ import {
 } from "../src/production/index.js";
 import { restoreSessionFromPopstate, sessionHistoryPayload } from "../src/session.js";
 import { boundingSphere } from "../scripts/lib/render3d.mjs";
+import { clipPlates, bedWarning, weldPlates } from "../src/sheet/printclips.js";
+import { loadCsg, weldTouching } from "../src/solid/csg.js";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const closed = { openings: false };
@@ -213,6 +215,19 @@ describe("produce", () => {
     assert.deepEqual(prod.fixes, []);
   });
 
+  it("says when a clip or corner piece is too big for the bed", async () => {
+    const clip = { name: "clip A", paths: [{ layer: "cut", closed: true, pts: [[0, 0], [300, 0], [300, 10], [0, 10]] }] };
+    const plates = clipPlates([clip], { w: 100, h: 100 });
+    assert.equal(plates[0].oversize, true);
+    assert.match(bedWarning(plates), /1 printed part is larger than the print bed/);
+    assert.equal(bedWarning(clipPlates([clip], { w: 400, h: 100 })), null);
+    const shape = compileShape({ base: "octahedron", spike: 1, circumdiameterMm: 200, ...closed });
+    const prod = produce(shape, { process: "cut", cut: { clipsBy: "print", clipPlace: "corners", clipSize: "large", clipWidthMm: 6 } });
+    await loadCsg();
+    const { plates: welded } = weldPlates(prod.sheet, prod.skeleton, weldTouching, { w: 20, h: 20 });
+    assert.ok(welded.some((p) => p.letter === "corners" && p.oversize));
+  });
+
   it("welds printed corner clips as a later step, on a new production", async () => {
     const shape = compileShape({ base: "octahedron", spike: 1, circumdiameterMm: 200, ...closed });
     const cut = { clipsBy: "print", clipPlace: "corners", clipSize: "large", clipWidthMm: 6 };
@@ -244,6 +259,14 @@ describe("artifacts", () => {
         assert.match(f.name, new RegExp(`^${designStem(prod.state)}`));
       }
     }
+  });
+
+  it("numbers plates apart from clip classes that end in a digit", () => {
+    const plate = (letter) => ({ letter, items: [] });
+    const prod = { process: "cut", job: { cut: { printBed: "prusa-core-one" } }, board: { w: 300, h: 200 }, sheet: { boards: [], plates: [plate("A"), plate("A"), plate("A2"), plate("corners"), plate("corners")] } };
+    const views = sheetViews(prod);
+    assert.deepEqual(views.map((v) => v.id), ["clipsA", "clipsA-2", "clipsA2", "corners", "corners-2"]);
+    assert.equal(new Set(views.map((v) => v.label)).size, views.length);
   });
 
   it("gives the score strip a scrap when the board can't hold it", () => {

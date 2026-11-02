@@ -16,7 +16,7 @@ import { loadCsg, needsCsg, weldTouching } from "../solid/csg.js";
 import { DEFAULT_STATE, patchState } from "../schema.js";
 import { buildSheet } from "../sheet/index.js";
 import { buildAssembly } from "../sheet/assembly.js";
-import { weldPlates, PRINT_BEDS } from "../sheet/printclips.js";
+import { weldPlates, bedWarning, PRINT_BEDS } from "../sheet/printclips.js";
 import { MAX_BORDER } from "../sheet/cut.js";
 import { normalizeJob, boardOf } from "./job.js";
 
@@ -111,8 +111,11 @@ export async function finishProduction(prod) {
   try {
     await loadCsg();
     const res = weldPlates(prod.sheet, prod.skeleton, weldTouching, PRINT_BEDS[prod.job.cut.printBed]);
+    // Welding replaced the plates, so what's said about the bed changes too.
+    const stale = bedWarning(prod.sheet.plates), offBed = bedWarning(res.plates);
     return {
       ...prod,
+      warnings: [...prod.warnings.filter((w) => w !== stale), ...(offBed ? [offBed] : [])],
       sheet: { ...prod.sheet, plates: res.plates, stats: { ...prod.sheet.stats, plates: res.plates.length } },
       weld: { pieces: res.welded, clips: res.weldedClips },
     };

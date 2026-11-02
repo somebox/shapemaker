@@ -196,7 +196,7 @@ ui = createPanel(panelEl, {
     const text = serializeProjectV1({
       name: projectName,
       state: last.state,
-      production: sheetMockup ? sheetMockup.job() : openedProduction,
+      production: sheetMockup ? sheetMockup.savedJob() : openedProduction,
     });
     downloadText(text, `${safeName(projectName)}.shapemaker.json`);
     cleanState = normalizeState(last.state);

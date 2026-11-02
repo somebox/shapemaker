@@ -24,7 +24,7 @@ export const PRINT_BEDS = Object.freeze({
  * Lay printed clips out on beds, one set of plates per clip shape.
  * @param {{ name: string, paths: object[] }[]} clips
  * @param {{ w: number, h: number }} bed
- * @returns {{ letter: string, items: { part: object, tf: object }[] }[]}
+ * @returns {{ letter: string, items: { part: object, tf: object }[], oversize: boolean }[]}
  */
 export function clipPlates(clips, bed) {
   const byLetter = new Map();
@@ -34,7 +34,7 @@ export function clipPlates(clips, bed) {
   }
   const plates = [];
   for (const [letter, set] of [...byLetter].sort(([a], [b]) => a.length - b.length || a.localeCompare(b))) {
-    for (const board of packParts(set, bed, { marginMm: 5, gapMm: 3 }).boards) plates.push({ letter, items: board.items });
+    for (const board of packParts(set, bed, { marginMm: 5, gapMm: 3 }).boards) plates.push({ letter, items: board.items, oversize: !!board.oversize });
   }
   return plates;
 }
@@ -64,6 +64,12 @@ export function plateMesh(plate, t) {
   return { positions, indices: Uint32Array.from({ length: tris.length * 3 }, (_, i) => i) };
 }
 
+/** What to say about parts too big for the bed; null when they all fit. */
+export function bedWarning(plates) {
+  const n = plates.filter((p) => p.oversize).length;
+  return n ? `${n} printed ${n === 1 ? "part is" : "parts are"} larger than the print bed` : null;
+}
+
 /**
  * Weld printed clips that meet at a corner into one piece, and lay out
  * every printed part: welded corners on their own plates, the clips that
@@ -76,7 +82,7 @@ export function plateMesh(plate, t) {
  * @param {(solids: number[][][][]) => { members: number[], positions: Float64Array, indices: Uint32Array }[]} weldTouching
  *   from solid/csg.js, loaded
  * @param {{ w: number, h: number }} bed
- * @returns {{ plates: { letter: string, items: object[] }[], welded: number, weldedClips: number }}
+ * @returns {{ plates: { letter: string, items: object[], oversize: boolean }[], welded: number, weldedClips: number }}
  */
 export function weldPlates(sheet, skeleton, weldTouching, bed) {
   const { joints } = sheet.extracted;
@@ -108,7 +114,7 @@ export function weldPlates(sheet, skeleton, weldTouching, bed) {
   }
   const plates = clipPlates(printed.filter((c) => !used.has(c)), bed);
   for (const board of pieces.length ? packParts(pieces, bed, { marginMm: 5, gapMm: 4 }).boards : []) {
-    plates.push({ letter: "corners", items: board.items });
+    plates.push({ letter: "corners", items: board.items, oversize: !!board.oversize });
   }
   return { plates, welded: pieces.length, weldedClips: used.size };
 }

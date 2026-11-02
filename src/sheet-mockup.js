@@ -529,16 +529,23 @@ export function mountSheetMockup({ viewer, getLast, applyPatch, download }) {
     onResult() {
       if (S.job.process !== "print") scheduleBuild();
     },
-    /** The job, for a saved project; a Print project carries none. */
+    /** The job in use; null means Print. */
     job: () => (S.job.process === "print" ? null : serializeJob(S.job)),
+    /** The job for a saved project, unused settings too; none when it's all defaults. */
+    savedJob() {
+      const saved = serializeJob(S.job);
+      return Object.keys(saved).length > 1 || saved.process !== "print" ? saved : null;
+    },
     /**
      * A project's job; none means Print, as it does without the mockup. The
-     * file decides only its own process: the browser keeps its settings for
-     * the others.
+     * file decides its own process and whatever it sets of the others; the
+     * browser keeps the rest.
      */
     setJob(job) {
-      const next = normalizeJob(job);
-      for (const p of PROCESSES) if (p !== next.process && S.job[p]) next[p] = S.job[p];
+      const { process } = normalizeJob(job);
+      const merged = { ...job, process };
+      for (const p of PROCESSES) if (p !== process && S.job[p]) merged[p] = { ...S.job[p], ...job?.[p] };
+      const next = normalizeJob(merged);
       switchOverlays(S.job.process, next.process);
       S.job = next;
       changed();
