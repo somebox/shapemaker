@@ -10,7 +10,7 @@ import { halfExportMatrices } from "../split.js";
 import { apply } from "../sheet/geom2.js";
 import { boardSvg, LAYERS } from "../sheet/svg.js";
 import { plateMesh, PRINT_BEDS } from "../sheet/printclips.js";
-import { foldTestStrip } from "../sheet/fold.js";
+import { foldTestStrip, FOLD_STRIP_MM } from "../sheet/fold.js";
 import { packParts } from "../sheet/layout.js";
 import { designStem } from "./names.js";
 import { fmt, plural } from "./summary.js";
@@ -72,20 +72,24 @@ function sheetArtifacts(prod, stem0) {
   const size = prod.board;
   const group = cutting ? "Laser cut" : "Laser or cutter";
   const fill = SHEET_FILL[prod.process];
-  const file = (id, name, items, detail) => ({
+  const file = (id, name, items, detail, sheet = size) => ({
     id, group, name: `${name}.svg`, mime: "image/svg+xml", detail,
-    thumb: () => thumbSvg(items, size, fill, CUT_STROKE),
-    bytes: () => boardSvg({ items }, size, { title: name }),
-    preview: () => boardSvg({ items }, size, { title: name, preview: true }),
+    thumb: () => thumbSvg(items, sheet, fill, CUT_STROKE),
+    bytes: () => boardSvg({ items }, sheet, { title: name }),
+    preview: () => boardSvg({ items }, sheet, { title: name, preview: true }),
   });
   // The fit strip keeps its place in the layout but is its own file, cut
   // first; the model files leave its spot empty, so the sheet needn't move.
   const strip = boards.flatMap((b) => b.items).filter(isCoupon);
-  const files = strip.length ? [file("fit-strip", `${stem}_fit-strip`, strip, `Cut this first · slots and a key, on ${fmt(size.w)} × ${fmt(size.h)} mm`)] : [];
+  const files = strip.length ? [file("fit-strip", `${stem}_fit-strip`, strip, `Cut this first · ${prod.sheet.plates.length ? "slots for a printed clip's tab" : "slots and a key"}, on ${fmt(size.w)} × ${fmt(size.h)} mm`)] : [];
   // Scoring power varies by machine and stock, so Score gets a test strip.
   if (!cutting && m.foldStyle === "score" && m.join !== "sew") {
-    const test = packParts([foldTestStrip()], size, { marginMm: m.marginMm, gapMm: m.gapMm }).boards[0].items;
-    files.push(file("fold-strip", `${stem}_fold-strip`, test, "Cut this first, on a scrap, to tune the score power"));
+    const pack = (sheet) => packParts([foldTestStrip()], sheet, { marginMm: m.marginMm, gapMm: m.gapMm });
+    // It goes on a scrap, so a board too small for it doesn't bound it.
+    const scrap = pack(size).oversize.length
+      ? { w: Math.max(size.w, FOLD_STRIP_MM.w + 2 * m.marginMm), h: Math.max(size.h, FOLD_STRIP_MM.h + 2 * m.marginMm) }
+      : size;
+    files.push(file("fold-strip", `${stem}_fold-strip`, pack(scrap).boards[0].items, "Cut this first, on a scrap, to tune the score power", scrap));
   }
   boards.forEach((view, i) => {
     const items = view.items.filter((it) => !isCoupon(it));
@@ -152,7 +156,8 @@ export function exportNotes(prod) {
   if (!prod.ok) return [];
   const notes = [];
   if (prod.process === "cut") {
-    notes.push("Cut the fit strip first and push the key (or a printed clip's tab) into its slots; set Fit under Advanced to the slot that takes it snugly.");
+    const gauge = prod.sheet.plates.length ? "a printed clip's tab" : "the key";
+    notes.push(`Cut the fit strip first and push ${gauge} into its slots; set Fit under Advanced to the slot that takes it snugly.`);
   }
   if (prod.process === "fold" && prod.job.fold.foldStyle === "score" && prod.job.fold.join !== "sew") {
     notes.push("Cut the fold strip on a scrap first: V and M should fold cleanly without cutting through; P is a perforated line for comparison.");

@@ -28,8 +28,9 @@ export { BOARD_PROFILES, PRINT_BEDS, LAYERS, boardSvg };
 export function buildSheet(skeleton, opts) {
   const extracted = extractPanels(skeleton);
   const res = opts.mode === "cut" ? buildCut(extracted, opts) : buildFold(extracted, opts);
-  const slotMm = opts.clipsBy === "print" ? Math.max(opts.sheetMm, opts.clipWidthMm ?? opts.sheetMm) : opts.sheetMm;
-  const parts = [...res.parts, ...(opts.mode === "cut" && opts.coupon ? [fitCoupon({ ...opts, slotMm })] : [])];
+  // Printed clips are tried in the strip themselves, so it takes their tabs.
+  const tabbed = res.parts.some((p) => p.print) ? { slotMm: res.dims.tw, slotLongMm: res.dims.w + res.dims.c, key: false } : {};
+  const parts = [...res.parts, ...(opts.mode === "cut" && opts.coupon ? [fitCoupon({ ...opts, ...tabbed })] : [])];
   // Printed clips go to print plates instead of the boards.
   const printed = parts.filter((p) => p.print);
   const { boards, oversize } = packParts(parts.filter((p) => !p.print), opts.board, { marginMm: opts.marginMm, gapMm: opts.gapMm });

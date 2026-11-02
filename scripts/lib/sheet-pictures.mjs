@@ -42,7 +42,7 @@ function scene(solids) {
 }
 
 /**
- * @returns {{ label: string, png: Buffer }[]}
+ * @returns {{ label: string, render: () => Buffer }[]} named here, drawn on demand
  */
 export function sheetPictures(skeleton, sheet, opts = {}) {
   const { solids } = buildAssembly(skeleton, sheet, opts);
@@ -51,7 +51,7 @@ export function sheetPictures(skeleton, sheet, opts = {}) {
   const all = boundingSphere(plates.flatMap((s) => s.tris.flat()));
   const pics = [];
 
-  pics.push({ label: "Assembled", png: renderPng(scene(solids), fitCamera(all.center, all.radius, VIEW), { width: 760, height: 570 }) });
+  pics.push({ label: "Assembled", render: () => renderPng(scene(solids), fitCamera(all.center, all.radius, VIEW), { width: 760, height: 570 }) });
 
   // Cutaway: drop the near half of the plates, keep what holds the far half.
   const ahead = (p) => dot(sub(p, all.center), VIEW) / all.radius;
@@ -64,7 +64,7 @@ export function sheetPictures(skeleton, sheet, opts = {}) {
   });
   pics.push({
     label: "Cutaway: the joints inside",
-    png: renderPng(scene([...kept, ...keptFast]), fitCamera(all.center, all.radius, VIEW), { width: 760, height: 570 }),
+    render: () => renderPng(scene([...kept, ...keptFast]), fitCamera(all.center, all.radius, VIEW), { width: 760, height: 570 }),
   });
 
   // One close-up per kind of joint (clip class, ties, fingers, flap, tape, seam, dart).
@@ -84,17 +84,17 @@ export function sheetPictures(skeleton, sheet, opts = {}) {
     const outside = add(mul(inward, -1), mul(along, 0.7));
     // A seam's fin stands inward: look at its face, not along its edge.
     if (jn.seam) inside = add(add(mul(inward, 0.7), mul(cross(along, inward), 0.9)), mul(along, 0.35));
-    pics.push({ label: `${title}, inside`, png: renderPng(sc, fitCamera(target, r, inside, { up }), size) });
-    pics.push({ label: `${title}, outside`, png: renderPng(sc, fitCamera(target, r, outside, { up }), size) });
+    pics.push({ label: `${title}, inside`, render: () => renderPng(sc, fitCamera(target, r, inside, { up }), size) });
+    pics.push({ label: `${title}, outside`, render: () => renderPng(sc, fitCamera(target, r, outside, { up }), size) });
     // Exploded: clips pulled inward out of their slots; for fingers, one
     // panel drawn back along its own plane so the fingers show.
     const t = sheet.dims?.t ?? 1;
     if (jn.kind === "clips") {
       const moved = mine.map((m) => shift(m, mul(inward, 2.5 * t)));
-      pics.push({ label: `${title}, pulled apart`, png: renderPng(scene([pa, b2, ...moved]), fitCamera(add(target, mul(inward, 1.2 * t)), r, inside, { up }), size) });
+      pics.push({ label: `${title}, pulled apart`, render: () => renderPng(scene([pa, b2, ...moved]), fitCamera(add(target, mul(inward, 1.2 * t)), r, inside, { up }), size) });
     } else if (jn.kind === "fingers") {
       const intoB = intoPanel(sheet, j.b, along, vert(skeleton, j.v0));
-      pics.push({ label: `${title}, pulled apart`, png: renderPng(scene([pa, shift(b2, mul(intoB, 3 * t))]), fitCamera(target, r * 1.2, add(outside, mul(inward, 0.6)), { up }), size) });
+      pics.push({ label: `${title}, pulled apart`, render: () => renderPng(scene([pa, shift(b2, mul(intoB, 3 * t))]), fitCamera(target, r * 1.2, add(outside, mul(inward, 0.6)), { up }), size) });
     }
   }
   return pics;

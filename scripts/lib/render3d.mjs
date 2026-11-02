@@ -25,7 +25,9 @@ export function fitCamera(center, radius, dir, { fovDeg = 30, up = [0, 0, 1], pa
 /** Bounding sphere (centroid-based) of a list of points. */
 export function boundingSphere(points) {
   const c = mul(points.reduce(add, [0, 0, 0]), 1 / points.length);
-  return { center: c, radius: Math.sqrt(Math.max(...points.map((p) => dot(sub(p, c), sub(p, c))))) };
+  let far = 0;
+  for (const p of points) far = Math.max(far, dot(sub(p, c), sub(p, c)));
+  return { center: c, radius: Math.sqrt(far) };
 }
 
 /**

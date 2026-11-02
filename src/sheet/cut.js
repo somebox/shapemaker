@@ -436,12 +436,13 @@ function clipPart(plan, letter, { t, w, web, reach, D, kerf, labels }) {
 
 /**
  * A fit-test strip: slots at slotMm − 0.2 … + 0.2 mm (labelled in tenths;
- * slotMm is the sheet thickness, or a printed clip's width), a tie hole,
+ * slotMm is the sheet thickness, or a printed clip's width, and slotLongMm
+ * its tab's span; a printed tab is the gauge then, so no key), a tie hole,
  * and a key cut from the same sheet to push into them. One part, so the key
  * can't be packed away from its strip.
  */
-export function fitCoupon({ sheetMm: t, kerfMm = 0, tieHoleMm = 4, slotMm = t }) {
-  const w = Math.max(2 * t, 5), pitch = Math.max(12, w + 7);
+export function fitCoupon({ sheetMm: t, kerfMm = 0, tieHoleMm = 4, slotMm = t, slotLongMm = 0, key = true }) {
+  const w = Math.max(2 * t, 5, slotLongMm), pitch = Math.max(12, w + 7, slotMm + 7);
   const deltas = [-0.2, -0.1, 0, 0.1, 0.2];
   const W = pitch * (deltas.length + 1) + 6, H = w + 18;
   const paths = [{ layer: "cut", closed: true, pts: offsetPolygon([[0, 0], [W, 0], [W, H], [0, H]], kerfMm / 2) }];
@@ -453,7 +454,6 @@ export function fitCoupon({ sheetMm: t, kerfMm = 0, tieHoleMm = 4, slotMm = t })
     for (const pts of strokeText(lab, 3.5, [x, 4 + w + 6], [1, 0], [0, 1])) paths.push({ layer: "mark", closed: false, pts });
   });
   paths.push({ layer: "cut", closed: true, pts: offsetPolygon(circle([W - pitch / 2, H / 2], tieHoleMm / 2, 24), -kerfMm / 2) });
-  const key = [[0, H + 3], [24, H + 3], [24, H + 3 + w], [0, H + 3 + w]];
-  paths.push({ layer: "cut", closed: true, pts: offsetPolygon(key, kerfMm / 2) });
+  if (key) paths.push({ layer: "cut", closed: true, pts: offsetPolygon([[0, H + 3], [24, H + 3], [24, H + 3 + w], [0, H + 3 + w]], kerfMm / 2) });
   return { name: "fit strip", kind: "coupon", paths };
 }

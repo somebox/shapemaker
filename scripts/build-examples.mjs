@@ -42,7 +42,7 @@ for (const file of designs) {
     const data = f.bytes();
     writeFileSync(join(dir, f.name), typeof data === "string" ? data : Buffer.from(data));
   }
-  const pics = prod.sheet && flags["no-pictures"] === undefined ? sheetPictures(prod.skeleton, prod.sheet, { openings: prod.openings }) : [];
+  const pics = prod.sheet && flags["no-pictures"] === undefined ? sheetPictures(prod.skeleton, prod.sheet, { openings: prod.openings }).map((p) => ({ ...p, png: p.render() })) : [];
   pics.forEach((p, i) => writeFileSync(join(dir, `${i + 1}.png`), p.png));
   console.log(`${slug.padEnd(34)} ${summarize(prod)[0]}${prod.warnings.length ? `\n    ! ${prod.warnings.join("\n    ! ")}` : ""}`);
   const stats = summarize(prod).map(esc).join("<br>");

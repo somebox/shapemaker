@@ -469,6 +469,7 @@ function openParsed(parsed) {
   openedProduction = parsed.project.production ?? null;
   sheetMockup?.setJob(openedProduction);
   draft = normalizeState(parsed.state);
+  const depthBefore = sessionPushDepth;
   regenerate({ forceFrame: true, commit: true });
   if (
     shouldEstablishCleanBaseline({
@@ -478,8 +479,11 @@ function openParsed(parsed) {
   ) {
     cleanState = normalizeState(last.state);
     cleanName = projectName;
+    // Same shape, another job: the URL didn't move, but Undo must still step back.
+    const jobOnly = sessionPushDepth === depthBefore && JSON.stringify(openedProduction) !== JSON.stringify(prevProduction);
+    if (jobOnly) writeUrl(encodeHash(last.state), "push");
     // regenerate pushed this entry before the baseline existed — rewrite it.
-    refreshHistoryPayload();
+    else refreshHistoryPayload();
     updateProjectStatus();
     return;
   }
