@@ -159,21 +159,33 @@ export function offsetWallRange(skeleton, frames, dHat) {
 }
 
 /**
+ * Most planes at one corner for which every candidate active set is tried.
+ * Ordinary corners meet 3–6 planes. Smooth on a dense globe gathers a pole's
+ * short edges into one corner of up to hundreds of planes, where trying every
+ * set of three (cubic in the count) took minutes and locked the app.
+ */
+export const ENUMERATE_MAX_PLANES = 10;
+
+/**
  * Displacement δ with a·δ ≥ 1 for every inward normal a (no plane closer
  * than the wall) and Σ(a·δ − 1)² least (no thicker than it must be). In 3D
- * the optimum sits on at most three active planes, so each candidate active
- * set is solved exactly and the best feasible one wins.
+ * the optimum sits on at most three active planes. Up to
+ * {@link ENUMERATE_MAX_PLANES} planes, each candidate active set is solved
+ * exactly and the best feasible one wins; above it, an active-set descent
+ * finds the same optimum in time linear in the planes.
  * @param {number[][]} normals  inward unit normals
+ * @param {{ enumerateMax?: number }} [opts]  tests compare the two methods
  * @returns {number[]}
  */
-export function fitCorner(normals) {
+export function fitCorner(normals, { enumerateMax = ENUMERATE_MAX_PLANES } = {}) {
   if (normals.length === 1) return [...normals[0]];
   // Normals spanning less than 3D (a crease) leave a free direction; a
   // tiny ridge on |δ|² then picks the shortest move.
-  return fitWithRidge(normals, 0) ?? fitWithRidge(normals, 1e-9) ?? [0, 0, 0];
+  return fitWithRidge(normals, 0, enumerateMax) ??
+    fitWithRidge(normals, 1e-9, enumerateMax) ?? [0, 0, 0];
 }
 
-function fitWithRidge(normals, RIDGE) {
+function fitWithRidge(normals, RIDGE, enumerateMax) {
   const k = normals.length;
   const H = [[RIDGE, 0, 0], [0, RIDGE, 0], [0, 0, RIDGE]];
   const g = [0, 0, 0];
@@ -196,6 +208,7 @@ function fitWithRidge(normals, RIDGE) {
 
   const free = solveLinear(H.map((row, i) => [...row, g[i]]));
   if (free && feasible(free)) return free;
+  if (k > enumerateMax) return free ? descend(normals, H, g, free) : null;
 
   let best = null, bestCost = Infinity;
   const tryActive = (S) => {
@@ -232,6 +245,84 @@ function fitWithRidge(normals, RIDGE) {
   // Normals spanning more than a hemisphere admit no feasible point; the
   // plain fit is the least-bad answer and the wall limit will reject it.
   return best ?? free;
+}
+
+/**
+ * Primal active-set descent for the corner fit (Nocedal & Wright §16.5):
+ * start feasible, minimise on the planes held active, step until another
+ * plane blocks, and release a plane whose multiplier says the optimum lies
+ * off it. Every iterate stays feasible, so stopping early (a degenerate
+ * working set, or the iteration cap) still leaves no plane closer than the
+ * wall — at worst a corner slightly thicker than it need be.
+ * @param {number[][]} normals
+ * @param {number[][]} H  Σ a aᵀ (+ ridge)
+ * @param {number[]} g    Σ a
+ * @param {number[]} free  the unconstrained fit, infeasible here
+ * @returns {number[]|null} null when no direction clears every plane
+ */
+function descend(normals, H, g, free) {
+  const k = normals.length;
+  const dot = (a, d) => a[0] * d[0] + a[1] * d[1] + a[2] * d[2];
+  // Push a direction out until its nearest plane is one wall away.
+  const pushOut = (dir) => {
+    let m = Infinity;
+    for (const a of normals) m = Math.min(m, dot(a, dir));
+    return m > 1e-9 ? dir.map((x) => x / m) : null;
+  };
+  let d = pushOut(free) ?? pushOut(g);
+  if (!d) return null;
+
+  let first = 0;
+  for (let i = 1; i < k; i++) if (dot(normals[i], d) < dot(normals[first], d)) first = i;
+  const W = [first];
+
+  /** Minimiser of the fit with every plane in W held at the wall. */
+  const solveOn = () => {
+    const m = 3 + W.length;
+    const rows = [];
+    for (let i = 0; i < 3; i++) {
+      const row = new Array(m + 1).fill(0);
+      for (let j = 0; j < 3; j++) row[j] = H[i][j];
+      W.forEach((s, q) => { row[3 + q] = normals[s][i]; });
+      row[m] = g[i];
+      rows.push(row);
+    }
+    for (const s of W) {
+      const row = new Array(m + 1).fill(0);
+      for (let j = 0; j < 3; j++) row[j] = normals[s][j];
+      row[m] = 1;
+      rows.push(row);
+    }
+    return solveLinear(rows);
+  };
+
+  for (let iter = 0; iter < 8 * k + 50; iter++) {
+    const x = solveOn();
+    if (!x) return d;
+    const p = [x[0] - d[0], x[1] - d[1], x[2] - d[2]];
+    if (Math.hypot(p[0], p[1], p[2]) < 1e-12) {
+      // Optimal on W. A positive multiplier (H δ + Σ μ a = g) means the fit
+      // improves by leaving that plane; release the worst one.
+      let worst = -1, worstMu = 1e-12;
+      for (let q = 0; q < W.length; q++) {
+        if (x[3 + q] > worstMu) { worstMu = x[3 + q]; worst = q; }
+      }
+      if (worst < 0) return d;
+      W.splice(worst, 1);
+      continue;
+    }
+    let alpha = 1, block = -1;
+    for (let i = 0; i < k; i++) {
+      if (W.includes(i)) continue;
+      const ap = dot(normals[i], p);
+      if (ap >= -1e-15) continue;
+      const t = Math.max(0, (1 - dot(normals[i], d)) / ap);
+      if (t < alpha) { alpha = t; block = i; }
+    }
+    d = [d[0] + alpha * p[0], d[1] + alpha * p[1], d[2] + alpha * p[2]];
+    if (block >= 0) W.push(block);
+  }
+  return d;
 }
 
 /** Gaussian elimination with partial pivoting on an augmented matrix. */

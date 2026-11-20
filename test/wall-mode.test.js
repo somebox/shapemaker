@@ -50,6 +50,54 @@ describe("fitCorner", () => {
     assert.ok(Math.abs(d[0]) < 1e-6);
     for (const a of N) assert.ok(Math.abs(dot(a, d) - 1) < 1e-6);
   });
+
+  it("finds the same fit by descent as by trying every active set", () => {
+    let seed = 7;
+    const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32);
+    const cost = (N, d) => N.reduce((s, a) => s + (dot(a, d) - 1) ** 2, 0);
+    for (let trial = 0; trial < 500; trial++) {
+      const k = 3 + Math.floor(rnd() * 9);
+      const spread = 0.2 + rnd() * 1.6;
+      const N = Array.from({ length: k }, () =>
+        unit([(rnd() - 0.5) * spread, (rnd() - 0.5) * spread, -1]));
+      const exact = fitCorner(N, { enumerateMax: Infinity });
+      const fast = fitCorner(N, { enumerateMax: 0 });
+      for (const a of N) assert.ok(dot(a, fast) >= 1 - 1e-9, `trial ${trial}: a plane is inside the wall`);
+      assert.ok(cost(N, fast) <= cost(N, exact) * (1 + 1e-9) + 1e-12, `trial ${trial}: descent is thicker`);
+    }
+  });
+
+  it("fits a corner of hundreds of planes quickly", () => {
+    // Smooth on a dense globe gathers a pole into one corner like this.
+    // Trying every set of three took 2.5 s here (minutes over a whole
+    // globe); descent takes well under a millisecond. The bound leaves
+    // room for slow machines and still fails the cubic search.
+    const N = Array.from({ length: 300 }, (_, i) => {
+      const t = (i / 300) * 2 * Math.PI;
+      const r = 0.05 + 0.4 * (((i * 7919) % 300) / 300);
+      return unit([r * Math.cos(t), r * Math.sin(t), -1]);
+    });
+    const t0 = performance.now();
+    const d = fitCorner(N);
+    const ms = performance.now() - t0;
+    assert.ok(ms < 250, `took ${ms.toFixed(0)} ms`);
+    for (const a of N) assert.ok(dot(a, d) >= 1 - 1e-9);
+    assert.ok(N.some((a) => Math.abs(dot(a, d) - 1) < 1e-9), "at least one plane sits at the wall");
+  });
+});
+
+describe("Even walls on smoothed dense globes", () => {
+  it("build in seconds, not minutes", () => {
+    // Under 1 s here; before descent this ran for minutes with the app
+    // frozen. A test timeout can't interrupt synchronous work, so the
+    // bound is checked after the build.
+    const t0 = performance.now();
+    const r = compile({ ...DEFAULT_STATE, base: "globe", points: 36, subdiv: 1, soften: 30, wallMode: "even" });
+    const ms = performance.now() - t0;
+    assert.ok(ms < 20000, `took ${ms.toFixed(0)} ms`);
+    assert.ok(r.validation.ok, r.validation.errors?.[0]?.message);
+    assert.ok(r.mesh.indices.length > 0);
+  });
 });
 
 describe("meanValueWeights", () => {

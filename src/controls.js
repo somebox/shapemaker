@@ -300,10 +300,20 @@ export function isWideField(def) {
 export function buildControl(def, inputs, ranges, errNodes, limitLabels) {
   const root = el("div", { className: "control", dataset: { key: def.key } });
   if (isWideField(def)) root.dataset.wide = "1";
+  // What the control does, on hover anywhere over it.
+  if (def.help) root.title = def.help;
 
   if (def.type === "segments") {
     const row = el("div", { className: "control-row control-row--seg" });
-    row.appendChild(el("label", { textContent: def.label }));
+    const label = el("label", { textContent: def.label });
+    if (def.note) {
+      // A short caption on the label's line, so it costs no extra row.
+      const head = el("div", { className: "control-head" });
+      head.append(label, el("span", { className: "control-note", textContent: def.note }));
+      row.appendChild(head);
+    } else {
+      row.appendChild(label);
+    }
     root.appendChild(row);
     const segs = el("div", { className: "segments", role: "group" });
     segs.setAttribute("aria-label", def.label);
@@ -433,6 +443,13 @@ export function buildControl(def, inputs, ranges, errNodes, limitLabels) {
     root.appendChild(row);
   }
 
+  if (def.inertNote) {
+    // Why the control is greyed out, when the reason lives elsewhere.
+    const note = el("p", { className: "hint inert-note", hidden: true });
+    note.setAttribute("data-inert-note", def.key);
+    root.appendChild(note);
+  }
+
   const err = el("p", { className: "control-error", id: `err-${def.key}` });
   errNodes.set(def.key, err);
   const input = inputs.get(def.key);
@@ -519,6 +536,12 @@ export function applyStateToControls(state, inputs, ranges, controlRoots, defs) 
       root.querySelectorAll("input, select, button").forEach((node) => {
         /** @type {HTMLInputElement} */ (node).disabled = inert;
       });
+      const note = root.querySelector("[data-inert-note]");
+      if (note) {
+        const text = inert ? def.inertNote?.(state) ?? "" : "";
+        note.textContent = text;
+        note.hidden = !text;
+      }
     }
     if (def.key === "edgeLengthMm") continue;
     const v = state[def.key];

@@ -32,6 +32,15 @@ describe("what each tab holds", () => {
     assert.deepEqual(buildKeys.sort(), [...PRINT_KEYS].sort());
   });
 
+  it("puts Subdivide and Split with the openings they multiply, and keeps Smooth in Shape", () => {
+    assert.equal(tabOfKey("subdiv"), "openings");
+    assert.equal(tabOfKey("subdivStyle"), "openings");
+    assert.equal(tabOfKey("soften"), "shape");
+    const openings = CONTROL_DEFS.filter((d) => d.group === "openings").map((d) => d.key);
+    assert.deepEqual(openings.slice(-2), ["subdiv", "subdivStyle"], "after Fillet");
+    assert.equal(CONTROL_DEFS.find((d) => d.key === "subdivStyle").label, "Split");
+  });
+
   it("names the tab behind errors no control carries", () => {
     assert.equal(tabOfKey("borderMm"), "openings");
     assert.equal(tabOfKey("base"), "shape");
@@ -183,6 +192,29 @@ describe("field widths", () => {
 });
 
 describe("panel controls", () => {
+  it("say why Smooth is off, naming the tab that turns it on", () => {
+    const { panelEl, ui } = mount();
+    const smooth = panelEl.querySelector('.control[data-key="soften"]');
+    const note = smooth.querySelector("[data-inert-note]");
+    const shows = (over) => {
+      ui.setResult({ state: state(over) });
+      return visible(note) ? note.textContent : null;
+    };
+    assert.equal(shows({ subdiv: 0 }), "Needs Subdivide (Openings)");
+    assert.equal(smooth.dataset.inert, "1");
+    assert.equal(shows({ subdiv: 1, subdivStyle: "grid" }), "Needs Split: Radial (Openings)");
+    assert.equal(shows({ subdiv: 1, spike: 0.8 }), "Off while Spike is on");
+    assert.equal(shows({ subdiv: 1 }), null);
+    assert.equal(smooth.dataset.inert, "0");
+  });
+
+  it("explain Dual on its label's line and on hover", () => {
+    const { panelEl } = mount();
+    const dual = panelEl.querySelector('.control[data-key="dual"]');
+    assert.equal(dual.querySelector(".control-note").textContent, "faces ↔ corners");
+    assert.match(dual.title, /cube becomes an octahedron/);
+  });
+
   it("send a segment click as a patch", () => {
     const patches = [];
     const { panelEl } = mount({ on: { onPatch: (p, o) => patches.push([p, o]) } });
