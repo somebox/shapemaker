@@ -50,6 +50,96 @@ describe("fitCorner", () => {
     assert.ok(Math.abs(d[0]) < 1e-6);
     for (const a of N) assert.ok(Math.abs(dot(a, d) - 1) < 1e-6);
   });
+
+  it("finds the same fit by descent as by trying every active set", () => {
+    let seed = 7;
+    const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32);
+    const cost = (N, d) => N.reduce((s, a) => s + (dot(a, d) - 1) ** 2, 0);
+    for (let trial = 0; trial < 500; trial++) {
+      const k = 3 + Math.floor(rnd() * 9);
+      const spread = 0.2 + rnd() * 1.6;
+      const N = Array.from({ length: k }, () =>
+        unit([(rnd() - 0.5) * spread, (rnd() - 0.5) * spread, -1]));
+      const exact = fitCorner(N, { enumerateMax: Infinity });
+      const fast = fitCorner(N, { enumerateMax: 0 });
+      for (const a of N) assert.ok(dot(a, fast) >= 1 - 1e-9, `trial ${trial}: a plane is inside the wall`);
+      assert.ok(cost(N, fast) <= cost(N, exact) * (1 + 1e-9) + 1e-12, `trial ${trial}: descent is thicker`);
+    }
+  });
+
+  it("finds the same fit on wide and flat corners, and none where enumeration finds none", () => {
+    // Normals over most of a hemisphere, straddling its rim, or nearly in
+    // one plane (a fit thousands to millions of walls deep). The plain fit
+    // and the normals' sum can both miss every feasible point here, and the
+    // flat ones defeated a Gram-matrix hull search with absolute
+    // tolerances; descent then fell back to a fit inside the wall.
+    let seed = 7;
+    const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32);
+    const cost = (N, d) => N.reduce((s, a) => s + (dot(a, d) - 1) ** 2, 0);
+    const wide = () => () => unit([2 * rnd() - 1, 2 * rnd() - 1, -(0.001 + rnd() * 0.3)]);
+    const rim = () => () => unit([2 * rnd() - 1, 2 * rnd() - 1, 0.005 - rnd() * 0.02]);
+    const flatter = (lo, span) => () => {
+      const eps = 10 ** (-lo - rnd() * span);
+      return () => unit([2 * rnd() - 1, 2 * rnd() - 1, -eps * (0.1 + rnd())]);
+    };
+    for (const [name, makeGen, trials, count, fresh] of [
+      ["wide", wide, 300, () => 11 + Math.floor(rnd() * 10)],
+      ["rim", rim, 300, () => 11 + Math.floor(rnd() * 10)],
+      // Flat trial 314 (seed 7) and crease trial 26 (seed 31) are the cases
+      // found in review: a start inside the wall, and a singular plain fit
+      // that skipped enumeration for a fit 1.7% thicker.
+      ["flat", flatter(3, 3), 400, () => 11, 7],
+      ["crease", flatter(1, 6), 200, () => 11, 31],
+    ]) {
+      if (fresh) seed = fresh;
+      for (let trial = 0; trial < trials; trial++) {
+        const gen = makeGen();
+        const N = Array.from({ length: count() }, gen);
+        const exact = fitCorner(N, { enumerateMax: Infinity });
+        const fast = fitCorner(N, { enumerateMax: 0 });
+        const at = `${name} ${trial}`;
+        if (N.every((a) => dot(a, exact) >= 1 - 1e-9)) {
+          for (const a of N) assert.ok(dot(a, fast) >= 1 - 1e-9, `${at}: a plane is inside the wall`);
+          assert.ok(cost(N, fast) <= cost(N, exact) * (1 + 1e-9) + 1e-12, `${at}: descent is thicker`);
+        } else {
+          const gap = Math.hypot(...exact.map((x, i) => x - fast[i]));
+          assert.ok(gap <= 1e-6 * Math.hypot(...exact), `${at}: a different fallback`);
+        }
+      }
+    }
+  });
+
+  it("fits a corner of hundreds of planes quickly", () => {
+    // Smooth on a dense globe gathers a pole into one corner like this.
+    // Trying every set of three took 2.5 s here (minutes over a whole
+    // globe); descent takes well under a millisecond. The bound leaves
+    // room for slow machines and still fails the cubic search.
+    const N = Array.from({ length: 300 }, (_, i) => {
+      const t = (i / 300) * 2 * Math.PI;
+      const r = 0.05 + 0.4 * (((i * 7919) % 300) / 300);
+      return unit([r * Math.cos(t), r * Math.sin(t), -1]);
+    });
+    const t0 = performance.now();
+    const d = fitCorner(N);
+    const ms = performance.now() - t0;
+    assert.ok(ms < 250, `took ${ms.toFixed(0)} ms`);
+    for (const a of N) assert.ok(dot(a, d) >= 1 - 1e-9);
+    assert.ok(N.some((a) => Math.abs(dot(a, d) - 1) < 1e-9), "at least one plane sits at the wall");
+  });
+});
+
+describe("Even walls on smoothed dense globes", () => {
+  it("build in seconds, not minutes", () => {
+    // Under 1 s here; before descent this ran for minutes with the app
+    // frozen. A test timeout can't interrupt synchronous work, so the
+    // bound is checked after the build.
+    const t0 = performance.now();
+    const r = compile({ ...DEFAULT_STATE, base: "globe", points: 36, subdiv: 1, soften: 30, wallMode: "even" });
+    const ms = performance.now() - t0;
+    assert.ok(ms < 20000, `took ${ms.toFixed(0)} ms`);
+    assert.ok(r.validation.ok, r.validation.errors?.[0]?.message);
+    assert.ok(r.mesh.indices.length > 0);
+  });
 });
 
 describe("meanValueWeights", () => {

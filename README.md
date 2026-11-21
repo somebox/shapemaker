@@ -16,7 +16,7 @@ required. On first visit, a short tip walks through the loop:
 
 1. **Pick a start** — choose a built-in shape from the Start from row.
 2. **Adjust** — the tabs hold Shape (size, jitter, dual, truncate, spike,
-   subdivide, smooth), Openings (border, fillet) and Build (hollow/solid, wall).
+   smooth), Openings (border, fillet, subdivide) and Build (hollow/solid, wall).
 3. **Click a face** — set which side rests on the print bed.
 4. **Export** — the Files tab has the STL for the slicer and an SVG outline.
 
@@ -44,8 +44,8 @@ flat-bridge overlays, and a height clip to inspect cavities.
 |---|---|
 | Shape: start | Platonic solids, icosidodecahedron, cuboctahedron, rhombicosidodecahedron, rhombic 12/30/90, globe, twisted globe, sphere, random hull; named star and ring-ball presets |
 | Shape: size | Overall diameter; Edge length on regular shapes |
-| Shape: distort | Jitter (amount, direction, seed), dual, truncate, spike, subdivide, smooth |
-| Openings | Open or closed faces, polygon or ellipse outline, border, fillet |
+| Shape: distort | Jitter (amount, direction, seed), dual, truncate, spike, smooth |
+| Openings | Open or closed faces, polygon or ellipse outline, border, fillet, subdivide (radial or grid split) |
 | Build | Hollow or solid, wall, rounding, tapered / straight / through sides, mesh quality (Draft / Normal / Fine), resting face, material / mass estimate; advanced: inner wall (even or scaled about the centre), break out |
 | Files | STL, SVG and project files, geometry detail, share link |
 

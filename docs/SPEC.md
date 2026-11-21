@@ -202,7 +202,7 @@ parent verts and apexes onto the unit sphere.
 **Subdivide** (0/1/2) is the next
 skeleton operator: each level splits every face flat, in its own plane, so
 mixed-face solids stay closed and level alone only adds resolution.
-**Pattern** picks the polygon split: *Radial* (default) fans 2k triangles
+**Split** picks the polygon split: *Radial* (default) fans 2k triangles
 per k-gon from the centroid (8 openings per cube side at level 1);
 *Grid* cuts k corner quads (4 per cube side at level 1, 16 at level 2).
 Triangles split 4:1 in both. Smooth requires Radial — its sphere clip
@@ -284,7 +284,10 @@ displacement:
 - **Even** (default) moves every face plane in along its own normal by the
   wall. Each skeleton corner moves to the point where no incident face plane
   is closer than the wall and the excess is least (`fitCorner` in
-  `solid/offset.js`). That is exact where the offset planes meet in one
+  `solid/offset.js`; up to 10 planes it tries every active set, above
+  that it descends from a feasible point, so a pole where Smooth gathers
+  hundreds of planes still fits in linear time). That is exact where the
+  offset planes meet in one
   point (every three-valent corner, every regular solid) and slightly thick
   where four or more planes meet without one: the icosidodecahedron keeps
   1.40–1.54 mm, as under Scaled, and spike valleys reach about 1.8× the
@@ -664,8 +667,13 @@ The canvas is primary. The panel is four tabs, one showing at a time, each
 captioned with its current value so the design reads at a glance:
 
 - **Shape:** base (start chooser, including named star presets), random
-  density/seed, jitter, truncate, spike, subdivide, uniform scale.
-- **Openings:** open or closed faces, outline, border, fillet.
+  density/seed, jitter, dual, truncate, spike, smooth, uniform scale. Dual
+  carries a short caption (faces ↔ corners). Smooth needs Subdivide with
+  the Radial split and no Spike; while it can't apply, a line under it
+  says why and names the tab that changes it.
+- **Openings:** open or closed faces, outline, border, fillet, and
+  subdivide with its split (Radial or Grid), which mostly set how many
+  openings there are. Subdivide stays live with closed faces.
 - **Build:** what only a printed shell reads: solid/hollow, wall, rounding,
   sides, mesh quality, inner wall, break out; and the resting face and
   material/mass.

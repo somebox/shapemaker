@@ -28,9 +28,23 @@ onward every release gets a full entry here, and breaking changes to the
 - **Phones work.** The panel no longer covers the model: the model, status,
   rows and tabs stack, with the tabs under the thumb, and sideways the tabs are
   a rail. Touch targets are at least 44 px.
+- **Subdivide moves to Openings**, after Fillet, since it mostly sets how
+  many openings there are. Pattern goes with it and is now **Split**
+  (Radial or Grid). Smooth stays in Shape; while it can't apply, a line
+  under it says why ("Needs Subdivide (Openings)"). Saved designs and links
+  are unaffected.
+- **Dual says what it does**: "faces ↔ corners" beside its label, and
+  examples on hover.
+- **Smooth is about 5× faster** on dense meshes, with identical results.
 
 ### Fixed
 
+- Smooth on a dense globe no longer freezes the app. Even inner walls tried
+  every set of three planes at each corner, and Smooth can gather a pole
+  into one corner of hundreds of planes: a Globe at density 36 with
+  Subdivide Once and Smooth 30 ran for minutes. Such corners now fit in
+  linear time, and that design builds in under a second. Ordinary corners
+  are fitted exactly as before.
 - A failed rebuild now says so on the status line, even with the last good
   model on screen. The status used to keep showing the old dimensions.
 

@@ -159,21 +159,33 @@ export function offsetWallRange(skeleton, frames, dHat) {
 }
 
 /**
+ * Most planes at one corner for which every candidate active set is tried.
+ * Ordinary corners meet 3–6 planes. Smooth on a dense globe gathers a pole's
+ * short edges into one corner of up to hundreds of planes, where trying every
+ * set of three (cubic in the count) took minutes and locked the app.
+ */
+export const ENUMERATE_MAX_PLANES = 10;
+
+/**
  * Displacement δ with a·δ ≥ 1 for every inward normal a (no plane closer
  * than the wall) and Σ(a·δ − 1)² least (no thicker than it must be). In 3D
- * the optimum sits on at most three active planes, so each candidate active
- * set is solved exactly and the best feasible one wins.
+ * the optimum sits on at most three active planes. Up to
+ * {@link ENUMERATE_MAX_PLANES} planes, each candidate active set is solved
+ * exactly and the best feasible one wins; above it, an active-set descent
+ * finds the same optimum in time linear in the planes.
  * @param {number[][]} normals  inward unit normals
+ * @param {{ enumerateMax?: number }} [opts]  tests compare the two methods
  * @returns {number[]}
  */
-export function fitCorner(normals) {
+export function fitCorner(normals, { enumerateMax = ENUMERATE_MAX_PLANES } = {}) {
   if (normals.length === 1) return [...normals[0]];
   // Normals spanning less than 3D (a crease) leave a free direction; a
   // tiny ridge on |δ|² then picks the shortest move.
-  return fitWithRidge(normals, 0) ?? fitWithRidge(normals, 1e-9) ?? [0, 0, 0];
+  return fitWithRidge(normals, 0, enumerateMax) ??
+    fitWithRidge(normals, 1e-9, enumerateMax) ?? [0, 0, 0];
 }
 
-function fitWithRidge(normals, RIDGE) {
+function fitWithRidge(normals, RIDGE, enumerateMax) {
   const k = normals.length;
   const H = [[RIDGE, 0, 0], [0, RIDGE, 0], [0, 0, RIDGE]];
   const g = [0, 0, 0];
@@ -196,6 +208,17 @@ function fitWithRidge(normals, RIDGE) {
 
   const free = solveLinear(H.map((row, i) => [...row, g[i]]));
   if (free && feasible(free)) return free;
+  // A singular plain fit (normals all but coplanar) also enumerates:
+  // descent's working-set solves share the singularity, while sets of three
+  // planes stay solvable, and the ridge pass would bias a fit that sits
+  // millions of walls deep. Corners like this never came up in 830 designs.
+  if (k > enumerateMax && free) {
+    const fit = descend(normals, H, g, free);
+    // null: no point clears every plane, so the plain fit, as enumeration
+    // returns below. undefined: the search for a start failed numerically,
+    // so enumerate (slow but exact) rather than guess.
+    if (fit !== undefined) return fit ?? free;
+  }
 
   let best = null, bestCost = Infinity;
   const tryActive = (S) => {
@@ -232,6 +255,202 @@ function fitWithRidge(normals, RIDGE) {
   // Normals spanning more than a hemisphere admit no feasible point; the
   // plain fit is the least-bad answer and the wall limit will reject it.
   return best ?? free;
+}
+
+/**
+ * Primal active-set descent for the corner fit (Nocedal & Wright §16.5):
+ * start feasible, minimise on the planes held active, step until another
+ * plane blocks, and release a plane whose multiplier says the optimum lies
+ * off it. Every iterate stays feasible, so stopping early (a degenerate
+ * working set, or the iteration cap) still leaves no plane closer than the
+ * wall — at worst a corner slightly thicker than it need be.
+ * @param {number[][]} normals
+ * @param {number[][]} H  Σ a aᵀ (+ ridge)
+ * @param {number[]} g    Σ a
+ * @param {number[]} free  the unconstrained fit, infeasible here
+ * @returns {number[]|null|undefined} null when no direction clears every
+ *   plane; undefined when finding a start failed numerically
+ */
+function descend(normals, H, g, free) {
+  const k = normals.length;
+  const dot = (a, d) => a[0] * d[0] + a[1] * d[1] + a[2] * d[2];
+  const len = (v) => Math.hypot(v[0], v[1], v[2]);
+  // Push a direction out until its nearest plane is one wall away. The
+  // margin is judged per unit length: the hull point below is short when
+  // the corner is wide.
+  const pushOut = (dir) => {
+    let m = Infinity;
+    for (const a of normals) m = Math.min(m, dot(a, dir));
+    return m > HULL_MARGIN * len(dir) ? dir.map((x) => x / m) : null;
+  };
+  // The plain fit and the normals' sum usually clear every plane already.
+  // On a wide or nearly flat corner both can miss; the nearest point of
+  // the normals' hull clears them whenever anything does.
+  let d = pushOut(free) ?? pushOut(g);
+  if (!d) {
+    const hull = minNormPoint(normals);
+    d = pushOut(hull.x);
+    if (!d) return hull.settled ? null : undefined;
+  }
+
+  let first = 0;
+  for (let i = 1; i < k; i++) if (dot(normals[i], d) < dot(normals[first], d)) first = i;
+  const W = [first];
+
+  /** Minimiser of the fit with every plane in W held at the wall. */
+  const solveOn = () => {
+    const m = 3 + W.length;
+    const rows = [];
+    for (let i = 0; i < 3; i++) {
+      const row = new Array(m + 1).fill(0);
+      for (let j = 0; j < 3; j++) row[j] = H[i][j];
+      W.forEach((s, q) => { row[3 + q] = normals[s][i]; });
+      row[m] = g[i];
+      rows.push(row);
+    }
+    for (const s of W) {
+      const row = new Array(m + 1).fill(0);
+      for (let j = 0; j < 3; j++) row[j] = normals[s][j];
+      row[m] = 1;
+      rows.push(row);
+    }
+    return solveLinear(rows);
+  };
+
+  for (let iter = 0; iter < 8 * k + 50; iter++) {
+    const x = solveOn();
+    if (!x) return d;
+    const p = [x[0] - d[0], x[1] - d[1], x[2] - d[2]];
+    // Tolerances scale with the move: a nearly flat corner can sit
+    // thousands of walls deep, where rounding alone exceeds 1e-12.
+    const scale = Math.max(1, len(d));
+    const pn = len(p);
+    if (pn < 1e-12 * scale) {
+      // Optimal on W. A positive multiplier (H δ + Σ μ a = g) means the fit
+      // improves by leaving that plane; release the worst one.
+      let worst = -1, worstMu = 1e-12 * scale;
+      for (let q = 0; q < W.length; q++) {
+        if (x[3 + q] > worstMu) { worstMu = x[3 + q]; worst = q; }
+      }
+      if (worst < 0) return d;
+      W.splice(worst, 1);
+      continue;
+    }
+    let alpha = 1, block = -1;
+    for (let i = 0; i < k; i++) {
+      if (W.includes(i)) continue;
+      const ap = dot(normals[i], p);
+      if (ap >= -1e-15 * pn) continue;
+      const t = Math.max(0, (1 - dot(normals[i], d)) / ap);
+      if (t < alpha) { alpha = t; block = i; }
+    }
+    d = [d[0] + alpha * p[0], d[1] + alpha * p[1], d[2] + alpha * p[2]];
+    if (block >= 0) W.push(block);
+  }
+  return d;
+}
+
+/**
+ * Least clearance, per unit length, for a direction to count as clearing
+ * every plane. Corners shallower than this would sit more than a billion
+ * walls deep; they are treated as having no feasible point.
+ */
+const HULL_MARGIN = 1e-9;
+
+/**
+ * Point of the points' convex hull nearest the origin — Wolfe's algorithm
+ * (1976). Every point a then has a·z ≥ |z|², so z clears all of them by the
+ * widest margin; z is (near) zero when the origin is inside the hull and no
+ * such direction exists. Stops early once z clears every point by
+ * {@link HULL_MARGIN}, which is all the descent needs.
+ *
+ * In 3D the corral holds at most four points, so the nearest point of its
+ * affine hull has a closed form (line, plane, or the origin itself inside
+ * a tetrahedron). Those use cross products of edge vectors rather than a
+ * Gram system, which would square the conditioning: on a nearly flat
+ * corner the corral is a sliver and the margin is ~1e-7.
+ * @param {number[][]} pts  unit vectors
+ * @returns {{ x: number[], settled: boolean }} settled is false when the
+ *   search stopped on a numerical failure rather than an answer
+ */
+function minNormPoint(pts) {
+  const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+  const cross = (a, b) =>
+    [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+  let maxSq = 0, s0 = 0;
+  for (let i = 0; i < pts.length; i++) {
+    const q = dot(pts[i], pts[i]);
+    maxSq = Math.max(maxSq, q);
+    if (q < dot(pts[s0], pts[s0])) s0 = i;
+  }
+  let S = [s0], w = [1];
+  let x = [...pts[s0]];
+  /** Weights v (Σv = 1) of the point of S's affine hull nearest the origin. */
+  const affineMin = () => {
+    const P = S.map((s) => pts[s]);
+    if (P.length === 1) return [1];
+    if (P.length === 2) {
+      const e = sub(P[1], P[0]);
+      const ee = dot(e, e);
+      if (!(ee > 0)) return null;
+      const t = -dot(P[0], e) / ee;
+      return [1 - t, t];
+    }
+    if (P.length === 3) {
+      const n = cross(sub(P[1], P[0]), sub(P[2], P[0]));
+      const nn = dot(n, n);
+      if (!(nn > 0)) return null;
+      const h = dot(n, P[0]) / nn;
+      const y = [n[0] * h, n[1] * h, n[2] * h];
+      return [0, 1, 2].map((i) =>
+        dot(cross(sub(P[(i + 1) % 3], y), sub(P[(i + 2) % 3], y)), n) / nn);
+    }
+    if (P.length === 4) {
+      // The affine hull is all of space: the origin itself, by signed volumes.
+      const vol = (a, b, c, d) => dot(sub(b, a), cross(sub(c, a), sub(d, a)));
+      const total = vol(P[0], P[1], P[2], P[3]);
+      if (!(Math.abs(total) > 0)) return null;
+      const o = [0, 0, 0];
+      return [
+        vol(o, P[1], P[2], P[3]) / total,
+        vol(P[0], o, P[2], P[3]) / total,
+        vol(P[0], P[1], o, P[3]) / total,
+        vol(P[0], P[1], P[2], o) / total,
+      ];
+    }
+    return null;
+  };
+  for (let major = 0; major < 4 * pts.length + 50; major++) {
+    const xx = dot(x, x);
+    // The origin is (within the margin of) the hull: nothing clears it.
+    if (xx <= HULL_MARGIN * HULL_MARGIN * maxSq) return { x, settled: true };
+    let j = 0;
+    for (let i = 1; i < pts.length; i++) if (dot(x, pts[i]) < dot(x, pts[j])) j = i;
+    const m = dot(x, pts[j]);
+    if (m > HULL_MARGIN * Math.sqrt(xx)) return { x, settled: true };
+    if (m >= xx * (1 - 1e-12)) return { x, settled: true };
+    if (S.includes(j)) return { x, settled: false };
+    S.push(j);
+    w.push(0);
+    for (let minor = 0; minor < 8; minor++) {
+      const v = affineMin();
+      if (!v) return { x, settled: false };
+      if (v.every((vi) => vi > 1e-12)) { w = v; break; }
+      // Step from w toward v until a weight reaches zero, and drop it.
+      let theta = 1;
+      for (let i = 0; i < S.length; i++) {
+        if (v[i] <= 1e-12 && w[i] > v[i]) theta = Math.min(theta, w[i] / (w[i] - v[i]));
+      }
+      w = w.map((wi, i) => (1 - theta) * wi + theta * v[i]);
+      const keep = w.map((wi) => wi > 1e-12);
+      S = S.filter((_, i) => keep[i]);
+      w = w.filter((_, i) => keep[i]);
+    }
+    x = [0, 0, 0];
+    S.forEach((s, i) => { for (let c = 0; c < 3; c++) x[c] += w[i] * pts[s][c]; });
+  }
+  return { x, settled: false };
 }
 
 /** Gaussian elimination with partial pivoting on an augmented matrix. */
