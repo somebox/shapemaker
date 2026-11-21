@@ -465,7 +465,7 @@ describe("examples", () => {
         sha.update(a.name).update(typeof data === "string" ? data : Buffer.from(data));
       }
     }
-    assert.equal(sha.digest("hex").slice(0, 16), "03009ec8495dd259");
+    assert.equal(sha.digest("hex").slice(0, 16), "246701551d5986b7");
   });
 
   it("felt examples have no whip stitches", async () => {

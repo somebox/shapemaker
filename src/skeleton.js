@@ -154,7 +154,21 @@ export function assertSkeleton(skeleton, opts = {}) {
  * @returns {true}
  */
 export function assertStarShaped(skeleton, tol = 1e-6) {
-  const cover = starCover(skeleton);
+  const { positions, faces } = skeleton;
+  let sum = 0;
+  for (let f = 0; f < faces.length; f++) {
+    const ring = faces[f];
+    for (let i = 1; i < ring.length - 1; i++) {
+      const omega = triangleSolidAngle(positions, ring[0], ring[i], ring[i + 1]);
+      if (!(omega > 1e-12)) {
+        throw new Error(
+          `origin does not see every face once (face ${f} solid angle ${omega.toFixed(6)})`,
+        );
+      }
+      sum += omega;
+    }
+  }
+  const cover = sum / (4 * Math.PI);
   if (!Number.isFinite(cover) || Math.abs(cover - 1) > tol) {
     throw new Error(
       `origin does not see every face once (cover ${cover.toFixed(6)})`,

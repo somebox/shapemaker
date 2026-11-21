@@ -57,4 +57,15 @@ describe("predictedCompileMs", () => {
       800,
     );
   });
+
+  it("scales when Smooth activates from subdiv=0 (auto-refinement)", () => {
+    assert.equal(
+      predictedCompileMs(15, { subdiv: 0, soften: 0 }, { subdiv: 0, soften: 20 }, 6),
+      240,
+    );
+    assert.equal(
+      predictedCompileMs(40, { subdiv: 0, soften: 0 }, { subdiv: 0, soften: 20 }, 32),
+      160,
+    );
+  });
 });

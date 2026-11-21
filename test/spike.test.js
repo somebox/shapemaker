@@ -199,6 +199,37 @@ describe("spike through compile", () => {
     assert.ok(b.metrics.triangleCount > a.metrics.triangleCount);
     assert.ok(b.metrics.roundingMm.max > 0);
   });
+
+  it("smoothing on a spiked star turns sharp spikes into soft lobes and relaxes valleys", () => {
+    clearPipelineCache();
+    const sharp = compile({
+      base: "octahedron",
+      spike: Math.sqrt(3),
+      subdiv: 2,
+      soften: 0,
+      depth: "solid",
+      openings: false,
+    });
+    const soft = compile({
+      base: "octahedron",
+      spike: Math.sqrt(3),
+      subdiv: 2,
+      soften: 80,
+      depth: "solid",
+      openings: false,
+    });
+    assert.equal(sharp.validation.ok, true);
+    assert.equal(soft.validation.ok, true, soft.validation.errors[0]?.message);
+    assertStarShaped(soft.skeleton);
+    const minR = (sk) => {
+      let m = Infinity;
+      for (let i = 0; i < sk.positions.length; i += 3) {
+        m = Math.min(m, Math.hypot(sk.positions[i], sk.positions[i + 1], sk.positions[i + 2]));
+      }
+      return m;
+    };
+    assert.ok(minR(soft.skeleton) > minR(sharp.skeleton) * 1.4);
+  });
 });
 
 describe("assertStarShaped on convex parents", () => {

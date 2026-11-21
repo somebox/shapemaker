@@ -5,6 +5,8 @@
  * looks locked.
  */
 
+import { effectiveSubdivLevel } from "./subdivide.js";
+
 /**
  * Threshold in milliseconds. At or below it, live-drag recompiles stay
  * comfortably interactive; above it, sliders switch to commit-on-release
@@ -42,7 +44,17 @@ const SPIKE_FACE_SCALE = 4;
  */
 export function predictedCompileMs(lastMs, prevState, nextState, prevFaces = 0) {
   const est = lastMs > 0 ? lastMs : 0;
-  const dSub = (nextState?.subdiv ?? 0) - (prevState?.subdiv ?? 0);
+  const prevSub = effectiveSubdivLevel(
+    prevState?.subdiv ?? 0,
+    prevState?.soften ?? 0,
+    prevFaces,
+  );
+  const nextSub = effectiveSubdivLevel(
+    nextState?.subdiv ?? 0,
+    nextState?.soften ?? 0,
+    prevFaces,
+  );
+  const dSub = nextSub - prevSub;
   const prevSpike = (prevState?.spike ?? 0) > 0;
   const nextSpike = (nextState?.spike ?? 0) > 0;
   const spikeScale = !prevSpike && nextSpike

@@ -15,7 +15,7 @@ import { validationError } from "./validate.js";
 import { DEFAULT_STATE } from "./schema.js";
 import { jitterPoints } from "./points/jitter.js";
 import { perturbSkeletonPlanes } from "./plane-perturb.js";
-import { subdivideSkeleton } from "./subdivide.js";
+import { subdivideSkeleton, effectiveSubdivLevel } from "./subdivide.js";
 import { truncateSkeleton } from "./truncate.js";
 import { dualSkeleton } from "./dual.js";
 import { spikeSkeleton } from "./solid/spike.js";
@@ -27,6 +27,7 @@ import { spikeSkeleton } from "./solid/spike.js";
 function generatorParams(base, state) {
   const jitter = state.jitter ?? DEFAULT_STATE.jitter;
   const subdiv = state.subdiv ?? DEFAULT_STATE.subdiv;
+  const soften = state.soften ?? DEFAULT_STATE.soften;
   const truncate = state.truncate ?? DEFAULT_STATE.truncate;
   const spike = state.spike ?? DEFAULT_STATE.spike;
   const out = {
@@ -44,14 +45,11 @@ function generatorParams(base, state) {
       ? {
           subdiv,
           subdivStyle: state.subdivStyle ?? DEFAULT_STATE.subdivStyle,
-          // Smooth is a radial-only companion; grid ignores it, so it
-          // must not fragment the cache key there either.
-          ...((state.subdivStyle ?? DEFAULT_STATE.subdivStyle) === "grid" ||
-          spike > 0
-            ? {}
-            : { soften: state.soften ?? DEFAULT_STATE.soften }),
+          soften,
         }
-      : {}),
+      : soften > 0
+        ? { soften }
+        : {}),
   };
   if (!BASES[base]?.parametric) return out;
   return {
@@ -130,16 +128,29 @@ function buildUnitSkeleton(base, cloud, merge, params) {
   if (params.spike > 0) {
     sk = spikeSkeleton(sk, params.spike);
   }
-  if (params.subdiv > 0) {
-    // Smooth is omitted from generatorParams when spike > 0 (and under
-    // Grid), so params.soften is undefined here and ?? 0 is the ignore
-    // path. Rounding stays live; the solidifier skips reflex valleys.
-    sk = subdivideSkeleton(
-      sk,
-      params.subdiv,
-      (params.soften ?? 0) / 100,
-      params.subdivStyle,
-    );
+  const softenFrac = (params.soften ?? 0) / 100;
+  const subdivLevel = effectiveSubdivLevel(
+    params.subdiv,
+    softenFrac,
+    sk.faces.length,
+  );
+  if (subdivLevel > 0) {
+    try {
+      sk = subdivideSkeleton(
+        sk,
+        subdivLevel,
+        softenFrac,
+        params.subdivStyle,
+      );
+    } catch (err) {
+      if (err?.validation) throw err;
+      throw validationError(
+        "points",
+        "soften",
+        "This smoothing level folds the surface — try a lower value",
+        { clampTo: 0 },
+      );
+    }
   }
   if (params.spike > 0) {
     try {

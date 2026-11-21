@@ -111,10 +111,9 @@ describe("Unit 4 policy helpers", () => {
     assert.equal(n.spike, 0);
   });
 
-  it("Smooth is inert under Spike (halfspace inset is the convex hull)", async () => {
+  it("Smooth control stays live across Subdivide=None, Grid, and Spike", async () => {
     const { CONTROL_DEFS } = await import("../src/schema.js");
     const soften = CONTROL_DEFS.find((d) => d.key === "soften");
-    assert.equal(soften.inertWhen({ subdiv: 1, subdivStyle: "radial", spike: 0 }), false);
-    assert.equal(soften.inertWhen({ subdiv: 1, subdivStyle: "radial", spike: 1.7 }), true);
+    assert.equal(soften.inertWhen, undefined);
   });
 });

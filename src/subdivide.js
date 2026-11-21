@@ -1,51 +1,53 @@
 /**
- * Fixed-order surface subdivision — the first skeleton operator. Each level
- * splits every face flat, in its own plane. Two styles:
+ * Fixed-order surface subdivision and polygonal subdivision fairing.
  *
+ * When `soften === 0`, each level splits every face flat in its own plane:
  * - "radial" (default): triangles 4:1 via edge midpoints, larger polygons
  *   as centroid fans over the midpoint-split boundary — 2k triangles per
  *   k-gon (8 openings per cube side at level 1).
  * - "grid": triangles still 4:1; larger polygons split into k corner
  *   QUADS (corner, edge midpoint, centroid, previous midpoint) — k per
- *   k-gon (4 openings per cube side at level 1, 16 at level 2). Quads
- *   stay planar because splitting is flat, which is why Smooth is a
- *   radial-only companion: the sphere clip would bend them out of plane.
+ *   k-gon (4 openings per cube side at level 1, 16 at level 2).
  *
- * Every edge splits at its midpoint in both styles, so mixed-face solids
- * (icosidodeca: pentagons meeting triangles) stay closed with no
- * T-junctions.
- *
- * Smooth is a true edge fillet: soften sets a rounding radius R = s × the
- * parent inradius, and every vertex projects onto the rounded parent solid
- * (parent inset by R, Minkowski-expanded by R). Edges and corners round
- * proportionally from the first percent while flat face interiors are
- * exact fixed points — overall dimensions hold, only sharpness melts.
- * Above soften 0.5 a melt phase additionally clips the deeper flats of
- * mixed-plane-distance solids spherically, so soften 1 reaches the
- * inscribed ball on every base.
- *
- * The result stays a convex triangulation, so all solidifier guarantees
- * hold. Runs AFTER jitter (plane perturbation on regulars, point jitter on
- * parametric bases): jitter distorts the simple form, subdivision adds
- * resolution to it, smooth fillets it. The reverse order would hand the
- * plane perturbation near-coplanar plane families whose members mostly
- * stop binding — silently discarding subdivision and smoothing.
+ * When `soften > 0`, `subdivideSkeleton` runs deterministic blended
+ * Catmull–Clark / 4:1 subdivision fairing followed by two 1-ring umbrella
+ * relaxation passes and canonical symmetric quad triangulation:
+ * - Convex polyhedra fair smoothly from filleted forms toward sphere-like
+ *   surfaces while restoring unit circumradius.
+ * - Spiked stars and non-convex origin-star-shaped meshes turn sharp spikes
+ *   into soft rounded lobes and relax concave inner valleys into smooth
+ *   saddle transitions, certified by `assertStarShaped`.
  */
 
-import { assertSkeleton, edgeList } from "./skeleton.js";
+import { assertSkeleton, assertStarShaped, edgeList } from "./skeleton.js";
 import { applyFaceIdentity } from "./hull.js";
-import { faceFrames } from "./faceframe.js";
 
 export const SUBDIV_MAX = 2;
+
+/**
+ * Automatic refinement level when `subdiv === 0` and `soften > 0`:
+ * coarse bases (≤ 12 faces: tetrahedron, cube, octahedron, dodecahedron,
+ * rhombic dodecahedron) refine twice for smooth curvature; medium/dense
+ * bases and spiked stars (> 12 faces) refine once (4×).
+ *
+ * @param {number} [subdiv]
+ * @param {number} [soften]  0..100 or 0..1 (any > 0 triggers auto-level)
+ * @param {number} [faceCount]
+ * @returns {number}
+ */
+export function effectiveSubdivLevel(subdiv = 0, soften = 0, faceCount = 0) {
+  const n = Math.min(SUBDIV_MAX, Math.floor(subdiv ?? 0));
+  if (n > 0) return n;
+  if (soften > 0) return faceCount > 0 && faceCount <= 12 ? 2 : 1;
+  return 0;
+}
 
 /**
  * @param {{ positions: Float64Array, faces: number[][] }} skeleton
  *   unit skeleton (all vertices on the circumsphere)
  * @param {number} level  0 returns the input untouched; clamped to SUBDIV_MAX
- * @param {number} [soften]  0–1 edge fillet: 0 keeps the exact flat solid
- *   (grids of openings on planar faces), 1 rounds everything down to the
- *   inscribed ball. Default 0. Ignored (forced 0) for style "grid" — the
- *   clip would make the quads non-planar.
+ * @param {number} [soften]  0–1 surface fairing: 0 keeps the exact flat
+ *   subdivision; > 0 fairs corners, ridges, and concave valleys.
  * @param {"radial"|"grid"} [style]  polygon split pattern. Default "radial".
  * @returns {{
  *   positions: Float64Array,
@@ -58,114 +60,260 @@ export function subdivideSkeleton(skeleton, level, soften = 0, style = "radial")
   const n = Math.min(SUBDIV_MAX, Math.floor(level ?? 0));
   if (!(n > 0)) return skeleton;
   const grid = style === "grid";
-  const s = grid ? 0 : Math.min(1, Math.max(0, soften));
+  const s = Math.min(1, Math.max(0, soften));
 
+  // Fast path: exact flat split for both radial and grid when soften === 0.
+  if (!(s > 0)) {
+    let cur = {
+      positions: skeleton.positions,
+      faces: skeleton.faces,
+      parentId: skeleton.faces.map((_, i) => i),
+    };
+    for (let i = 0; i < n; i++) cur = subdivideOnce(cur, grid);
+    const positions = Float64Array.from(cur.positions);
+    const identified = applyFaceIdentity(positions, cur.faces, cur.parentId);
+    const out = {
+      positions,
+      faces: identified.faces,
+      edges: edgeList(identified.faces),
+      macroFaceId: identified.tags,
+    };
+    assertSkeleton(out);
+    return out;
+  }
+
+  // Deterministic blended subdivision fairing for s > 0:
+  // Step weight α = s^(1/n) keeps multi-level displacement linear across s.
+  const alpha = Math.pow(s, 1 / n);
   let cur = {
-    positions: skeleton.positions,
-    faces: skeleton.faces,
+    positions: Array.from(skeleton.positions),
+    faces: skeleton.faces.map((f) => f.slice()),
     parentId: skeleton.faces.map((_, i) => i),
   };
-  for (let i = 0; i < n; i++) cur = subdivideOnce(cur, grid);
 
-  const positions = Float64Array.from(cur.positions);
-  if (s > 0) {
-    // Rounding clip: soften defines a fillet radius R = s × inradius and
-    // every vertex projects onto the ROUNDED PARENT SOLID — the Minkowski
-    // body {dist(p, parent inset by R) ≤ R}, the same construction the
-    // shell-level rounding uses. Face interiors are exact fixed points
-    // (their inset foot is R straight below), while every edge and corner
-    // rounds from the first percent — including features the old sphere
-    // clip could never reach (a cube's edges stayed 90° until soften ~0.69;
-    // Catalan inner-ring corners were skipped, and clipping their outer
-    // neighbours actually sharpened the crease). Cube corners follow the
-    // identical trajectory as the old clip (radius 1 − s(1 − r_in)), so
-    // historical anchors hold.
-    //
-    // The fillet radius caps at the min plane distance, so on
-    // mixed-distance solids (icosidodeca, Catalans) the DEEPER faces
-    // would survive soften 1 as large flats — the smoothing "stops
-    // prematurely". A melt phase in the upper half of the slider clips
-    // those remaining flats spherically toward the inscribed ball, so
-    // soften 1 reaches the ball on every base. On uniform solids (cube)
-    // every post-fillet radius already sits inside the melt clip, so the
-    // melt is a no-op there and anchors still hold.
-    let rEnd = Infinity;
-    const planes = [];
-    for (const f of faceFrames(skeleton)) {
-      rEnd = Math.min(rEnd, f.inradius);
-      planes.push({ n: f.normal, d: f.inradius });
-    }
-    const R = s * rEnd;
-    for (let i = 0; i < positions.length; i += 3) {
-      const p = [positions[i], positions[i + 1], positions[i + 2]];
-      const q = projectOntoInset(p, planes, R);
-      const dx = p[0] - q[0], dy = p[1] - q[1], dz = p[2] - q[2];
-      const dist = Math.hypot(dx, dy, dz);
-      if (dist > R + 1e-12 && dist > 1e-12) {
-        const k = R / dist;
-        positions[i] = q[0] + dx * k;
-        positions[i + 1] = q[1] + dy * k;
-        positions[i + 2] = q[2] + dz * k;
-      }
-    }
-    const MELT_START = 0.5;
-    if (s > MELT_START) {
-      const clip = 1 - ((s - MELT_START) / (1 - MELT_START)) * (1 - rEnd);
-      for (let i = 0; i < positions.length; i += 3) {
-        const r = Math.hypot(positions[i], positions[i + 1], positions[i + 2]);
-        if (r > clip) {
-          const k = clip / r;
-          positions[i] *= k;
-          positions[i + 1] *= k;
-          positions[i + 2] *= k;
-        }
-      }
+  for (let lv = 0; lv < n; lv++) {
+    cur = subdivideFairStep(cur, alpha);
+  }
+
+  // Two 1-ring umbrella relaxation passes smooth residual creases at
+  // extraordinary vertices (valence-3 spike tips and valence-8 inner saddles).
+  const nV = cur.positions.length / 3;
+  const nbrs = Array.from({ length: nV }, () => new Set());
+  for (const ring of cur.faces) {
+    for (let i = 0; i < ring.length; i++) {
+      const a = ring[i], b = ring[(i + 1) % ring.length];
+      nbrs[a].add(b);
+      nbrs[b].add(a);
     }
   }
-  const identified = applyFaceIdentity(positions, cur.faces, cur.parentId);
-  const faces = identified.faces;
+  const lambda = 0.35 * s;
+  for (let pass = 0; pass < 2; pass++) {
+    const prev = cur.positions;
+    const next = prev.slice();
+    for (let v = 0; v < nV; v++) {
+      const list = [...nbrs[v]];
+      if (!list.length) continue;
+      let nx = 0, ny = 0, nz = 0;
+      for (const u of list) {
+        nx += prev[u * 3];
+        ny += prev[u * 3 + 1];
+        nz += prev[u * 3 + 2];
+      }
+      nx /= list.length;
+      ny /= list.length;
+      nz /= list.length;
+      next[v * 3] += lambda * (nx - prev[v * 3]);
+      next[v * 3 + 1] += lambda * (ny - prev[v * 3 + 1]);
+      next[v * 3 + 2] += lambda * (nz - prev[v * 3 + 2]);
+    }
+    cur.positions = next;
+  }
+
+  // Split every Catmull–Clark quad [mPrev, a, mNext, center] along its
+  // canonical parent-corner-to-face-center diagonal (center, a) so all faces
+  // are strictly planar triangles while preserving full polyhedral symmetry.
+  const triFaces = [];
+  const triId = [];
+  for (let fi = 0; fi < cur.faces.length; fi++) {
+    const ring = cur.faces[fi];
+    const id = cur.parentId[fi];
+    if (ring.length === 4) {
+      const [mPrev, a, mNext, center] = ring;
+      triFaces.push([center, mPrev, a], [center, a, mNext]);
+      triId.push(id, id);
+    } else {
+      triFaces.push(ring);
+      triId.push(id);
+    }
+  }
+
+  const positions = Float64Array.from(cur.positions);
+  let maxR = 0;
+  for (let i = 0; i < positions.length; i += 3) {
+    maxR = Math.max(
+      maxR,
+      Math.hypot(positions[i], positions[i + 1], positions[i + 2]),
+    );
+  }
+  if (maxR > 0) {
+    for (let i = 0; i < positions.length; i++) positions[i] /= maxR;
+  }
+
+  const identified = applyFaceIdentity(positions, triFaces, triId);
   const out = {
     positions,
-    faces,
-    edges: edgeList(faces),
+    faces: identified.faces,
+    edges: edgeList(identified.faces),
     macroFaceId: identified.tags,
   };
   assertSkeleton(out);
+  assertStarShaped(out);
   return out;
 }
 
 /**
- * Nearest point of the parent solid inset by R — Dykstra's alternating
- * projection onto {q : n_f·q ≤ d_f − R}. Only planes a point could
- * interact with (violated within a 2R margin) enter the cycle; interior
- * face points converge in one pass, edge/corner points in a few dozen.
+ * One level of blended Catmull–Clark / 4:1 subdivision with step blend α.
+ * Triangles split 4:1; k-gons (k ≥ 4) split into k corner quads so intermediate
+ * vertices maintain regular valence 4 across levels.
  *
- * @param {number[]} p
- * @param {{ n: number[], d: number }[]} planes  parent face planes (unit n)
- * @param {number} R  inset depth
- * @returns {number[]} nearest point in the inset body
+ * @param {{ positions: number[], faces: number[][], parentId: number[] }} skel
+ * @param {number} alpha  per-level fairing weight in (0, 1]
  */
-function projectOntoInset(p, planes, R) {
-  const active = planes.filter(
-    ({ n, d }) => n[0] * p[0] + n[1] * p[1] + n[2] * p[2] > d - 2 * R - 1e-9,
-  );
-  const q = [p[0], p[1], p[2]];
-  /** Dykstra correction per constraint. */
-  const corr = active.map(() => [0, 0, 0]);
-  for (let iter = 0; iter < 120; iter++) {
-    let moved = 0;
-    for (let c = 0; c < active.length; c++) {
-      const { n, d } = active[c];
-      const y = [q[0] + corr[c][0], q[1] + corr[c][1], q[2] + corr[c][2]];
-      const excess = n[0] * y[0] + n[1] * y[1] + n[2] * y[2] - (d - R);
-      const nx = excess > 0 ? [y[0] - n[0] * excess, y[1] - n[1] * excess, y[2] - n[2] * excess] : y;
-      corr[c] = [y[0] - nx[0], y[1] - nx[1], y[2] - nx[2]];
-      moved = Math.max(moved, Math.abs(nx[0] - q[0]), Math.abs(nx[1] - q[1]), Math.abs(nx[2] - q[2]));
-      q[0] = nx[0]; q[1] = nx[1]; q[2] = nx[2];
+function subdivideFairStep({ positions: pos, faces, parentId }, alpha) {
+  const nV = pos.length / 3;
+  const P = (i) => [pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2]];
+
+  const F = faces.map((ring) => {
+    let x = 0, y = 0, z = 0;
+    for (const v of ring) {
+      x += pos[v * 3];
+      y += pos[v * 3 + 1];
+      z += pos[v * 3 + 2];
     }
-    if (moved < 1e-12) break;
+    const k = ring.length;
+    return [x / k, y / k, z / k];
+  });
+
+  const edgeAdj = new Map();
+  const vertFaces = Array.from({ length: nV }, () => []);
+  const vertNbrs = Array.from({ length: nV }, () => new Set());
+  for (let fi = 0; fi < faces.length; fi++) {
+    const ring = faces[fi];
+    for (let k = 0; k < ring.length; k++) {
+      const a = ring[k], b = ring[(k + 1) % ring.length];
+      vertFaces[a].push(fi);
+      vertNbrs[a].add(b);
+      vertNbrs[b].add(a);
+      const key = a < b ? a * 0x100000 + b : b * 0x100000 + a;
+      let rec = edgeAdj.get(key);
+      if (!rec) {
+        rec = { a: Math.min(a, b), b: Math.max(a, b), faces: [] };
+        edgeAdj.set(key, rec);
+      }
+      rec.faces.push(fi);
+    }
   }
-  return q;
+
+  const nextPos = [];
+  const push = (x, y, z) => {
+    nextPos.push(x, y, z);
+    return nextPos.length / 3 - 1;
+  };
+
+  for (let v = 0; v < nV; v++) {
+    const pv = P(v);
+    const nbrs = [...vertNbrs[v]];
+    const fList = vertFaces[v];
+    const deg = nbrs.length;
+    let fx = 0, fy = 0, fz = 0;
+    for (const fi of fList) {
+      fx += F[fi][0];
+      fy += F[fi][1];
+      fz += F[fi][2];
+    }
+    fx /= fList.length;
+    fy /= fList.length;
+    fz /= fList.length;
+
+    let mx = 0, my = 0, mz = 0;
+    for (const u of nbrs) {
+      mx += (pv[0] + pos[u * 3]) / 2;
+      my += (pv[1] + pos[u * 3 + 1]) / 2;
+      mz += (pv[2] + pos[u * 3 + 2]) / 2;
+    }
+    mx /= deg;
+    my /= deg;
+    mz /= deg;
+
+    const wSelf = Math.min((deg - 3) / deg, 0.45);
+    const wRest = 1 - wSelf;
+    const cx = wSelf * pv[0] + (wRest * (fx + 2 * mx)) / 3;
+    const cy = wSelf * pv[1] + (wRest * (fy + 2 * my)) / 3;
+    const cz = wSelf * pv[2] + (wRest * (fz + 2 * mz)) / 3;
+    push(
+      (1 - alpha) * pv[0] + alpha * cx,
+      (1 - alpha) * pv[1] + alpha * cy,
+      (1 - alpha) * pv[2] + alpha * cz,
+    );
+  }
+
+  const mids = new Map();
+  for (const [key, rec] of edgeAdj) {
+    const pa = P(rec.a), pb = P(rec.b);
+    const mx = (pa[0] + pb[0]) / 2;
+    const my = (pa[1] + pb[1]) / 2;
+    const mz = (pa[2] + pb[2]) / 2;
+    if (rec.faces.length < 2) {
+      mids.set(key, push(mx, my, mz));
+      continue;
+    }
+    const c0 = F[rec.faces[0]], c1 = F[rec.faces[1]];
+    const tx = (pa[0] + pb[0] + c0[0] + c1[0]) / 4;
+    const ty = (pa[1] + pb[1] + c0[1] + c1[1]) / 4;
+    const tz = (pa[2] + pb[2] + c0[2] + c1[2]) / 4;
+    mids.set(
+      key,
+      push(
+        (1 - alpha) * mx + alpha * tx,
+        (1 - alpha) * my + alpha * ty,
+        (1 - alpha) * mz + alpha * tz,
+      ),
+    );
+  }
+
+  const edgeVert = (a, b) =>
+    mids.get(a < b ? a * 0x100000 + b : b * 0x100000 + a);
+
+  const outFaces = [];
+  const outId = [];
+  const emit = (ring, id) => {
+    outFaces.push(ring);
+    outId.push(id);
+  };
+
+  for (let fi = 0; fi < faces.length; fi++) {
+    const ring = faces[fi];
+    const id = parentId[fi];
+    const k = ring.length;
+    if (k === 3) {
+      const [a, b, c] = ring;
+      const ab = edgeVert(a, b), bc = edgeVert(b, c), ca = edgeVert(c, a);
+      emit([a, ab, ca], id);
+      emit([ab, b, bc], id);
+      emit([ca, bc, c], id);
+      emit([ab, bc, ca], id);
+      continue;
+    }
+    const center = push(F[fi][0], F[fi][1], F[fi][2]);
+    for (let i = 0; i < k; i++) {
+      const a = ring[i];
+      const mPrev = edgeVert(ring[(i - 1 + k) % k], a);
+      const mNext = edgeVert(a, ring[(i + 1) % k]);
+      emit([mPrev, a, mNext, center], id);
+    }
+  }
+
+  return { positions: nextPos, faces: outFaces, parentId: outId };
 }
 
 /**
@@ -179,8 +327,6 @@ function subdivideOnce({ positions, faces, parentId }, grid = false) {
   /** @type {Map<number, number>} undirected edge → midpoint vertex */
   const mids = new Map();
 
-  // New vertices stay on the parent geometry — splitting is flat; rounding
-  // is the caller's sphere clip.
   const push = (x, y, z) => {
     pos.push(x, y, z);
     return pos.length / 3 - 1;
@@ -220,8 +366,6 @@ function subdivideOnce({ positions, faces, parentId }, grid = false) {
       emit([ab, bc, ca], id);
       continue;
     }
-    // n-gon: flat split about the centroid — corner quads (grid) or a
-    // centroid fan of triangles (radial). Both stay in the face plane.
     let cx = 0, cy = 0, cz = 0;
     for (const vi of ring) {
       cx += pos[vi * 3];
