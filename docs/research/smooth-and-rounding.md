@@ -231,7 +231,7 @@ planes:
      on Stella Octangula, 32 on an icosidodecahedron).
    - `buildShell` (`src/solid/shell.js`) invokes `buildEdgeRounding`
      (`src/solid/edgeround.js`) with `roundValleys: true` and band budget
-     $a_{\text{smooth}} = s \cdot (0.72\text{ open} / 0.80\text{ closed}) \cdot \text{boundWidth}$:
+     $a_{\text{smooth}} = s \cdot (0.88 \cdot \text{frac}\text{ open} / 0.80\text{ closed}) \cdot \text{boundWidth}$:
      - **Convex edges & ridges**: replaced by multi-segment circular arc fillet
        strips tangent to both adjacent faces.
      - **Convex corners & spike tips**: trimmed back and replaced by smooth
@@ -241,11 +241,9 @@ planes:
        fillet arcs on reflex valley edges (curving outward into the valley) and
        caps mixed ridge/valley saddle vertices with a 12-iteration harmonic
        umbrella saddle patch.
-     - **Proportional opening island scaling**: each face's opening outline
-       (`corner2d` and `filletMm`) scales by the measured flat-island ratio
-       $\text{islandScale} = \min_k (\|B_{\text{Or}}[k]\| / R_{\text{orig}}(\theta_k))$
-       so the opening stays centred inside the remaining flat face island with
-       its full relative border (`borderFraction`).
+     - **Openings unaffected**: each face's opening outline (`corner2d`)
+       derives from the original face corners, so `Smooth` modifies only the
+       outer shape geometry and never contracts or alters the openings.
 
 2. **When `Subdivide = Once` or `Twice` (`subdiv > 0`)**:
    - The user explicitly requested subdivided cells/openings.

@@ -215,8 +215,8 @@ Subdivide is None:
   corners and spike tips with spherical dome caps, sharp ridges with
   cylindrical fillet strips, and concave spike valleys with concave circular
   fillet strips and harmonic saddle patches, while keeping each face's flat
-  interior in its original plane and scaling its single opening to fit inside
-  the remaining flat face island.
+  interior in its original plane and leaving the face openings completely
+  unchanged in size and outline.
 - When **Subdivide is Once or Twice (`subdiv > 0`)**, `subdivideSkeleton`
   projects subdivided vertices onto the rounded parent solid (each convex cell
   inset by $R = s \cdot r_{\text{in}}$ and expanded by $R$, with Grid quads

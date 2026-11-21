@@ -485,19 +485,17 @@ describe("edge rounding with subdivision", () => {
     assert.ok(Math.abs(smoothPlusSmall.metrics.roundingMm.max - 1.5) < 1e-6);
     assert.ok(Math.abs(smoothPlusSmall.metrics.volumeMm3 - smoothOnly.metrics.volumeMm3) < 1e-6);
 
-    // Border metrics on a smoothed open cube reflect the scaled flat island and
-    // preserve explicit borderMm.
+    // Smooth affects only the outer shape geometry and never contracts the
+    // openings or alters their border widths.
     clearPipelineCache();
-    const mmPreserved = compile({ base: "cube", soften: 80, borderMm: 3, filletMm: 0 });
-    assert.equal(mmPreserved.validation.ok, true);
-    assert.ok(Math.abs(mmPreserved.metrics.borderMm.min - 3) < 1e-6);
-
-    clearPipelineCache();
-    const thinFrac = compile({ base: "cube", soften: 80, borderFraction: 0.15, filletMm: 0 });
-    assert.equal(thinFrac.validation.ok, true);
-    assert.ok(thinFrac.metrics.borderMm.min < 2.5);
+    const open0 = compile({ base: "cube", soften: 0 });
+    const open80 = compile({ base: "cube", soften: 80 });
+    assert.equal(open80.validation.ok, true);
     assert.ok(
-      thinFrac.validation.warnings.some((w) => w.key === "borderFraction" && /printable floor/i.test(w.message)),
+      Math.abs(open80.metrics.openingMinDiameterMm - open0.metrics.openingMinDiameterMm) < 1e-9,
+    );
+    assert.ok(
+      Math.abs(open80.metrics.borderMm.min - open0.metrics.borderMm.min) < 1e-9,
     );
   });
 });

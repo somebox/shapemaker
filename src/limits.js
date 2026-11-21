@@ -124,14 +124,8 @@ export function computeLimits(skeleton, state) {
         minBorderFlat = Math.min(minBorderFlat, frame.edgeDistMin * fraction);
       }
     }
-    // Constant-mm ceiling (legacy / printability): still the smallest face
-    // (scaled by the flat-island factor when Smooth fillets at subdiv=0).
-    const smoothFrac =
-      !skeleton.macroFaceId && (state.subdiv ?? 0) === 0
-        ? Math.min(1, Math.max(0, (state.soften ?? 0) / 100))
-        : 0;
-    const islandFactor = 1 - 0.72 * smoothFrac;
-    borderMmMax = minEdgeDist * islandFactor * 0.95;
+    // Constant-mm ceiling (legacy / printability): still the smallest face.
+    borderMmMax = minEdgeDist * 0.95;
     filletMmMax = Number.isFinite(minFillet) ? minFillet : null;
 
     if (depth === "hollow" && Number.isFinite(minBorderFlat)) {

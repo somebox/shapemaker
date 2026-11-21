@@ -362,7 +362,7 @@ export function buildShell(skeleton, opts) {
           ? (openings ? 0.6 * frac * width : 0.80 * width)
           : 0;
         const aSmooth = smoothActive
-          ? smoothFrac * (openings ? 0.72 : 0.80) * boundW
+          ? smoothFrac * (openings ? 0.88 * frac : 0.80) * boundW
           : 0;
         const prevR = allow.get(key);
         allow.set(key, prevR == null ? aRound : Math.min(prevR, aRound));
@@ -442,8 +442,8 @@ export function buildShell(skeleton, opts) {
     // scale from edgeDistMin makes borderMm the *minimum* frame width on the
     // face, never an average that could go thinner somewhere.
     const frac = borderMm != null ? borderMm / frame.edgeDistMin : borderFraction;
-    let borderMinMm = frac * frame.edgeDistMin;
-    let borderMaxMm = frac * frame.edgeDistMax;
+    const borderMinMm = frac * frame.edgeDistMin;
+    const borderMaxMm = frac * frame.edgeDistMax;
 
     if (openings && frac >= 1.0 - 1e-12) {
       throw validationError(
@@ -529,10 +529,8 @@ export function buildShell(skeleton, opts) {
     const ang = new Float64Array(m);
     for (let k = 0; k < m; k++) ang[k] = Math.atan2(B2y[k], B2x[k]);
 
-    // Under Rounding alone, the authored opening derives from the ORIGINAL
-    // face corners so rounding never shrinks the opening. Under Smooth
-    // (`smoothActive`), the form fillet insets the face boundary to BOr, so
-    // the opening scales with the remaining flat face island `islandScale`.
+    // The authored opening derives from the ORIGINAL face corners — Smooth and
+    // Rounding fillet the outer form and border without contracting the opening.
     const corner2d = new Float64Array(ring.length * 2);
     for (let k = 0; k < ring.length; k++) {
       if (stage2) {
@@ -547,46 +545,10 @@ export function buildShell(skeleton, opts) {
       }
     }
 
-    let islandScale = 1;
-    let effFrac = frac;
-    if (smoothActive && stage2) {
-      const origRad = radialSample(corner2d, ang);
-      for (let k = 0; k < m; k++) {
-        const rB = Math.hypot(B2x[k], B2y[k]);
-        if (origRad[k] > 1e-9) {
-          islandScale = Math.min(islandScale, rB / origRad[k]);
-        }
-      }
-      islandScale = Math.max(0.05, Math.min(1, islandScale));
-      if (islandScale < 1) {
-        for (let i = 0; i < corner2d.length; i++) corner2d[i] *= islandScale;
-        if (skel2d) {
-          for (let i = 0; i < skel2d.length; i++) skel2d[i] *= islandScale;
-        }
-        const islandDistMin = frame.edgeDistMin * islandScale;
-        const islandDistMax = frame.edgeDistMax * islandScale;
-        if (borderMm != null) {
-          if (borderMm >= islandDistMin * (1 - 1e-12)) {
-            throw validationError(
-              "solid",
-              "borderMm",
-              `Border ${borderMm.toFixed(2)} mm is too wide: this smoothed ` +
-              `${ring.length}-sided face allows at most ` +
-              `${islandDistMin.toFixed(2)} mm before the opening closes`,
-              { clampTo: Math.max(0.4, 0.9 * islandDistMin), faceIds: [fi] },
-            );
-          }
-          effFrac = borderMm / islandDistMin;
-        }
-        borderMinMm = effFrac * islandDistMin;
-        borderMaxMm = effFrac * islandDistMax;
-      }
-    }
-
     let { opening, radiusUsed } = openingGenerator.generate(
       corner2d,
-      effFrac,
-      filletMm * islandScale,
+      frac,
+      filletMm,
       filletSegmentsFor(edgeDiv),
     );
 
@@ -603,7 +565,7 @@ export function buildShell(skeleton, opts) {
       // the centroid by construction — drop the fillet on this face only.
       // If the retry still throws, the face is truly degenerate: that is an
       // internal invariant, so let it propagate.
-      ({ opening, radiusUsed } = openingGenerator.generate(corner2d, effFrac, 0, 1));
+      ({ opening, radiusUsed } = openingGenerator.generate(corner2d, frac, 0, 1));
       rad = radialSample(opening, ang);
     }
     let minR = Infinity;
