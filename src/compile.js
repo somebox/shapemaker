@@ -81,11 +81,10 @@ export function limitsForState(state) {
 }
 
 /**
- * Wall and border ceilings come from the skeleton the shell will actually
- * solidify — exceeding them is a hard validation error. Fillet and rounding
- * may use the pre-subdivision solid when subdivided: tiny sub-faces would
- * crush those sliders to near-zero, and the shell clamps both per-feature
- * at solidify time, so a generous ceiling is safe.
+ * Wall, border, and rounding ceilings come from the skeleton (and macro
+ * topology) the shell will actually solidify. Fillet may use the
+ * pre-subdivision solid when subdivided: tiny sub-faces would crush that
+ * slider to near-zero, and the shell clamps it per-face at solidify time.
  */
 function limitsFor(skeleton, state) {
   const limits = computeLimits(skeleton, state);
@@ -94,9 +93,6 @@ function limitsFor(skeleton, state) {
     const preSub = computeLimits(scaleSkeleton(unit, state.circumdiameterMm / 2), state);
     if (limits.filletMmMax != null && preSub.filletMmMax != null) {
       limits.filletMmMax = Math.max(limits.filletMmMax, preSub.filletMmMax);
-    }
-    if (limits.roundingMmMax != null && preSub.roundingMmMax != null) {
-      limits.roundingMmMax = Math.max(limits.roundingMmMax, preSub.roundingMmMax);
     }
   }
   return limits;

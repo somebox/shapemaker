@@ -109,7 +109,9 @@ const norm = (a) => {
  */
 export function buildEdgeRounding(skeleton, frames, opts) {
   const { positions, faces } = skeleton;
-  const { radiusForEdge, allowForEdge, segments: J, lengthwise, pushVert, getVert } = opts;
+  const {
+    radiusForEdge, allowForEdge, segments: baseSegments, lengthwise, pushVert, getVert,
+  } = opts;
   const topo = buildMacroTopology(skeleton, frames);
   const {
     macroFaceId, directed, outerRing, cornerVerts, internalKeys,
@@ -200,21 +202,6 @@ export function buildEdgeRounding(skeleton, frames, opts) {
     for (const k of edges[i].keys) edgeByTopo.set(k, i);
   }
 
-  for (const e of edges) {
-    if (e.r === 0) continue;
-    for (const vert of [e.u, e.v]) {
-      if (!cornerVerts.has(vert)) continue;
-      for (const m of [e.ma, e.mb]) {
-        const gamma = macroAngleAt(m, vert);
-        const wCap = 0.2 * e.len * Math.max(Math.sin(gamma), 0.05);
-        if (e.w > wCap) {
-          e.w = wCap;
-          e.r = e.cotHalf > 1e-9 ? wCap / e.cotHalf : wCap;
-        }
-      }
-    }
-  }
-
   const otherEdgeAtMacro = (m, v, self) => {
     const list = topo.vertEdges.get(v) || [];
     for (const ti of list) {
@@ -282,6 +269,17 @@ export function buildEdgeRounding(skeleton, frames, opts) {
       e.trim[vert] = { lMax, perFace };
     }
   }
+
+  let maxArcMm = 0;
+  for (const e of edges) {
+    if (!(e.r > 0)) continue;
+    const turn = Math.acos(Math.max(-1, Math.min(1, -e.cosw)));
+    maxArcMm = Math.max(maxArcMm, e.r * turn);
+  }
+  const J = Math.min(
+    12,
+    Math.max(baseSegments, Math.round((maxArcMm * baseSegments) / 2.4)),
+  );
 
   for (const e of edges) {
     const lu = e.trim[e.u].lMax, lv = e.trim[e.v].lMax;
@@ -946,8 +944,12 @@ export function buildEdgeRounding(skeleton, frames, opts) {
     }
 
     let rMin = Infinity;
+    let rMaxSpoke = 0;
     let nAvg = [0, 0, 0];
-    for (const s of spokes) rMin = Math.min(rMin, edges[s.ei].r);
+    for (const s of spokes) {
+      rMin = Math.min(rMin, edges[s.ei].r);
+      rMaxSpoke = Math.max(rMaxSpoke, edges[s.ei].r);
+    }
     let A = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
     let rhs = [0, 0, 0];
     const seen = new Set();
@@ -1078,7 +1080,15 @@ export function buildEdgeRounding(skeleton, frames, opts) {
     // An incomplete or failed ear-clip falls through to the apex fan.
     if (compact < 0.03 && flatCap()) continue;
 
-    const apexPos = clampRadial(dirApex, rApex);
+    // On 4+-valent corners with uniform spoke radius, the incident offset
+    // planes do not share a single sphere centre X, and taking the union of
+    // all 4+ edge cylinders in envelope(dir) projects star ridges across the
+    // cap. Smoothly blending each ray's radius from its boundary distance
+    // |b − X| at t = 0 to rMin at t = 1 keeps C⁰/C¹ continuity with the
+    // boundary loop and produces a clean spherical dome.
+    const uniformMultiCorner =
+      seenFaces.length >= 4 && rMaxSpoke - rMin <= 1e-5 * rMin;
+    const apexPos = clampRadial(dirApex, uniformMultiCorner ? rMin : rApex);
     const apex = pushVert(apexPos[0], apexPos[1], apexPos[2], [[v, 1]]);
 
     const L = Math.max(2, J);
@@ -1098,10 +1108,15 @@ export function buildEdgeRounding(skeleton, frames, opts) {
       const ring = new Array(ordered.length);
       for (let i = 0; i < ordered.length; i++) {
         const b = getVert(ordered[i]);
+        const bRel = sub(b, X);
+        const rho0 = Math.hypot(bRel[0], bRel[1], bRel[2]) || rMin;
         const dir = norm(
-          add(mul(norm(sub(b, X)), 1 - t), mul(dirApex, t)),
+          add(mul(mul(bRel, 1 / rho0), 1 - t), mul(dirApex, t)),
         );
-        const p = clampRadial(dir, envelope(dir));
+        const rho = uniformMultiCorner
+          ? (1 - t) * rho0 + t * rMin
+          : envelope(dir);
+        const p = clampRadial(dir, rho);
         const nearPt = (idx) => {
           const q = getVert(idx);
           return Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]) < 1e-9;

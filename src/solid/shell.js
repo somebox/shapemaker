@@ -62,11 +62,17 @@ const NORMAL_MIN_FLAT_MM = 0.4;
 const AXIS_TILT_REPORT_DEG = 1;
 
 /**
- * Rim-roundover arc segments from edgeDiv. Draft 2 / Normal 3 / Fine 6.
+ * Rim-roundover and dihedral-strip arc segments from edgeDiv and optional
+ * subtended arc length (mm). Draft 2 / Normal 3 / Fine 6 at small radii,
+ * scaling up to 12 on wide fillets so large roundovers stay smooth under
+ * flat shading.
  * @param {number} edgeDiv
+ * @param {number} [arcMm]
  */
-export function roundingSegmentsFor(edgeDiv) {
-  return Math.max(2, Math.round(edgeDiv * 0.3));
+export function roundingSegmentsFor(edgeDiv, arcMm = 0) {
+  const base = Math.max(2, Math.round(edgeDiv * 0.3));
+  if (!(arcMm > 0)) return base;
+  return Math.min(12, Math.max(base, Math.round((arcMm * edgeDiv) / 8)));
 }
 
 /**
@@ -323,20 +329,17 @@ export function buildShell(skeleton, opts) {
         const width = frame.edgeDist[k];
         // Openings: Stage 2 may take up to 60% of the border band along this
         // edge (Stage 1's rim clamp then adapts to the measured remainder).
-        // Closed faces: up to 45% of the centroid-to-edge distance.
-        const a = openings ? 0.6 * frac * width : 0.45 * width;
+        // Closed faces: up to 80% of the centroid-to-edge distance (apothem
+        // homothety keeps a flat inner island for any factor < 1).
+        const a = openings ? 0.6 * frac * width : 0.80 * width;
         const prev = allow.get(key);
         allow.set(key, prev == null ? a : Math.min(prev, a));
       }
     }
     stage2 = buildEdgeRounding(skeleton, frames, {
-      radiusForEdge: (key) => {
-        const a = allow.get(key) ?? roundingMm;
-        const r = Math.min(roundingMm, a);
-        return r > rEps ? r : 0;
-      },
-      // Raw band-width budget: on acute dihedrals the tangency band is
-      // wider than the radius (w = r·cot(ω/2) > r) and must still fit.
+      radiusForEdge: () => (roundingMm > rEps ? roundingMm : 0),
+      // Band-width budget: in-plane tangency width w = r·cot(ω/2) must fit
+      // both adjacent faces' allowances.
       allowForEdge: (key) => allow.get(key) ?? roundingMm,
       segments: roundingSegmentsFor(edgeDiv),
       lengthwise: ts,
@@ -942,7 +945,7 @@ export function buildShell(skeleton, opts) {
 
     if (rFace > rEps) {
       // Stage-1 rim roundovers: OO/OI are virtual; emit arc rings instead.
-      const J = roundingSegmentsFor(edgeDiv);
+      const J = roundingSegmentsFor(edgeDiv, rFace * (Math.PI / 2));
 
       // Outer arc rings F_out … W_top (j = 0..J); inner W_bot … F_in.
       /** @type {number[][]} */
