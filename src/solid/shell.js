@@ -312,6 +312,7 @@ export function buildShell(skeleton, opts) {
   if (stage2Active) {
     /** allowance per (face, edgeKey): share of the flat this face can give */
     const allow = new Map();
+    const smoothAllow = new Map();
     for (let fi = 0; fi < faces.length; fi++) {
       const ring = faces[fi];
       const frame = frames[fi];
@@ -363,19 +364,23 @@ export function buildShell(skeleton, opts) {
         const aSmooth = smoothActive
           ? smoothFrac * (openings ? 0.72 : 0.80) * boundW
           : 0;
-        const a = Math.max(aRound, aSmooth);
-        const prev = allow.get(key);
-        allow.set(key, prev == null ? a : Math.min(prev, a));
+        const prevR = allow.get(key);
+        allow.set(key, prevR == null ? aRound : Math.min(prevR, aRound));
+        const prevS = smoothAllow.get(key);
+        smoothAllow.set(key, prevS == null ? aSmooth : Math.min(prevS, aSmooth));
       }
     }
     const baseSegs = smoothActive
       ? Math.max(roundingSegmentsFor(edgeDiv), Math.round(4 + 8 * smoothFrac))
       : roundingSegmentsFor(edgeDiv);
     stage2 = buildEdgeRounding(skeleton, frames, {
-      radiusForEdge: () => (smoothActive ? 1e9 : roundingMm > rEps ? roundingMm : 0),
+      radiusForEdge: () => (roundingActive ? roundingMm : 0),
       // Band-width budget: in-plane tangency width w = r·cot(ω/2) must fit
       // both adjacent faces' allowances.
-      allowForEdge: (key) => allow.get(key) ?? roundingMm,
+      allowForEdge: (key) => allow.get(key) ?? 0,
+      smoothAllowForEdge: smoothActive
+        ? (key) => smoothAllow.get(key) ?? 0
+        : undefined,
       roundValleys: smoothActive,
       segments: baseSegs,
       lengthwise: ts,
@@ -437,8 +442,8 @@ export function buildShell(skeleton, opts) {
     // scale from edgeDistMin makes borderMm the *minimum* frame width on the
     // face, never an average that could go thinner somewhere.
     const frac = borderMm != null ? borderMm / frame.edgeDistMin : borderFraction;
-    const borderMinMm = frac * frame.edgeDistMin;
-    const borderMaxMm = frac * frame.edgeDistMax;
+    let borderMinMm = frac * frame.edgeDistMin;
+    let borderMaxMm = frac * frame.edgeDistMax;
 
     if (openings && frac >= 1.0 - 1e-12) {
       throw validationError(
@@ -543,6 +548,7 @@ export function buildShell(skeleton, opts) {
     }
 
     let islandScale = 1;
+    let effFrac = frac;
     if (smoothActive && stage2) {
       const origRad = radialSample(corner2d, ang);
       for (let k = 0; k < m; k++) {
@@ -557,12 +563,29 @@ export function buildShell(skeleton, opts) {
         if (skel2d) {
           for (let i = 0; i < skel2d.length; i++) skel2d[i] *= islandScale;
         }
+        const islandDistMin = frame.edgeDistMin * islandScale;
+        const islandDistMax = frame.edgeDistMax * islandScale;
+        if (borderMm != null) {
+          if (borderMm >= islandDistMin * (1 - 1e-12)) {
+            throw validationError(
+              "solid",
+              "borderMm",
+              `Border ${borderMm.toFixed(2)} mm is too wide: this smoothed ` +
+              `${ring.length}-sided face allows at most ` +
+              `${islandDistMin.toFixed(2)} mm before the opening closes`,
+              { clampTo: Math.max(0.4, 0.9 * islandDistMin), faceIds: [fi] },
+            );
+          }
+          effFrac = borderMm / islandDistMin;
+        }
+        borderMinMm = effFrac * islandDistMin;
+        borderMaxMm = effFrac * islandDistMax;
       }
     }
 
     let { opening, radiusUsed } = openingGenerator.generate(
       corner2d,
-      frac,
+      effFrac,
       filletMm * islandScale,
       filletSegmentsFor(edgeDiv),
     );
@@ -580,7 +603,7 @@ export function buildShell(skeleton, opts) {
       // the centroid by construction — drop the fillet on this face only.
       // If the retry still throws, the face is truly degenerate: that is an
       // internal invariant, so let it propagate.
-      ({ opening, radiusUsed } = openingGenerator.generate(corner2d, frac, 0, 1));
+      ({ opening, radiusUsed } = openingGenerator.generate(corner2d, effFrac, 0, 1));
       rad = radialSample(opening, ang);
     }
     let minR = Infinity;

@@ -112,6 +112,7 @@ export function buildEdgeRounding(skeleton, frames, opts) {
   const {
     radiusForEdge,
     allowForEdge,
+    smoothAllowForEdge,
     roundValleys = false,
     segments: baseSegments,
     lengthwise,
@@ -178,17 +179,25 @@ export function buildEdgeRounding(skeleton, frames, opts) {
     const cosw = Math.max(-1, Math.min(1, dot(t0, t1)));
     const sinw = Math.sqrt(Math.max(1 - cosw * cosw, 0));
     const cotHalf = sinw > 1e-9 ? (1 + cosw) / sinw : 1;
-    let r = 0;
-    let budget = 0;
-    if (!flat && (!reflex || roundValleys)) {
-      r = Math.min(...me.keys.map((k) => radiusForEdge(k)));
-      budget = Math.min(...me.keys.map((k) => allowForEdge?.(k) ?? r));
-      if (!(r > 0) || !Number.isFinite(r)) r = 0;
+    let rRound = 0;
+    if (!flat && !reflex) {
+      let rReq = Math.min(...me.keys.map((k) => radiusForEdge(k)));
+      let budget = Math.min(...me.keys.map((k) => allowForEdge?.(k) ?? rReq));
+      if (!(rReq > 0) || !Number.isFinite(rReq)) rReq = 0;
       if (!(budget > 0) || !Number.isFinite(budget)) budget = 0;
+      if (rReq * cotHalf > budget) rReq = budget / cotHalf;
+      if (!(rReq > 0) || !Number.isFinite(rReq) || rReq * cotHalf < wFloor) {
+        rReq = 0;
+      }
+      rRound = rReq;
     }
-    if (r * cotHalf > budget) r = budget / cotHalf;
-    if (!(r > 0) || !Number.isFinite(r)) r = 0;
-    if (r * cotHalf < wFloor) r = 0;
+    let rSmooth = 0;
+    if (!flat && (!reflex || roundValleys) && smoothAllowForEdge) {
+      let wSmooth = Math.min(...me.keys.map((k) => smoothAllowForEdge(k)));
+      if (!(wSmooth >= wFloor) || !Number.isFinite(wSmooth)) wSmooth = 0;
+      rSmooth = cotHalf > 1e-9 ? wSmooth / cotHalf : wSmooth;
+    }
+    const r = Math.max(rRound, rSmooth);
     const w = r * cotHalf;
     const len = Math.hypot(...sub(V, U));
     if (!(len > 1e-12) || !Number.isFinite(len)) continue;
@@ -199,7 +208,7 @@ export function buildEdgeRounding(skeleton, frames, opts) {
       fb: me.fb,
       ma: me.ma,
       mb: me.mb,
-      u, v, U, V, d, t0, t1, r, w, cosw, sinw, cotHalf, len, reflex,
+      u, v, U, V, d, t0, t1, r, rRound, w, cosw, sinw, cotHalf, len, reflex,
     });
   }
 
@@ -238,6 +247,7 @@ export function buildEdgeRounding(skeleton, frames, opts) {
     e.w *= k;
     e.r = e.w < wFloor ? 0 : e.cotHalf > 1e-9 ? e.w / e.cotHalf : e.w;
     if (e.r === 0) e.w = 0;
+    if (e.rRound > e.r) e.rRound = e.r;
   };
   for (let pass = 0; pass < 12; pass++) {
     let changed = false;
@@ -669,9 +679,11 @@ export function buildEdgeRounding(skeleton, frames, opts) {
   let radiusMin = Infinity;
   let radiusMax = 0;
   for (const e of edges) {
+    if (e.rRound > 0) {
+      radiusMin = Math.min(radiusMin, e.rRound);
+      radiusMax = Math.max(radiusMax, e.rRound);
+    }
     if (e.r === 0) continue;
-    radiusMin = Math.min(radiusMin, e.r);
-    radiusMax = Math.max(radiusMax, e.r);
     if (e.cols < 2) continue;
     const flip = !outward(e.grid[0][0], e.grid[0][1], e.grid[1][1]);
     for (let j = 0; j < J; j++) {

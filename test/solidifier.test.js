@@ -474,6 +474,30 @@ describe("edge rounding with subdivision", () => {
       const r = compile(state);
       assert.equal(r.validation.ok, true, r.validation.errors[0]?.message);
       assertMeshInvariants(r.mesh);
+      assert.ok(Math.abs(r.metrics.roundingMm.max - 1.5) < 1e-6);
     }
+
+    // Small physical roundingMm on a smoothed closed cube must not jump to the
+    // full face allowance, and metrics.roundingMm reports only physical rounding.
+    clearPipelineCache();
+    const smoothOnly = compile({ base: "cube", depth: "solid", openings: false, soften: 50, roundingMm: 0 });
+    const smoothPlusSmall = compile({ base: "cube", depth: "solid", openings: false, soften: 50, roundingMm: 1.5 });
+    assert.ok(Math.abs(smoothPlusSmall.metrics.roundingMm.max - 1.5) < 1e-6);
+    assert.ok(Math.abs(smoothPlusSmall.metrics.volumeMm3 - smoothOnly.metrics.volumeMm3) < 1e-6);
+
+    // Border metrics on a smoothed open cube reflect the scaled flat island and
+    // preserve explicit borderMm.
+    clearPipelineCache();
+    const mmPreserved = compile({ base: "cube", soften: 80, borderMm: 3, filletMm: 0 });
+    assert.equal(mmPreserved.validation.ok, true);
+    assert.ok(Math.abs(mmPreserved.metrics.borderMm.min - 3) < 1e-6);
+
+    clearPipelineCache();
+    const thinFrac = compile({ base: "cube", soften: 80, borderFraction: 0.15, filletMm: 0 });
+    assert.equal(thinFrac.validation.ok, true);
+    assert.ok(thinFrac.metrics.borderMm.min < 2.5);
+    assert.ok(
+      thinFrac.validation.warnings.some((w) => w.key === "borderFraction" && /printable floor/i.test(w.message)),
+    );
   });
 });
