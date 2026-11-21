@@ -78,17 +78,20 @@ describe("fitCorner", () => {
     const cost = (N, d) => N.reduce((s, a) => s + (dot(a, d) - 1) ** 2, 0);
     const wide = () => () => unit([2 * rnd() - 1, 2 * rnd() - 1, -(0.001 + rnd() * 0.3)]);
     const rim = () => () => unit([2 * rnd() - 1, 2 * rnd() - 1, 0.005 - rnd() * 0.02]);
-    const flat = () => {
-      const eps = 10 ** (-3 - rnd() * 3);
+    const flatter = (lo, span) => () => {
+      const eps = 10 ** (-lo - rnd() * span);
       return () => unit([2 * rnd() - 1, 2 * rnd() - 1, -eps * (0.1 + rnd())]);
     };
-    for (const [name, makeGen, trials, count] of [
+    for (const [name, makeGen, trials, count, fresh] of [
       ["wide", wide, 300, () => 11 + Math.floor(rnd() * 10)],
       ["rim", rim, 300, () => 11 + Math.floor(rnd() * 10)],
-      // From a fresh seed, flat trial 314 is the case found in review.
-      ["flat", flat, 400, () => 11],
+      // Flat trial 314 (seed 7) and crease trial 26 (seed 31) are the cases
+      // found in review: a start inside the wall, and a singular plain fit
+      // that skipped enumeration for a fit 1.7% thicker.
+      ["flat", flatter(3, 3), 400, () => 11, 7],
+      ["crease", flatter(1, 6), 200, () => 11, 31],
     ]) {
-      if (name === "flat") seed = 7;
+      if (fresh) seed = fresh;
       for (let trial = 0; trial < trials; trial++) {
         const gen = makeGen();
         const N = Array.from({ length: count() }, gen);

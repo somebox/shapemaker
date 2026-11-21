@@ -208,8 +208,11 @@ function fitWithRidge(normals, RIDGE, enumerateMax) {
 
   const free = solveLinear(H.map((row, i) => [...row, g[i]]));
   if (free && feasible(free)) return free;
-  if (k > enumerateMax) {
-    if (!free) return null;
+  // A singular plain fit (normals all but coplanar) also enumerates:
+  // descent's working-set solves share the singularity, while sets of three
+  // planes stay solvable, and the ridge pass would bias a fit that sits
+  // millions of walls deep. Corners like this never came up in 830 designs.
+  if (k > enumerateMax && free) {
     const fit = descend(normals, H, g, free);
     // null: no point clears every plane, so the plain fit, as enumeration
     // returns below. undefined: the search for a start failed numerically,
