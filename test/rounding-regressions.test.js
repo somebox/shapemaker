@@ -66,6 +66,28 @@ const CROSSING = [
   { base: "cube", soften: 80, roundingMm: 2, depth: "solid", openings: false, edgeDiv: 4, wallModes: ["even"] },
   { base: "octahedron", spike: Math.sqrt(3), soften: 50, roundingMm: 0.5, borderFraction: 0.45, filletMm: 1, edgeDiv: 4 },
   { base: "octahedron", spike: Math.sqrt(3), soften: 80, roundingMm: 1.5, depth: "solid", openings: false, edgeDiv: 4, wallModes: ["even"] },
+  // Rounding with Truncate on irregular shapes, from a sweep of random
+  // states (each in the wall mode it was found in). The sphere and the
+  // globe also had corner caps under a millimetre across whose fan left
+  // fins against the strip ends: flat overlaps in double precision,
+  // crossings in the float32 positions scanned here.
+  // Even walls: the inner copy of the rounding at full size on an inner
+  // face a fraction of the outer one. Strips wider than the inner border:
+  { base: "random", wallMm: 2.4, roundingMm: 0.5, truncate: 40, borderFraction: 0.2, filletMm: 0, seed: 1311, wallModes: ["even"] },
+  { base: "sphere", wallMm: 4, roundingMm: 3, jitter: 8, jitterMode: "both", truncate: 15, filletMm: 1.5, seed: 1441, points: 12, wallModes: ["even"] },
+  { base: "random", roundingMm: 1.5, jitterMode: "both", truncate: 15, borderFraction: 0.2, filletMm: 0, seed: 181, wallModes: ["even"] },
+  { base: "twistedglobe", roundingMm: 1.5, edgeDiv: 4, jitter: 20, jitterMode: "radial", truncate: 40, filletMm: 0, seed: 4909, wallModes: ["even"] },
+  // strip ends trimmed for the outer edge overlapping on the inner one:
+  { base: "cuboctahedron", wallMm: 4, roundingMm: 3, jitter: 20, jitterMode: "radial", truncate: 15, borderFraction: 0.2, seed: 3931, points: 12, wallModes: ["even"] },
+  { base: "cuboctahedron", wallMm: 4, roundingMm: 1.5, jitter: 8, jitterMode: "radial", truncate: 15, openingStyle: "ellipse", borderFraction: 0.6, seed: 2962, points: 12, wallModes: ["even"] },
+  // and needle faces whose inner copy is a different shape altogether.
+  { base: "rhombicosidodeca", wallMm: 2.4, roundingMm: 1.5, jitter: 20, jitterMode: "radial", truncate: 40, borderFraction: 0.2, filletMm: 0, seed: 2619, wallModes: ["even"] },
+  { base: "globe", wallMm: 4, roundingMm: 3, jitter: 8, jitterMode: "radial", truncate: 40, filletMm: 1.5, seed: 360, wallModes: ["even"] },
+  // A rounded strip ending against a sharp one on a straight boundary (the
+  // face across is split into two nearly coplanar parts): the outline
+  // stepped square in, backwards as seen from the face centre, and the rim
+  // lips on the two rays crossed.
+  { base: "rhombicenneaconta", wallMm: 4, roundingMm: 0.5, jitter: 8, truncate: 40, filletMm: 1.5, seed: 2452, wallModes: ["scaled"] },
 ];
 
 describe("Stage-2 rounding does not fold through itself", () => {

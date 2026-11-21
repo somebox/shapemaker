@@ -44,6 +44,22 @@ onward every release gets a full entry here, and breaking changes to the
   with fillet radius.
 - A failed rebuild now says so on the status line, even with the last good
   model on screen. The status used to keep showing the old dimensions.
+- **Rounding with Truncate on irregular shapes no longer builds a shell that
+  passes through itself.** Four faults, all on the tiny or sliver faces
+  Truncate leaves on a distorted or random shape. Under Even walls the inner
+  copy of the rounding kept its outer size on inner faces a fraction of that
+  size, so strips overlapped and reached past the openings; it now shrinks
+  towards its corner until the inner face holds (the outside is unchanged).
+  A sliver face's inner opening could lie across its own border, even with
+  Rounding off; it is now laid out along the inner outline. A rounded edge
+  ending against a sharp one on a straight boundary stepped the face
+  outline and crossed the opening rim; both now take the narrower width.
+  And corner caps a fraction of a millimetre across left fins that crossed
+  once the STL rounded positions; those caps are filled flat. In a sweep of
+  800 random states, 128 crossed in the exported STL before and 34 do now,
+  none of them new. Fourteen of the 34 are still Rounding with Truncate on
+  a distorted shape; the rest also have Subdivide, Spike or Scaled walls,
+  or cross without Rounding.
 
 ## [0.16.1] — 2026-10-11
 

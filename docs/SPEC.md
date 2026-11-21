@@ -469,6 +469,26 @@ edge between samples (tiny faces, where the inner boundary and the inner
 opening move by different blends) halves its radius until the band from
 the lip to the boundary keeps its winding, or stays sharp.
 
+Under Even walls the inner faces are smaller than the outer ones, and the
+copy of the rounding is sized for the outer ones: each corner's strip ends,
+inset corners and cap move as one with the corner. Under a thick wall a
+tiny face (what Truncate leaves of a vertex) can be a third of its outer
+size, or another shape where a corner's inner position is a best fit. So
+each face's inner band is checked before anything is emitted: every quad
+from the inner boundary ring to the inner opening must keep its winding in
+the face plane (on a closed face, every triangle of the fan from the
+middle), and the ring must sit on the inner face, rising no more than half
+the band's width off the slope the opening has along that ray. Where a
+quad fails, the inner copy of the rounding at the corners its two ring
+points move with halves about the corner, strips in between blending, and
+the faces are checked again, up to six times: towards the sharp inner
+corner a shape without Rounding has. The outer surface takes no part in
+this, and a shape whose inner faces all hold builds the same bytes as
+before the check existed. A band that still folds, which a sliver face's
+can without any Rounding, has its inner opening laid out along the inner
+ring's own rays instead: each point as far from the inner face's centre
+towards its ring point as the outer opening is along its ray.
+
 A corner cap is a fan of rings swept from the cap's loop toward an apex
 along directions out of the corner sphere's centre X, so the apex must lie
 inside the loop as seen from X. On 4+-valent corners with uniform spoke radius,
@@ -478,7 +498,11 @@ Where strips of very different widths meet (Truncate,
 Jitter, Dual) a strip arc can lie on that line or past it, and the apex
 aims at the loop's mean direction instead. If that is not inside either,
 or any fan triangle ends up facing X (the rings folded), the loop is
-filled flat in its best-fit plane. A flat fill (ear-clipped, else fanned
+filled flat in its best-fit plane. So is a shallow cap, one whose apex is
+less than the strip-width floor above its loop's plane, if a fan triangle
+stands within half a degree of edge-on to X: a ring there can land on a
+strip's end column and leave a fin flat against the strip end, which
+crosses it once the STL rounds positions to float32. A flat fill (ear-clipped, else fanned
 from its centroid) keeps its ear-clip only if no triangle faces the
 origin by more than 60° past edge-on: the surface is star-shaped about the
 origin, and on a strongly bent loop the best-fit projection can turn a
@@ -486,6 +510,11 @@ reflex corner into an ear lying back across a face. A face outline that
 steps out to a sharp strip end and straight back (a spur of a few microns
 where Jitter leaves two faces almost coplanar) drops the spur, whose two
 edges only pair with each other; left in, the rim lips on its rays cross.
+Two strips that meet end to end on one straight boundary, at a vertex
+where the face across is split into two nearly coplanar parts, keep one
+width, the narrower: a rounded strip ending against a sharp one steps the
+outline square in, and where that step runs backwards as seen from the
+face centre the opening's rays cross.
 Arc segment count scales with both the quality preset (`edgeDiv`) and the
 subtended fillet arc length so wide roundovers stay smooth under flat shading.
 

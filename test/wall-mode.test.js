@@ -9,6 +9,7 @@ import { encodeHash, decodeHash } from "../src/hashcodec.js";
 import { parseProject, serializeProjectV1 } from "../src/project-format.js";
 import { DEFAULT_STATE, CONTROL_DEFS } from "../src/schema.js";
 import { fitCorner, meanValueWeights } from "../src/solid/offset.js";
+import { selfIntersections } from "./self-intersect.js";
 
 const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 const unit = (v) => { const l = Math.hypot(...v); return v.map((x) => x / l); };
@@ -125,6 +126,18 @@ describe("wallMode", () => {
       assert.equal(r.metrics.watertight, true, JSON.stringify(extra));
       assert.ok(r.metrics.wallMm.min >= 1.4 - 1e-9, JSON.stringify(extra));
     }
+  });
+
+  it("keeps a sliver face's inner band clear of its opening wall", () => {
+    // Truncate leaves a 6 mm × 0.6 mm hexagon here whose inner face is a
+    // different, dented shape. The opening carried to it by corner weights
+    // lay across its own band (no Rounding involved).
+    const r = compile({
+      base: "globe", jitter: 8, jitterMode: "radial", truncate: 40, seed: 360,
+      wallMm: 4, filletMm: 1.5, edgeDiv: 4, wallMode: "even",
+    });
+    assert.equal(r.validation.ok, true);
+    assert.deepEqual(selfIntersections(r.mesh, 5), []);
   });
 
   it("short Distort edges do not cap the Wall slider", () => {
