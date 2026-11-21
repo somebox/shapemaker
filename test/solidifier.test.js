@@ -464,4 +464,16 @@ describe("edge rounding with subdivision", () => {
     assert.equal(r.validation.ok, true, r.validation.errors[0]?.message);
     assertMeshInvariants(r.mesh);
   });
+
+  it("Smooth + Rounding composes cleanly on auto-refined cubes and spiked stars", () => {
+    for (const state of [
+      { base: "cube", soften: 50, roundingMm: 1.5 },
+      { base: "octahedron", spike: Math.sqrt(3), soften: 80, roundingMm: 1.5, depth: "solid", openings: false },
+    ]) {
+      clearPipelineCache();
+      const r = compile(state);
+      assert.equal(r.validation.ok, true, r.validation.errors[0]?.message);
+      assertMeshInvariants(r.mesh);
+    }
+  });
 });
