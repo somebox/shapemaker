@@ -156,6 +156,12 @@ describe("produce", () => {
     assert.equal(cut.ok && fold.ok, true);
     assert.equal(cut.sheet.stats.panels, 12);
     assert.equal(fold.sheet.stats.seams + fold.sheet.stats.darts + fold.sheet.stats.folds, 30);
+    const faired = produce(
+      compileShape({ base: "octahedron", spike: Math.sqrt(3), subdiv: 1, soften: 50, circumdiameterMm: 180, openings: false }),
+      { process: "fold" },
+    );
+    assert.equal(faired.ok, true);
+    assert.equal(faired.sheet.stats.panels, 96);
   });
 
   it("never throws: no skeleton, or print without a shell, come back as errors", () => {

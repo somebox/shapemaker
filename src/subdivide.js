@@ -7,45 +7,46 @@
  *   k-gon (8 openings per cube side at level 1).
  * - "grid": triangles still 4:1; larger polygons split into k corner
  *   QUADS (corner, edge midpoint, centroid, previous midpoint) — k per
- *   k-gon (4 openings per cube side at level 1, 16 at level 2). Quads
- *   stay planar because splitting is flat, which is why Smooth is a
- *   radial-only companion: the sphere clip would bend them out of plane.
+ *   k-gon (4 openings per cube side at level 1, 16 at level 2).
  *
  * Every edge splits at its midpoint in both styles, so mixed-face solids
  * (icosidodeca: pentagons meeting triangles) stay closed with no
  * T-junctions.
  *
- * Smooth is a true edge fillet: soften sets a rounding radius R = s × the
- * parent inradius, and every vertex projects onto the rounded parent solid
- * (parent inset by R, Minkowski-expanded by R). Edges and corners round
- * proportionally from the first percent while flat face interiors are
- * exact fixed points — overall dimensions hold, only sharpness melts.
- * Above soften 0.5 a melt phase additionally clips the deeper flats of
- * mixed-plane-distance solids spherically, so soften 1 reaches the
- * inscribed ball on every base.
- *
- * The result stays a convex triangulation, so all solidifier guarantees
- * hold. Runs AFTER jitter (plane perturbation on regulars, point jitter on
- * parametric bases): jitter distorts the simple form, subdivision adds
- * resolution to it, smooth fillets it. The reverse order would hand the
- * plane perturbation near-coplanar plane families whose members mostly
- * stop binding — silently discarding subdivision and smoothing.
+ * Smooth on subdivided meshes (`level > 0`) is a true localized edge fillet:
+ * soften sets a rounding radius R = s × the parent inradius, and every vertex
+ * projects onto the rounded parent solid (parent inset by R, Minkowski-expanded
+ * by R) — never inflating flat face interiors outward. On spiked meshes, each
+ * convex spike pyramid fillets its tip and ridges inward via its own flank
+ * planes while concave valley edges relax outward. When `level === 0`
+ * (`Subdivide = None`), Smooth is applied directly in the shell solidifier via
+ * `buildEdgeRounding` so the base face/opening count is preserved.
  */
 
-import { assertSkeleton, edgeList } from "./skeleton.js";
+import { assertSkeleton, assertStarShaped, edgeList } from "./skeleton.js";
 import { applyFaceIdentity } from "./hull.js";
 import { faceFrames } from "./faceframe.js";
 
 export const SUBDIV_MAX = 2;
 
 /**
+ * Effective skeleton subdivision level (explicit `subdiv` only; when
+ * `subdiv === 0`, Smooth fillets edges/corners/valleys in `buildShell`
+ * without multiplying faces or openings).
+ *
+ * @param {number} [subdiv]
+ * @returns {number}
+ */
+export function effectiveSubdivLevel(subdiv = 0) {
+  return Math.min(SUBDIV_MAX, Math.max(0, Math.floor(subdiv ?? 0)));
+}
+
+/**
  * @param {{ positions: Float64Array, faces: number[][] }} skeleton
  *   unit skeleton (all vertices on the circumsphere)
  * @param {number} level  0 returns the input untouched; clamped to SUBDIV_MAX
  * @param {number} [soften]  0–1 edge fillet: 0 keeps the exact flat solid
- *   (grids of openings on planar faces), 1 rounds everything down to the
- *   inscribed ball. Default 0. Ignored (forced 0) for style "grid" — the
- *   clip would make the quads non-planar.
+ *   (grids of openings on planar faces), 1 rounds down to the inscribed ball.
  * @param {"radial"|"grid"} [style]  polygon split pattern. Default "radial".
  * @returns {{
  *   positions: Float64Array,
@@ -58,7 +59,7 @@ export function subdivideSkeleton(skeleton, level, soften = 0, style = "radial")
   const n = Math.min(SUBDIV_MAX, Math.floor(level ?? 0));
   if (!(n > 0)) return skeleton;
   const grid = style === "grid";
-  const s = grid ? 0 : Math.min(1, Math.max(0, soften));
+  const s = Math.min(1, Math.max(0, soften));
 
   let cur = {
     positions: skeleton.positions,
@@ -67,57 +68,123 @@ export function subdivideSkeleton(skeleton, level, soften = 0, style = "radial")
   };
   for (let i = 0; i < n; i++) cur = subdivideOnce(cur, grid);
 
-  const positions = Float64Array.from(cur.positions);
-  if (s > 0) {
-    // Rounding clip: soften defines a fillet radius R = s × inradius and
-    // every vertex projects onto the ROUNDED PARENT SOLID — the Minkowski
-    // body {dist(p, parent inset by R) ≤ R}, the same construction the
-    // shell-level rounding uses. Face interiors are exact fixed points
-    // (their inset foot is R straight below), while every edge and corner
-    // rounds from the first percent — including features the old sphere
-    // clip could never reach (a cube's edges stayed 90° until soften ~0.69;
-    // Catalan inner-ring corners were skipped, and clipping their outer
-    // neighbours actually sharpened the crease). Cube corners follow the
-    // identical trajectory as the old clip (radius 1 − s(1 − r_in)), so
-    // historical anchors hold.
-    //
-    // The fillet radius caps at the min plane distance, so on
-    // mixed-distance solids (icosidodeca, Catalans) the DEEPER faces
-    // would survive soften 1 as large flats — the smoothing "stops
-    // prematurely". A melt phase in the upper half of the slider clips
-    // those remaining flats spherically toward the inscribed ball, so
-    // soften 1 reaches the ball on every base. On uniform solids (cube)
-    // every post-fillet radius already sits inside the melt clip, so the
-    // melt is a no-op there and anchors still hold.
-    let rEnd = Infinity;
-    const planes = [];
-    for (const f of faceFrames(skeleton)) {
-      rEnd = Math.min(rEnd, f.inradius);
-      planes.push({ n: f.normal, d: f.inradius });
-    }
-    const R = s * rEnd;
-    for (let i = 0; i < positions.length; i += 3) {
-      const p = [positions[i], positions[i + 1], positions[i + 2]];
-      const q = projectOntoInset(p, planes, R);
-      const dx = p[0] - q[0], dy = p[1] - q[1], dz = p[2] - q[2];
-      const dist = Math.hypot(dx, dy, dz);
-      if (dist > R + 1e-12 && dist > 1e-12) {
-        const k = R / dist;
-        positions[i] = q[0] + dx * k;
-        positions[i + 1] = q[1] + dy * k;
-        positions[i + 2] = q[2] + dz * k;
+  // When s > 0 under Grid, split quads along the canonical (center, corner)
+  // diagonal so bent faces stay strictly planar triangles.
+  if (s > 0 && grid) {
+    const triFaces = [];
+    const triId = [];
+    for (let fi = 0; fi < cur.faces.length; fi++) {
+      const ring = cur.faces[fi];
+      const id = cur.parentId[fi];
+      if (ring.length === 4) {
+        const [mPrev, a, mNext, center] = ring;
+        triFaces.push([center, mPrev, a], [center, a, mNext]);
+        triId.push(id, id);
+      } else {
+        triFaces.push(ring);
+        triId.push(id);
       }
     }
-    const MELT_START = 0.5;
-    if (s > MELT_START) {
-      const clip = 1 - ((s - MELT_START) / (1 - MELT_START)) * (1 - rEnd);
+    cur = { positions: cur.positions, faces: triFaces, parentId: triId };
+  }
+
+  const positions = Float64Array.from(cur.positions);
+  if (s > 0) {
+    const frames = faceFrames(skeleton);
+    const { cells, cellOfFace, hasReflex } = decomposeConvexCells(skeleton, frames);
+    if (!hasReflex) {
+      let rEnd = Infinity;
+      const planes = [];
+      for (const f of frames) {
+        rEnd = Math.min(rEnd, f.inradius);
+        planes.push({ n: f.normal, d: f.inradius });
+      }
+      const R = s * rEnd;
       for (let i = 0; i < positions.length; i += 3) {
-        const r = Math.hypot(positions[i], positions[i + 1], positions[i + 2]);
-        if (r > clip) {
-          const k = clip / r;
-          positions[i] *= k;
-          positions[i + 1] *= k;
-          positions[i + 2] *= k;
+        const p = [positions[i], positions[i + 1], positions[i + 2]];
+        const q = projectOntoInset(p, planes, R);
+        const dx = p[0] - q[0], dy = p[1] - q[1], dz = p[2] - q[2];
+        const dist = Math.hypot(dx, dy, dz);
+        if (dist > R + 1e-12 && dist > 1e-12) {
+          const k = R / dist;
+          positions[i] = q[0] + dx * k;
+          positions[i + 1] = q[1] + dy * k;
+          positions[i + 2] = q[2] + dz * k;
+        }
+      }
+      const MELT_START = 0.5;
+      if (s > MELT_START) {
+        const clip = 1 - ((s - MELT_START) / (1 - MELT_START)) * (1 - rEnd);
+        for (let i = 0; i < positions.length; i += 3) {
+          const r = Math.hypot(positions[i], positions[i + 1], positions[i + 2]);
+          if (r > clip) {
+            const k = clip / r;
+            positions[i] *= k;
+            positions[i + 1] *= k;
+            positions[i + 2] *= k;
+          }
+        }
+      }
+    } else {
+      // Spiked / non-convex mesh: fillet each vertex against its own convex
+      // spike cell's flank planes (pulling sharp spike tips and ridges inward
+      // without clipping across neighbouring spikes or inflating the centre),
+      // then relax concave valley vertices outward.
+      const nV = positions.length / 3;
+      const vertCells = Array.from({ length: nV }, () => new Set());
+      for (let fi = 0; fi < cur.faces.length; fi++) {
+        const cid = cellOfFace[cur.parentId[fi]];
+        for (const v of cur.faces[fi]) vertCells[v].add(cid);
+      }
+      let rEnd = Infinity;
+      for (const f of frames) rEnd = Math.min(rEnd, f.inradius);
+      const R = s * 0.45 * rEnd;
+      for (let v = 0; v < nV; v++) {
+        if (vertCells[v].size !== 1) continue;
+        const cid = vertCells[v].values().next().value;
+        const planes = cells[cid];
+        const i = v * 3;
+        const p = [positions[i], positions[i + 1], positions[i + 2]];
+        const q = projectOntoInset(p, planes, R);
+        const dx = p[0] - q[0], dy = p[1] - q[1], dz = p[2] - q[2];
+        const dist = Math.hypot(dx, dy, dz);
+        if (dist > R + 1e-12 && dist > 1e-12) {
+          const k = R / dist;
+          positions[i] = q[0] + dx * k;
+          positions[i + 1] = q[1] + dy * k;
+          positions[i + 2] = q[2] + dz * k;
+        }
+      }
+      // Relax valley vertices (shared by 2+ spike cells) outward toward their
+      // 1-ring neighbours to round concave inner joints.
+      const nbrs = Array.from({ length: nV }, () => new Set());
+      for (const ring of cur.faces) {
+        for (let k = 0; k < ring.length; k++) {
+          const a = ring[k], b = ring[(k + 1) % ring.length];
+          nbrs[a].add(b);
+          nbrs[b].add(a);
+        }
+      }
+      const lambda = 0.45 * s;
+      for (let pass = 0; pass < 2; pass++) {
+        const snap = Float64Array.from(positions);
+        for (let v = 0; v < nV; v++) {
+          if (vertCells[v].size < 2 && pass === 0) continue;
+          const list = [...nbrs[v]];
+          if (!list.length) continue;
+          let nx = 0, ny = 0, nz = 0;
+          for (const u of list) {
+            nx += snap[u * 3];
+            ny += snap[u * 3 + 1];
+            nz += snap[u * 3 + 2];
+          }
+          nx /= list.length;
+          ny /= list.length;
+          nz /= list.length;
+          const w = vertCells[v].size >= 2 ? lambda : 0.2 * lambda;
+          positions[v * 3] += w * (nx - snap[v * 3]);
+          positions[v * 3 + 1] += w * (ny - snap[v * 3 + 1]);
+          positions[v * 3 + 2] += w * (nz - snap[v * 3 + 2]);
         }
       }
     }
@@ -131,7 +198,60 @@ export function subdivideSkeleton(skeleton, level, soften = 0, style = "radial")
     macroFaceId: identified.tags,
   };
   assertSkeleton(out);
+  assertStarShaped(out);
   return out;
+}
+
+/**
+ * Group parent faces across non-reflex edges into convex cells (1 cell on any
+ * convex solid; one cell per spike pyramid on spiked stars).
+ */
+function decomposeConvexCells(skeleton, frames) {
+  const nF = skeleton.faces.length;
+  const uf = Array.from({ length: nF }, (_, i) => i);
+  const find = (a) => (uf[a] === a ? a : (uf[a] = find(uf[a])));
+  const unite = (a, b) => {
+    a = find(a);
+    b = find(b);
+    if (a !== b) uf[b] = a;
+  };
+  const edgeMap = new Map();
+  let hasReflex = false;
+  for (let f = 0; f < nF; f++) {
+    const ring = skeleton.faces[f];
+    for (let i = 0; i < ring.length; i++) {
+      const a = ring[i], b = ring[(i + 1) % ring.length];
+      const key = a < b ? a * 0x100000 + b : b * 0x100000 + a;
+      const prev = edgeMap.get(key);
+      if (prev === undefined) {
+        edgeMap.set(key, f);
+      } else {
+        const fa = prev, fb = f;
+        const reflex =
+          frames[fa].normal[0] * (frames[fb].origin[0] - frames[fa].origin[0]) +
+          frames[fa].normal[1] * (frames[fb].origin[1] - frames[fa].origin[1]) +
+          frames[fa].normal[2] * (frames[fb].origin[2] - frames[fa].origin[2]) >
+          1e-9;
+        if (reflex) hasReflex = true;
+        else unite(fa, fb);
+      }
+    }
+  }
+  const rootToCell = new Map();
+  const cells = [];
+  const cellOfFace = new Array(nF);
+  for (let f = 0; f < nF; f++) {
+    const r = find(f);
+    let cid = rootToCell.get(r);
+    if (cid === undefined) {
+      cid = cells.length;
+      rootToCell.set(r, cid);
+      cells.push([]);
+    }
+    cellOfFace[f] = cid;
+    cells[cid].push({ n: frames[f].normal, d: frames[f].inradius });
+  }
+  return { cells, cellOfFace, hasReflex };
 }
 
 /**
@@ -179,8 +299,6 @@ function subdivideOnce({ positions, faces, parentId }, grid = false) {
   /** @type {Map<number, number>} undirected edge → midpoint vertex */
   const mids = new Map();
 
-  // New vertices stay on the parent geometry — splitting is flat; rounding
-  // is the caller's sphere clip.
   const push = (x, y, z) => {
     pos.push(x, y, z);
     return pos.length / 3 - 1;
@@ -220,8 +338,6 @@ function subdivideOnce({ positions, faces, parentId }, grid = false) {
       emit([ab, bc, ca], id);
       continue;
     }
-    // n-gon: flat split about the centroid — corner quads (grid) or a
-    // centroid fan of triangles (radial). Both stay in the face plane.
     let cx = 0, cy = 0, cz = 0;
     for (const vi of ring) {
       cx += pos[vi * 3];

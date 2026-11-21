@@ -464,4 +464,38 @@ describe("edge rounding with subdivision", () => {
     assert.equal(r.validation.ok, true, r.validation.errors[0]?.message);
     assertMeshInvariants(r.mesh);
   });
+
+  it("Smooth + Rounding composes cleanly on auto-refined cubes and spiked stars", () => {
+    for (const state of [
+      { base: "cube", soften: 50, roundingMm: 1.5 },
+      { base: "octahedron", spike: Math.sqrt(3), soften: 80, roundingMm: 1.5, depth: "solid", openings: false },
+    ]) {
+      clearPipelineCache();
+      const r = compile(state);
+      assert.equal(r.validation.ok, true, r.validation.errors[0]?.message);
+      assertMeshInvariants(r.mesh);
+      assert.ok(Math.abs(r.metrics.roundingMm.max - 1.5) < 1e-6);
+    }
+
+    // Small physical roundingMm on a smoothed closed cube must not jump to the
+    // full face allowance, and metrics.roundingMm reports only physical rounding.
+    clearPipelineCache();
+    const smoothOnly = compile({ base: "cube", depth: "solid", openings: false, soften: 50, roundingMm: 0 });
+    const smoothPlusSmall = compile({ base: "cube", depth: "solid", openings: false, soften: 50, roundingMm: 1.5 });
+    assert.ok(Math.abs(smoothPlusSmall.metrics.roundingMm.max - 1.5) < 1e-6);
+    assert.ok(Math.abs(smoothPlusSmall.metrics.volumeMm3 - smoothOnly.metrics.volumeMm3) < 1e-6);
+
+    // Smooth affects only the outer shape geometry and never contracts the
+    // openings or alters their border widths.
+    clearPipelineCache();
+    const open0 = compile({ base: "cube", soften: 0 });
+    const open80 = compile({ base: "cube", soften: 80 });
+    assert.equal(open80.validation.ok, true);
+    assert.ok(
+      Math.abs(open80.metrics.openingMinDiameterMm - open0.metrics.openingMinDiameterMm) < 1e-9,
+    );
+    assert.ok(
+      Math.abs(open80.metrics.borderMm.min - open0.metrics.borderMm.min) < 1e-9,
+    );
+  });
 });

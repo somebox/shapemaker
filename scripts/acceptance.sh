@@ -23,7 +23,7 @@ OUT="${ROOT}/test/out/acceptance"
 rm -rf "$OUT"
 mkdir -p "$OUT"
 EXPORT=(node scripts/export-stl.mjs)
-EXPECTED=126
+EXPECTED=128
 
 while IFS=$'\t' read -ra parts; do
   [[ ${#parts[@]} -gt 0 ]] || continue
@@ -240,6 +240,12 @@ emitHollowOpen("icosahedron_t33_spike__hollow_open.stl", {
 });
 emitHollowOpen("octahedron_spike_subdiv1__hollow_open.stl", {
   base: "octahedron", spike: Math.sqrt(3), subdiv: 1, filletMm: 1.5,
+});
+emitHollowOpen("octahedron_spike_stella_soften80__hollow_open.stl", {
+  base: "octahedron", spike: Math.sqrt(3), soften: 80, filletMm: 1,
+});
+emitHollowOpen("cube_soften50_rounding15__hollow_open.stl", {
+  base: "cube", soften: 50, roundingMm: 1.5, filletMm: 1,
 });
 emitHollowOpen("sphere_spike__hollow_open.stl", {
   base: "sphere", spike: 1.4, filletMm: 1.5,
