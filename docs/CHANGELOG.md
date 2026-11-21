@@ -68,7 +68,8 @@ onward every release gets a full entry here, and breaking changes to the
   in past their opening. Their walls crossed before.
 
   In a sweep of 800 random states, 128 crossed in the exported STL before
-  these two changes and 15 do now, none of them new.
+  these two changes and 16 do now. Fifteen of those crossed before. The
+  other failed to build before, and now builds with one crossing.
 
 ## [0.16.1] — 2026-10-11
 
