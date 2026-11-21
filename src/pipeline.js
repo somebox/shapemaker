@@ -47,9 +47,7 @@ function generatorParams(base, state) {
           subdivStyle: state.subdivStyle ?? DEFAULT_STATE.subdivStyle,
           soften,
         }
-      : soften > 0
-        ? { soften }
-        : {}),
+      : {}),
   };
   if (!BASES[base]?.parametric) return out;
   return {
@@ -230,6 +228,7 @@ function createPipeline() {
       );
 
       const roundingMm = state.roundingMm ?? 0;
+      const shellSoften = (state.subdiv ?? 0) > 0 ? 0 : (state.soften ?? 0);
       const solidKey = JSON.stringify({
         hullKey,
         circumdiameterMm: state.circumdiameterMm,
@@ -238,6 +237,7 @@ function createPipeline() {
         borderFraction: state.borderFraction ?? null,
         filletMm: state.filletMm,
         roundingMm,
+        ...(shellSoften > 0 ? { soften: shellSoften } : {}),
         edgeDiv: state.edgeDiv,
         openings: state.openings,
         openingStyle: state.openingStyle ?? DEFAULT_STATE.openingStyle,
@@ -256,6 +256,7 @@ function createPipeline() {
           borderFraction: state.borderFraction,
           filletMm: state.filletMm,
           roundingMm,
+          soften: shellSoften,
           edgeDiv: state.edgeDiv,
           openings: state.openings,
           depth: state.depth,

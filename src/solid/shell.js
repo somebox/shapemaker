@@ -189,6 +189,7 @@ export function buildShell(skeleton, opts) {
     borderFraction = null,
     filletMm = 4.5,
     roundingMm = 0,
+    soften = 0,
     edgeDiv = 10,
     openings = true,
     depth = "hollow",
@@ -267,6 +268,9 @@ export function buildShell(skeleton, opts) {
   // degenerate triangles just above the activation epsilon).
   const rEps = Math.max(1e-7, 1e-6 * inradius.min);
   const roundingActive = roundingMm > rEps;
+  const smoothFrac = Math.min(1, Math.max(0, (soften ?? 0) / 100));
+  const smoothActive = smoothFrac > 1e-6 && !skeleton.macroFaceId;
+  const stage2Active = roundingActive || smoothActive;
 
   const verts = [];
   /** Skeleton-corner weights per outer vertex (Even walls only). */
@@ -282,7 +286,7 @@ export function buildShell(skeleton, opts) {
   // Through faces are plain polygons: the cutter carries its own sampling.)
   const edgeExtra = new Map();
   const ts = edgeInteriorFractions(edgeDiv);
-  if (!roundingActive && !through) {
+  if (!stage2Active && !through) {
     for (const [a, b] of edgeList(faces)) {
       const A = verts[a], B = verts[b];
       const idx = [];
@@ -305,7 +309,7 @@ export function buildShell(skeleton, opts) {
   // caps the whole model. Built before the inner-shell copy so hollow
   // depths mirror the rounding for free.
   let stage2 = null;
-  if (roundingActive) {
+  if (stage2Active) {
     /** allowance per (face, edgeKey): share of the flat this face can give */
     const allow = new Map();
     for (let fi = 0; fi < faces.length; fi++) {
@@ -324,24 +328,56 @@ export function buildShell(skeleton, opts) {
           { clampTo: borderMm != null ? borderFitMm : 0.9, faceIds: [fi] },
         );
       }
+      // On hollow Even walls, inner corners shift inward by wallMm·dHat,
+      // narrowing the inner face near convex ridges; bound Smooth's form
+      // fillet by the smaller of outer and inner edge distances so the
+      // inner face ring never collapses.
+      let innerDists = null;
+      if (smoothActive && depth === "hollow" && even) {
+        const [cx, cy, cz] = frame.origin;
+        const [ux, uy, uz] = frame.u;
+        const [wx, wy, wz] = frame.w;
+        const pts2 = ring.map((v) => {
+          const px = corners[v * 3] + wallMm * dHat[v * 3] - cx;
+          const py = corners[v * 3 + 1] + wallMm * dHat[v * 3 + 1] - cy;
+          const pz = corners[v * 3 + 2] + wallMm * dHat[v * 3 + 2] - cz;
+          return [px * ux + py * uy + pz * uz, px * wx + py * wy + pz * wz];
+        });
+        innerDists = pts2.map((pa, k) => {
+          const pb = pts2[(k + 1) % pts2.length];
+          const len = Math.hypot(pb[0] - pa[0], pb[1] - pa[1]) || 1;
+          return Math.max(0, (pa[0] * pb[1] - pa[1] * pb[0]) / len);
+        });
+      }
       for (let k = 0; k < ring.length; k++) {
         const key = edgeKey(ring[k], ring[(k + 1) % ring.length]);
         const width = frame.edgeDist[k];
-        // Openings: Stage 2 may take up to 60% of the border band along this
-        // edge (Stage 1's rim clamp then adapts to the measured remainder).
-        // Closed faces: up to 80% of the centroid-to-edge distance (apothem
-        // homothety keeps a flat inner island for any factor < 1).
-        const a = openings ? 0.6 * frac * width : 0.80 * width;
+        const boundW = innerDists
+          ? Math.min(width, innerDists[k])
+          : depth === "hollow" && !even
+            ? Math.min(width, s * width)
+            : width;
+        const aRound = roundingActive
+          ? (openings ? 0.6 * frac * width : 0.80 * width)
+          : 0;
+        const aSmooth = smoothActive
+          ? smoothFrac * (openings ? 0.72 : 0.80) * boundW
+          : 0;
+        const a = Math.max(aRound, aSmooth);
         const prev = allow.get(key);
         allow.set(key, prev == null ? a : Math.min(prev, a));
       }
     }
+    const baseSegs = smoothActive
+      ? Math.max(roundingSegmentsFor(edgeDiv), Math.round(4 + 8 * smoothFrac))
+      : roundingSegmentsFor(edgeDiv);
     stage2 = buildEdgeRounding(skeleton, frames, {
-      radiusForEdge: () => (roundingMm > rEps ? roundingMm : 0),
+      radiusForEdge: () => (smoothActive ? 1e9 : roundingMm > rEps ? roundingMm : 0),
       // Band-width budget: in-plane tangency width w = r·cot(ω/2) must fit
       // both adjacent faces' allowances.
       allowForEdge: (key) => allow.get(key) ?? roundingMm,
-      segments: roundingSegmentsFor(edgeDiv),
+      roundValleys: smoothActive,
+      segments: baseSegs,
       lengthwise: ts,
       pushVert: (x, y, z, host) => {
         verts.push([x, y, z]);
@@ -485,8 +521,13 @@ export function buildShell(skeleton, opts) {
       B2y[k] = dx * wx + dy * wy + dz * wz;
     }
 
-    // The authored opening derives from the ORIGINAL face corners — rounding
-    // must never move or shrink the opening itself.
+    const ang = new Float64Array(m);
+    for (let k = 0; k < m; k++) ang[k] = Math.atan2(B2y[k], B2x[k]);
+
+    // Under Rounding alone, the authored opening derives from the ORIGINAL
+    // face corners so rounding never shrinks the opening. Under Smooth
+    // (`smoothActive`), the form fillet insets the face boundary to BOr, so
+    // the opening scales with the remaining flat face island `islandScale`.
     const corner2d = new Float64Array(ring.length * 2);
     for (let k = 0; k < ring.length; k++) {
       if (stage2) {
@@ -501,18 +542,34 @@ export function buildShell(skeleton, opts) {
       }
     }
 
+    let islandScale = 1;
+    if (smoothActive && stage2) {
+      const origRad = radialSample(corner2d, ang);
+      for (let k = 0; k < m; k++) {
+        const rB = Math.hypot(B2x[k], B2y[k]);
+        if (origRad[k] > 1e-9) {
+          islandScale = Math.min(islandScale, rB / origRad[k]);
+        }
+      }
+      islandScale = Math.max(0.05, Math.min(1, islandScale));
+      if (islandScale < 1) {
+        for (let i = 0; i < corner2d.length; i++) corner2d[i] *= islandScale;
+        if (skel2d) {
+          for (let i = 0; i < skel2d.length; i++) skel2d[i] *= islandScale;
+        }
+      }
+    }
+
     let { opening, radiusUsed } = openingGenerator.generate(
       corner2d,
       frac,
-      filletMm,
+      filletMm * islandScale,
       filletSegmentsFor(edgeDiv),
     );
 
     // Sample the opening along the same rays as the boundary points: both
     // rings are convex and contain the centroid, so the rays are in strict
     // angular order and consecutive rays bound exactly one quad.
-    const ang = new Float64Array(m);
-    for (let k = 0; k < m; k++) ang[k] = Math.atan2(B2y[k], B2x[k]);
     let rad;
     try {
       rad = radialSample(opening, ang);
@@ -1085,7 +1142,7 @@ export function buildShell(skeleton, opts) {
       // single representative value would be a lie.
       borderMm: range(faceMetrics, (f) => [f.borderMinMm, f.borderMaxMm]),
       filletMm: range(faceMetrics, (f) => [f.filletUsedMm, f.filletUsedMm]),
-      roundingMm: stage2
+      roundingMm: roundingActive && stage2
         ? {
             min: Math.min(
               stage2.radiusMin,

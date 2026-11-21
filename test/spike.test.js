@@ -200,12 +200,11 @@ describe("spike through compile", () => {
     assert.ok(b.metrics.roundingMm.max > 0);
   });
 
-  it("smoothing on a spiked star turns sharp spikes into soft lobes and relaxes valleys", () => {
+  it("smoothing on a spiked star fillets sharp spikes into soft domes and rounds inner valleys", () => {
     clearPipelineCache();
     const sharp = compile({
       base: "octahedron",
       spike: Math.sqrt(3),
-      subdiv: 2,
       soften: 0,
       depth: "solid",
       openings: false,
@@ -213,22 +212,26 @@ describe("spike through compile", () => {
     const soft = compile({
       base: "octahedron",
       spike: Math.sqrt(3),
-      subdiv: 2,
       soften: 80,
       depth: "solid",
       openings: false,
     });
     assert.equal(sharp.validation.ok, true);
     assert.equal(soft.validation.ok, true, soft.validation.errors[0]?.message);
-    assertStarShaped(soft.skeleton);
-    const minR = (sk) => {
-      let m = Infinity;
-      for (let i = 0; i < sk.positions.length; i += 3) {
-        m = Math.min(m, Math.hypot(sk.positions[i], sk.positions[i + 1], sk.positions[i + 2]));
+    assert.equal(soft.skeleton.faces.length, 24);
+    assert.ok(soft.metrics.triangleCount > sharp.metrics.triangleCount);
+    const maxMeshR = (mesh) => {
+      const p = mesh.positions;
+      let m = 0;
+      for (let i = 0; i < p.length; i += 3) {
+        m = Math.max(m, Math.hypot(p[i], p[i + 1], p[i + 2]));
       }
       return m;
     };
-    assert.ok(minR(soft.skeleton) > minR(sharp.skeleton) * 1.4);
+    assert.ok(
+      maxMeshR(soft.mesh) < maxMeshR(sharp.mesh) * 0.85,
+      "spike tips are filleted inward into soft domes without inflating the centre",
+    );
   });
 });
 

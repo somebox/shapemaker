@@ -211,118 +211,51 @@ and STL export) relies on two skeleton invariants in `src/skeleton.js`:
    Strengthening `assertStarShaped` to enforce $\Omega_t > 10^{-12}$ per
    triangle turns it into a complete $O(F)$ certificate of star-shapedness.
 
-### 4.2 `Smooth`: deterministic subdivision fairing across convex and spiked meshes
+### 4.2 `Smooth`: localized form filleting across convex and spiked meshes (no centre inflation or unwanted opening multiplication)
 
-Replace the halfspace Minkowski clip in `src/subdivide.js` with a deterministic
-5-step **blended polygonal subdivision + umbrella fairing** pipeline
-parameterized by $s = \text{soften} / 100 \in [0, 1]$ and refinement level
-$n \ge 1$:
+Global Catmull–Clark subdivision with circumradius renormalization (`positions /= maxR`)
+has two fatal flaws when `Subdivide = None`:
+1. Renormalizing shaved corners back out to unit radius inflates the flat face
+   centres outward like a balloon rather than filleting the sharp corners/spikes
+   inward.
+2. Auto-subdividing a 6-face cube into 192 micro-triangles explodes its 6
+   openings into 192 tiny holes even when `Subdivide` is set to `None`.
 
-1. **Exact $s = 0$ fast path**:
-   When $s = 0$, run the existing flat `subdivideOnce` verbatim so both
-   `radial` and `grid` topologies remain byte-identical to current anchors.
+Instead, `Smooth` ($s = \text{soften} / 100 \in [0, 1]$) is implemented as a
+**localized form fillet** that modifies only the corners, edges, spike tips,
+and concave inner valleys while keeping flat face interiors in their original
+planes:
 
-2. **Per-level step weight**:
-   For $s > 0$ and $n \ge 1$, set the per-level blend factor to
-   $\alpha = s^{1/n}$ so the compounded fine-ring stencil weight equals
-   $\alpha^n = s$ (rather than attenuating as $s^n$), while coarse vertices
-   follow the monotonic response $1 - (1 - s^{1/n})^n$ (e.g. $2\sqrt{s} - s$ for
-   $n = 2$) for responsive early-slider fairing.
+1. **When `Subdivide = None` (`subdiv === 0`, the default on every base and preset)**:
+   - The skeleton keeps its exact base faces and opening count (6 on a cube, 24
+     on Stella Octangula, 32 on an icosidodecahedron).
+   - `buildShell` (`src/solid/shell.js`) invokes `buildEdgeRounding`
+     (`src/solid/edgeround.js`) with `roundValleys: true` and band budget
+     $a_{\text{smooth}} = s \cdot (0.72\text{ open} / 0.80\text{ closed}) \cdot \text{boundWidth}$:
+     - **Convex edges & ridges**: replaced by multi-segment circular arc fillet
+       strips tangent to both adjacent faces.
+     - **Convex corners & spike tips**: trimmed back and replaced by smooth
+       spherical dome caps (turning a cube's 8 corners into CAD fillets and a
+       star's sharp spike tips into soft rounded bumps).
+     - **Concave inner valley joints**: `roundValleys: true` enables circular
+       fillet arcs on reflex valley edges (curving outward into the valley) and
+       caps mixed ridge/valley saddle vertices with a 12-iteration harmonic
+       umbrella saddle patch.
+     - **Proportional opening island scaling**: each face's opening outline
+       (`corner2d` and `filletMm`) scales by the measured flat-island ratio
+       $\text{islandScale} = \min_k (\|B_{\text{Or}}[k]\| / R_{\text{orig}}(\theta_k))$
+       so the opening stays centred inside the remaining flat face island with
+       its full relative border (`borderFraction`).
 
-3. **Unified Catmull–Clark / 4:1 subdivision step ($\ell = 0 \dots n-1$)**:
-   - **Face centroid**: For every face $f$ with $k = |f|$ vertices,
-     $F_f = \frac{1}{k} \sum_{v \in f} P_v$.
-   - **Edge point**: For every undirected edge $e = (u, v)$ with midpoint
-     $M_e = \frac{1}{2}(P_u + P_v)$ and incident faces $f_0, f_1$:
-
-     $$
-     E_e = (1 - \alpha) M_e + \alpha \cdot \frac{1}{4}(P_u + P_v + F_{f_0} + F_{f_1})
-     $$
-
-   - **Vertex point**: For every vertex $v$ of edge-valence $d = |N(v)|$,
-     incident-face centroid mean $F_{\text{avg}}(v)$, and incident-edge midpoint
-     mean $M_{\text{avg}}(v)$:
-
-     $$
-     w_{\text{self}}(d) = \min\!\left(\frac{d - 3}{d},\; 0.45\right), \qquad
-     C_v = w_{\text{self}}(d)\, P_v + \big(1 - w_{\text{self}}(d)\big)\frac{F_{\text{avg}}(v) + 2 M_{\text{avg}}(v)}{3}
-     $$
-
-     $$
-     V'_v = (1 - \alpha) P_v + \alpha C_v
-     $$
-
-     For $d \in \{3, 4, 5\}$, $w_{\text{self}}(d) = (d - 3)/d \le 0.4$, which is
-     the exact Catmull–Clark vertex stencil; capping $w_{\text{self}}(d) \le 0.45$
-     for $d \ge 6$ prevents high-valence concave spike-valley saddles (such as
-     Stella Octangula's $d = 8$ inner joints) from pinning in place.
-   - **Per-level topology**:
-     - Triangles ($k = 3$) split `4:1` into $[V'_a, E_{ab}, E_{ca}]$,
-       $[E_{ab}, V'_b, E_{bc}]$, $[E_{ca}, E_{bc}, V'_c]$, and
-       $[E_{ab}, E_{bc}, E_{ca}]$ (no face centroid inserted inside triangles).
-     - Polygons ($k \ge 4$) split into $k$ Catmull–Clark corner quads
-       $[E_{\text{prev}}, V'_a, E_{\text{next}}, F_f]$ across all $n$ levels so
-       intermediate vertices maintain regular valence $4$.
-
-4. **Post-subdivision umbrella relaxation (2 passes)**:
-   Apply 2 uniform 1-ring umbrella fairing passes with weight $\lambda = 0.35 s$:
-
-   $$
-   P_v \leftarrow P_v + \lambda \left(\frac{1}{|N(v)|} \sum_{u \in N(v)} P_u - P_v\right)
-   $$
-
-   which eliminates residual extraordinary-vertex creases at valence-3 spike
-   tips and valence-8 inner valleys.
-
-5. **Canonical symmetric quad triangulation & circumradius restoration**:
-   - Split every quad $[E_{\text{prev}}, V'_a, E_{\text{next}}, F_f]$ along its
-     canonical parent-corner-to-face-center diagonal $(F_f, V'_a)$ into two
-     triangles $[F_f, E_{\text{prev}}, V'_a]$ and $[F_f, V'_a, E_{\text{next}}]$.
-     This diagonal is invariant under the full point group (rotations and
-     mirror planes) of every polyhedron and guarantees exact face planarity
-     ($\text{dev} = 0$).
-   - Normalize $P \leftarrow P / \max_v \|P_v\|$ so `circumdiameterMm` holds.
-
-6. **Prototype verification (`node` against strengthened `assertStarShaped` + `buildShell` + `assertMeshInvariants`)**:
-
-   | Shape (2 levels) | Current `s = 0.5` ($r_{\min}..r_{\max}$) | Deterministic fairing `s = 0.5` | Deterministic fairing `s = 1.0` | `assertSkeleton` + strict `assertStarShaped` + `buildShell` |
-   |---|---|---|---|---|
-   | Cube | `0.577 .. 0.789` (flat centres) | `0.878 .. 1.000` | `0.970 .. 1.000` (sphere-like) | Pass (solid, hollow-even, open) |
-   | Icosidodecahedron | `0.909 .. 0.939` | `0.932 .. 1.000` | `0.957 .. 1.000` | Pass |
-   | Spiked Cube (`t = 1.3`) | Disabled (clips spikes) | `0.800 .. 1.000` | `0.854 .. 1.000` | Pass |
-   | Stella Octangula (`t = √3`) | `0.333 .. 0.455` (spikes lost) | `0.676 .. 1.000` | `0.738 .. 1.000` (soft lobes + saddles) | Pass |
-   | Great Stellated Dodeca | Disabled (clips spikes) | `0.639 .. 1.000` | `0.726 .. 1.000` | Pass |
-   | Jittered Cube (`25%`) | `0.577 .. 0.820` | `0.859 .. 1.000` | `0.949 .. 1.000` | Pass |
-
-7. **Direct activation, opening semantics, and sheet-production behaviour**:
-   - Remove `!(s.subdiv > 0)`, `s.subdivStyle === "grid"`, and `s.spike > 0`
-     from `soften.inertWhen` (`src/schema.js:301`) and `generatorParams`
-     (`src/pipeline.js:49`).
-   - **Opening topology under auto-refinement**: Because `buildShell` constructs
-     each opening in a planar `FaceFrame`, curving a face requires planar
-     micro-facets and therefore **intentionally refines the opening lattice**
-     (one opening per refined face, scaled proportionally by `borderFraction`
-     with `borderPrintabilityWarning` firing whenever the thinnest applied
-     border falls below `2.5 mm`). When `subdiv === 0` and `soften > 0`, size
-     automatic refinement (`autoLevel`) conservatively by base face count
-     (`autoLevel = faces.length <= 12 ? 2 : 1`) so coarse bases (tetrahedron,
-     cube, octahedron, dodecahedron) receive 2 levels of fairing definition
-     while 24–60 face shapes (Stella Octangula, Icosidodecahedron, Stellated
-     Dodecahedron) refine by $4\times$ rather than $16\times$.
-   - **Sheet production (`cut` and `fold` in `src/sheet/panels.js`)**:
-     `extractPanels` merges coplanar neighbours (`< 0.05°`), so `soften = 0`
-     subdivisions merge back into parent panels while `soften > 0` triangulations
-     produce faceted geodesic panels (preserving the existing `icosahedron
-     subdiv=1 soften=1` sheet fold anchor in `test/sheet.test.js:241`).
-   - **Saved-state compatibility (`decodeHash` / `parseProject`)**: While
-     pre-1.0, unlocking `soften` when `subdiv = 0`, `subdivStyle = "grid"`, or
-     `spike > 0` intentionally honours any non-zero `soften` stored in a URL
-     hash or project file on reload rather than silently zeroing it; all shipped
-     presets and examples with `soften = 0` (and `fold-geodesic-felt-seams` with
-     `subdiv = 1, soften = 1`) remain compatible.
-   - If a star at extreme `spike` + `soften` ever violates the strengthened
-     `assertStarShaped`, surface a named validation error on `soften` with a
-     `clampTo: 0` fix rather than locking the slider globally.
+2. **When `Subdivide = Once` or `Twice` (`subdiv > 0`)**:
+   - The user explicitly requested subdivided cells/openings.
+   - `subdivideSkeleton` (`src/subdivide.js`) splits Grid quads along their
+     canonical symmetric $(F_f, V'_a)$ diagonal when $s > 0$, decomposes parent
+     faces across non-reflex edges into convex cells (1 cell on convex solids,
+     1 cell per spike pyramid on stars), projects vertices onto each cell's
+     inset halfspace intersection (`projectOntoInset` with **no `/= maxR`
+     inflation** so flat face interiors stay fixed in plane), and relaxes
+     shared valley vertices outward.
 
 ### 4.3 `Rounding`: physical band budgets, honest ceilings, clean corner caps, smooth arcs
 

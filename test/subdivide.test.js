@@ -67,27 +67,31 @@ describe("subdivideSkeleton", () => {
     assertSkeletonHasOnlyParentPlanes(flat, 6);
   });
 
-  it("soften fairs convex solids toward a sphere while keeping unit circumradius", () => {
+  it("soften fillets edges: corners round down while flats keep their planes", () => {
     const cube = exact("cube");
-    const minRadius = (soften) => {
+    const inradius = 1 / Math.sqrt(3);
+    const cornerRadius = (soften) => {
       const s = subdivideSkeleton(cube, 2, soften);
-      let rMin = Infinity, rMax = 0;
-      for (let i = 0; i < s.positions.length; i += 3) {
-        const r = Math.hypot(s.positions[i], s.positions[i + 1], s.positions[i + 2]);
-        rMin = Math.min(rMin, r);
-        rMax = Math.max(rMax, r);
-      }
-      assert.ok(Math.abs(rMax - 1) < 1e-12, `circumradius holds: ${rMax}`);
-      return rMin;
+      // Original corners keep indices 0–7 (applyFaceIdentity never renumbers).
+      return Math.hypot(s.positions[0], s.positions[1], s.positions[2]);
     };
-    const r0 = minRadius(0);
-    const r05 = minRadius(0.5);
-    const r1 = minRadius(1);
-    assert.ok(
-      r0 < r05 && r05 < r1,
-      `face centres lift toward the sphere as corners round: ${r0} < ${r05} < ${r1}`,
-    );
-    assert.ok(r1 > 0.96, `soften 1 approaches a sphere: rMin=${r1}`);
+    const r0 = cornerRadius(0);
+    const r05 = cornerRadius(0.5);
+    const r1 = cornerRadius(1);
+    assert.ok(r0 > r05 && r05 > r1, `corners must round inward: ${r0} > ${r05} > ${r1}`);
+    assert.ok(Math.abs(r1 - inradius) < 1e-12, "soften 1 reaches the inscribed ball");
+
+    // Face centers sit on the face planes and below every mid clip radius, so
+    // the flats — and with them the overall dimensions — never move.
+    const half = subdivideSkeleton(cube, 2, 0.5);
+    let minR = Infinity;
+    for (let i = 0; i < half.positions.length; i += 3) {
+      minR = Math.min(
+        minR,
+        Math.hypot(half.positions[i], half.positions[i + 1], half.positions[i + 2]),
+      );
+    }
+    assert.ok(Math.abs(minR - inradius) < 1e-9, `face centers hold the planes: ${minR}`);
   });
 
   it("grid style: corner quads per n-gon, 4:1 triangles, planar faces", () => {
@@ -154,21 +158,40 @@ describe("subdivideSkeleton", () => {
     }
   });
 
-  it("soften fairs mixed-face solids monotonically toward a sphere", () => {
-    const ico = exact("icosidodeca");
-    const minRadius = (soften) => {
-      const s = subdivideSkeleton(ico, 2, soften);
-      let rMin = Infinity;
-      for (let i = 0; i < s.positions.length; i += 3) {
-        rMin = Math.min(rMin, Math.hypot(s.positions[i], s.positions[i + 1], s.positions[i + 2]));
+  it("soften keeps flat face interiors exactly in plane", () => {
+    const flat = subdivideSkeleton(exact("cube"), 2, 0.4);
+    const d = 1 / Math.sqrt(3);
+    let checked = 0;
+    for (let i = 0; i < flat.positions.length; i += 3) {
+      const c = [flat.positions[i], flat.positions[i + 1], flat.positions[i + 2]];
+      const abs = c.map(Math.abs).sort((a, b) => b - a);
+      if (abs[1] < d * 0.3) {
+        assert.ok(Math.abs(abs[0] - d) < 1e-9, `face centre moved: ${abs[0]}`);
+        checked++;
       }
-      return rMin;
-    };
-    const r0 = minRadius(0);
-    const r05 = minRadius(0.5);
-    const r1 = minRadius(1);
-    assert.ok(r0 < r05 && r05 < r1, `icosidodeca rMin rises: ${r0} < ${r05} < ${r1}`);
-    assert.ok(r1 > 0.95, `icosidodeca approaches sphere at soften 1: ${r1}`);
+    }
+    assert.ok(checked >= 6, "sampled all six face centres");
+  });
+
+  it("soften 1 reaches the inscribed ball on mixed-distance solids too", () => {
+    const s1 = subdivideSkeleton(exact("icosidodeca"), 2, 1);
+    let rMin = Infinity, rMax = 0;
+    for (let i = 0; i < s1.positions.length; i += 3) {
+      const r = Math.hypot(s1.positions[i], s1.positions[i + 1], s1.positions[i + 2]);
+      rMin = Math.min(rMin, r);
+      rMax = Math.max(rMax, r);
+    }
+    assert.ok(rMax - rMin < 1e-9, `full ball at soften 1: ${rMin} .. ${rMax}`);
+  });
+
+  it("melt phase never touches soften ≤ 0.5 (fillet-only regime)", () => {
+    const half = subdivideSkeleton(exact("icosidodeca"), 2, 0.5);
+    let rMax = 0;
+    for (let i = 0; i < half.positions.length; i += 3) {
+      rMax = Math.max(rMax, Math.hypot(
+        half.positions[i], half.positions[i + 1], half.positions[i + 2]));
+    }
+    assert.ok(rMax > 0.93, `deep flats untouched at 0.5: rMax ${rMax}`);
   });
 
   it("clamps to SUBDIV_MAX and is deterministic", () => {
@@ -243,49 +266,38 @@ describe("subdivision through the pipeline", () => {
   });
 
   it("jitter preserves smoothing — corners stay rounded", () => {
-    const sharp = compileFitted({ base: "cube", subdiv: 2, soften: 0, jitter: 15, seed: 7 });
     const r = compileFitted({ base: "cube", subdiv: 2, soften: 60, jitter: 15, seed: 7 });
     assert.equal(r.validation.ok, true, r.validation.errors[0]?.message);
     assert.equal(r.skeleton.faces.length, 192);
-    const minRadius = (sk) => {
-      let minR = Infinity, maxR = 0;
-      for (let i = 0; i < sk.positions.length; i += 3) {
-        const d = Math.hypot(sk.positions[i], sk.positions[i + 1], sk.positions[i + 2]);
-        minR = Math.min(minR, d);
-        maxR = Math.max(maxR, d);
-      }
-      assert.ok(Math.abs(maxR - 50) < 1e-9, `circumradius holds at 50 mm: ${maxR}`);
-      return minR;
-    };
-    const rSharp = minRadius(sharp.skeleton);
-    const rSoft = minRadius(r.skeleton);
-    assert.ok(rSoft > rSharp * 1.25, `smoothing faired jittered cube: minR ${rSharp} → ${rSoft}`);
+    let maxR = 0;
+    for (let i = 0; i < r.skeleton.positions.length; i += 3) {
+      maxR = Math.max(
+        maxR,
+        Math.hypot(
+          r.skeleton.positions[i],
+          r.skeleton.positions[i + 1],
+          r.skeleton.positions[i + 2],
+        ),
+      );
+    }
+    assert.ok(maxR < 50 * 0.95, `smoothing survived jitter: max radius ${maxR}`);
     assertMeshInvariants(r.mesh);
   });
 
-  it("auto-refines when subdiv=0 and soften>0 (coarse bases 2 levels, medium/dense 1 level)", () => {
+  it("fillets corners, edges, spikes, and inner valleys directly in the shell when subdiv=0", () => {
     clearPipelineCache();
-    const cubeSoft = compile({ base: "cube", subdiv: 0, soften: 50, openings: false, depth: "solid" });
+    const cubeSharp = compile({ base: "cube", subdiv: 0, soften: 0 });
+    const cubeSoft = compile({ base: "cube", subdiv: 0, soften: 23 });
     assert.equal(cubeSoft.validation.ok, true, cubeSoft.validation.errors[0]?.message);
-    assert.equal(cubeSoft.skeleton.faces.length, 192, "cube auto-refines 2 levels");
+    assert.equal(cubeSoft.skeleton.faces.length, 6, "cube keeps 6 faces/openings at subdiv=0");
+    assert.ok(cubeSoft.metrics.triangleCount > cubeSharp.metrics.triangleCount);
     assertMeshInvariants(cubeSoft.mesh);
 
-    clearPipelineCache();
-    const icoSoft = compile({ base: "icosidodeca", subdiv: 0, soften: 50 });
-    assert.equal(icoSoft.validation.ok, true, icoSoft.validation.errors[0]?.message);
-    assert.equal(icoSoft.skeleton.faces.length, 200, "icosidodeca (>12 faces) auto-refines 1 level");
-    assertMeshInvariants(icoSoft.mesh);
-    assert.ok(
-      icoSoft.validation.warnings.some((w) => w.key === "borderFraction" && /printable floor/i.test(w.message)),
-      "surfaces borderPrintabilityWarning when auto-refined openings shrink below 2.5 mm",
-    );
     const hash = encodeHash(cubeSoft.state);
     const restored = decodeHash(hash);
     assert.equal(restored.ok, true);
     assert.equal(restored.state.subdiv, 0);
-    assert.equal(restored.state.soften, 50);
-    const recompiled = compile(restored.state);
-    assert.equal(recompiled.skeleton.faces.length, 192);
+    assert.equal(restored.state.soften, 23);
   });
 
   it("subdiv round-trips through the hash codec; old hashes default to 0", () => {

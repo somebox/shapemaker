@@ -157,7 +157,7 @@ describe("produce", () => {
     assert.equal(cut.sheet.stats.panels, 12);
     assert.equal(fold.sheet.stats.seams + fold.sheet.stats.darts + fold.sheet.stats.folds, 30);
     const faired = produce(
-      compileShape({ base: "octahedron", spike: Math.sqrt(3), soften: 50, circumdiameterMm: 180, openings: false }),
+      compileShape({ base: "octahedron", spike: Math.sqrt(3), subdiv: 1, soften: 50, circumdiameterMm: 180, openings: false }),
       { process: "fold" },
     );
     assert.equal(faired.ok, true);
@@ -471,7 +471,7 @@ describe("examples", () => {
         sha.update(a.name).update(typeof data === "string" ? data : Buffer.from(data));
       }
     }
-    assert.equal(sha.digest("hex").slice(0, 16), "246701551d5986b7");
+    assert.equal(sha.digest("hex").slice(0, 16), "03009ec8495dd259");
   });
 
   it("felt examples have no whip stitches", async () => {

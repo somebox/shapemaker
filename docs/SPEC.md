@@ -206,16 +206,22 @@ mixed-face solids stay closed and level alone only adds resolution.
 **Pattern** picks the polygon split: *Radial* (default) fans 2k triangles
 per k-gon from the centroid (8 openings per cube side at level 1);
 *Grid* cuts k corner quads (4 per cube side at level 1, 16 at level 2).
-Triangles split 4:1 in both. **Smooth** (0–100%) is deterministic polygonal
-subdivision fairing: when `soften === 0`, the flat Radial and Grid splits
-remain exact; when `soften > 0`, each subdivision level blends toward
-Catmull–Clark edge and valence-capped vertex stencils ($\alpha = s^{1/n}$),
-followed by two 1-ring umbrella relaxation passes ($\lambda = 0.35s$),
-canonical symmetric quad triangulation along parent-corner-to-face-centre
-diagonals, and circumradius restoration. Dragging Smooth when Subdivide is
-None automatically refines the skeleton (`2` levels on bases with $\le 12$
-faces, `1` level on denser bases and stars), and Smooth is active across
-Radial, Grid, and Spike.
+Triangles split 4:1 in both. **Smooth** (0–100%) is a localized form fillet
+that modifies the geometry of corners, edges, spike tips, and concave inner
+joints without inflating flat face interiors or multiplying openings when
+Subdivide is None:
+- When **Subdivide is None (`subdiv = 0`)**, Smooth runs directly in the
+  solidifier (`buildEdgeRounding` with `roundValleys: true`), replacing sharp
+  corners and spike tips with spherical dome caps, sharp ridges with
+  cylindrical fillet strips, and concave spike valleys with concave circular
+  fillet strips and harmonic saddle patches, while keeping each face's flat
+  interior in its original plane and scaling its single opening to fit inside
+  the remaining flat face island.
+- When **Subdivide is Once or Twice (`subdiv > 0`)**, `subdivideSkeleton`
+  projects subdivided vertices onto the rounded parent solid (each convex cell
+  inset by $R = s \cdot r_{\text{in}}$ and expanded by $R$, with Grid quads
+  split along their canonical $(F_f, V'_a)$ diagonal when `soften > 0`),
+  keeping flat face interiors in plane while rounding corners and edges inward.
 
 Operation order is fixed and load-bearing: **jitter → dual → truncate →
 spike → subdivide → smooth**.

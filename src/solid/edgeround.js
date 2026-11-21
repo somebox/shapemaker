@@ -110,7 +110,13 @@ const norm = (a) => {
 export function buildEdgeRounding(skeleton, frames, opts) {
   const { positions, faces } = skeleton;
   const {
-    radiusForEdge, allowForEdge, segments: baseSegments, lengthwise, pushVert, getVert,
+    radiusForEdge,
+    allowForEdge,
+    roundValleys = false,
+    segments: baseSegments,
+    lengthwise,
+    pushVert,
+    getVert,
   } = opts;
   const topo = buildMacroTopology(skeleton, frames);
   const {
@@ -174,7 +180,7 @@ export function buildEdgeRounding(skeleton, frames, opts) {
     const cotHalf = sinw > 1e-9 ? (1 + cosw) / sinw : 1;
     let r = 0;
     let budget = 0;
-    if (!flat && !reflex) {
+    if (!flat && (!reflex || roundValleys)) {
       r = Math.min(...me.keys.map((k) => radiusForEdge(k)));
       budget = Math.min(...me.keys.map((k) => allowForEdge?.(k) ?? r));
       if (!(r > 0) || !Number.isFinite(r)) r = 0;
@@ -193,7 +199,7 @@ export function buildEdgeRounding(skeleton, frames, opts) {
       fb: me.fb,
       ma: me.ma,
       mb: me.mb,
-      u, v, U, V, d, t0, t1, r, w, cosw, sinw, cotHalf, len,
+      u, v, U, V, d, t0, t1, r, w, cosw, sinw, cotHalf, len, reflex,
     });
   }
 
@@ -940,6 +946,76 @@ export function buildEdgeRounding(skeleton, frames, opts) {
     // rounded columns and sharp edge points: fill it flat.
     if (spokes.some((sp) => !(edges[sp.ei].r > 0))) {
       capPinched(clean, spokes[0].f);
+      continue;
+    }
+
+    // Saddle / concave-valley corner (e.g. inner joints of a spiked star
+    // when Smooth fillets both ridges and valleys): incident faces alternate
+    // convex and reflex dihedrals, so there is no single inward sphere centre X.
+    // Fill with a multi-ring harmonic saddle patch relaxed from the boundary loop.
+    if (spokes.some((sp) => edges[sp.ei].reflex)) {
+      const capFid = spokes[0].f;
+      let nx = 0, ny = 0, nz = 0, sx = 0, sy = 0, sz = 0, perim = 0;
+      for (let i = 0; i < clean.length; i++) {
+        const a = getVert(clean[i]);
+        const b = getVert(clean[(i + 1) % clean.length]);
+        nx += (a[1] - b[1]) * (a[2] + b[2]);
+        ny += (a[2] - b[2]) * (a[0] + b[0]);
+        nz += (a[0] - b[0]) * (a[1] + b[1]);
+        sx += a[0]; sy += a[1]; sz += a[2];
+        perim += Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+      }
+      const loopArea = Math.hypot(nx, ny, nz) / 2;
+      if (!(loopArea > 1e-9 * perim * perim)) continue;
+      const outwardLoop = nx * sx + ny * sy + nz * sz > 0;
+      const ordered = outwardLoop ? clean : [...clean].reverse();
+      const M = ordered.length;
+      const L = Math.max(3, J);
+      const c0 = mul([sx, sy, sz], 1 / M);
+      const gridRings = [ordered];
+      for (let l = 1; l < L; l++) {
+        const t = l / L;
+        const ring = ordered.map((idx) => {
+          const b = getVert(idx);
+          const p = add(mul(b, 1 - t), mul(c0, t));
+          return pushVert(p[0], p[1], p[2], [[v, 1]]);
+        });
+        gridRings.push(ring);
+      }
+      const apex = pushVert(c0[0], c0[1], c0[2], [[v, 1]]);
+      for (let iter = 0; iter < 12; iter++) {
+        for (let l = 1; l < L; l++) {
+          for (let i = 0; i < M; i++) {
+            const pPrev = getVert(gridRings[l][(i - 1 + M) % M]);
+            const pNext = getVert(gridRings[l][(i + 1) % M]);
+            const pOut = getVert(gridRings[l - 1][i]);
+            const pIn = l + 1 < L ? getVert(gridRings[l + 1][i]) : getVert(apex);
+            const cur = getVert(gridRings[l][i]);
+            cur[0] = (pPrev[0] + pNext[0] + pOut[0] + pIn[0]) / 4;
+            cur[1] = (pPrev[1] + pNext[1] + pOut[1] + pIn[1]) / 4;
+            cur[2] = (pPrev[2] + pNext[2] + pOut[2] + pIn[2]) / 4;
+          }
+        }
+        let ax = 0, ay = 0, az = 0;
+        for (const idx of gridRings[L - 1]) {
+          const p = getVert(idx);
+          ax += p[0]; ay += p[1]; az += p[2];
+        }
+        const ap = getVert(apex);
+        ap[0] = ax / M; ap[1] = ay / M; ap[2] = az / M;
+      }
+      for (let l = 0; l < L - 1; l++) {
+        const r0 = gridRings[l], r1 = gridRings[l + 1];
+        for (let i = 0; i < M; i++) {
+          const i2 = (i + 1) % M;
+          capEmitTri(r0[i], r0[i2], r1[i2], capFid, tris);
+          capEmitTri(r0[i], r1[i2], r1[i], capFid, tris);
+        }
+      }
+      const rLast = gridRings[L - 1];
+      for (let i = 0; i < M; i++) {
+        capEmitTri(apex, rLast[i], rLast[(i + 1) % M], capFid, tris);
+      }
       continue;
     }
 
