@@ -224,8 +224,10 @@ $n \ge 1$:
 
 2. **Per-level step weight**:
    For $s > 0$ and $n \ge 1$, set the per-level blend factor to
-   $\alpha = s^{1/n}$ so multi-level subdivision displacement scales linearly
-   across the slider track rather than attenuating as $s^n$.
+   $\alpha = s^{1/n}$ so the compounded fine-ring stencil weight equals
+   $\alpha^n = s$ (rather than attenuating as $s^n$), while coarse vertices
+   follow the monotonic response $1 - (1 - s^{1/n})^n$ (e.g. $2\sqrt{s} - s$ for
+   $n = 2$) for responsive early-slider fairing.
 
 3. **Unified Catmull–Clark / 4:1 subdivision step ($\ell = 0 \dots n-1$)**:
    - **Face centroid**: For every face $f$ with $k = |f|$ vertices,
@@ -312,6 +314,12 @@ $n \ge 1$:
      subdivisions merge back into parent panels while `soften > 0` triangulations
      produce faceted geodesic panels (preserving the existing `icosahedron
      subdiv=1 soften=1` sheet fold anchor in `test/sheet.test.js:241`).
+   - **Saved-state compatibility (`decodeHash` / `parseProject`)**: While
+     pre-1.0, unlocking `soften` when `subdiv = 0`, `subdivStyle = "grid"`, or
+     `spike > 0` intentionally honours any non-zero `soften` stored in a URL
+     hash or project file on reload rather than silently zeroing it; all shipped
+     presets and examples with `soften = 0` (and `fold-geodesic-felt-seams` with
+     `subdiv = 1, soften = 1`) remain compatible.
    - If a star at extreme `spike` + `soften` ever violates the strengthened
      `assertStarShaped`, surface a named validation error on `soften` with a
      `clampTo: 0` fix rather than locking the slider globally.

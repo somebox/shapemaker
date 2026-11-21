@@ -279,6 +279,13 @@ describe("subdivision through the pipeline", () => {
       icoSoft.validation.warnings.some((w) => w.key === "borderFraction" && /printable floor/i.test(w.message)),
       "surfaces borderPrintabilityWarning when auto-refined openings shrink below 2.5 mm",
     );
+    const hash = encodeHash(cubeSoft.state);
+    const restored = decodeHash(hash);
+    assert.equal(restored.ok, true);
+    assert.equal(restored.state.subdiv, 0);
+    assert.equal(restored.state.soften, 50);
+    const recompiled = compile(restored.state);
+    assert.equal(recompiled.skeleton.faces.length, 192);
   });
 
   it("subdiv round-trips through the hash codec; old hashes default to 0", () => {

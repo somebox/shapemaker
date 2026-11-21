@@ -68,4 +68,48 @@ describe("predictedCompileMs", () => {
       160,
     );
   });
+
+  it("preserves effective refinement level when starting from an already-smoothed skeleton", () => {
+    // Auto-smoothed cube (subdiv=0, soften=50) already compiled 192 faces (level 2):
+    // switching to explicit subdiv=2 is topology-neutral (1x), subdiv=1 shrinks 4x,
+    // and turning soften off shrinks 16x.
+    assert.equal(
+      predictedCompileMs(
+        120,
+        { base: "cube", subdiv: 0, soften: 50 },
+        { base: "cube", subdiv: 2, soften: 50 },
+        192,
+      ),
+      120,
+    );
+    assert.equal(
+      predictedCompileMs(
+        120,
+        { base: "cube", subdiv: 0, soften: 50 },
+        { base: "cube", subdiv: 1, soften: 50 },
+        192,
+      ),
+      30,
+    );
+    assert.equal(
+      predictedCompileMs(
+        160,
+        { base: "cube", subdiv: 0, soften: 50 },
+        { base: "cube", subdiv: 0, soften: 0 },
+        192,
+      ),
+      10,
+    );
+    // Switching from an auto-smoothed icosidodecahedron (level 1, 200 faces) to a
+    // coarse base (cube, auto-level 2) predicts a 4x refinement increase.
+    assert.equal(
+      predictedCompileMs(
+        50,
+        { base: "icosidodeca", subdiv: 0, soften: 50 },
+        { base: "cube", subdiv: 0, soften: 50 },
+        200,
+      ),
+      480,
+    );
+  });
 });

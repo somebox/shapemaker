@@ -247,4 +247,18 @@ describe("assertStarShaped on convex parents", () => {
     assert.throws(() => assertStarShaped(shifted));
     assert.ok(Math.abs(starCover(shifted)) < 1e-5, starCover(shifted));
   });
+
+  it("rejects a closed manifold mesh with total cover ≈ 1 that has a radially folded triangle", () => {
+    const octa = parent("octahedron");
+    const s1 = spikeSkeleton(octa, 1.2);
+    const pos = Float64Array.from(s1.positions);
+    // Displace one equatorial corner tangentially across its neighbour so a
+    // flank triangle flips its radial orientation while the mesh stays closed
+    // around the origin with total winding number (starCover) equal to 1.
+    pos[0] = 0.2;
+    pos[1] = 1.2;
+    const folded = { positions: pos, faces: s1.faces };
+    assert.ok(Math.abs(starCover(folded) - 1) < 1e-6, `cover=${starCover(folded)}`);
+    assert.throws(() => assertStarShaped(folded), /solid angle/);
+  });
 });

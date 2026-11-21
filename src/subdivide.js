@@ -83,7 +83,8 @@ export function subdivideSkeleton(skeleton, level, soften = 0, style = "radial")
   }
 
   // Deterministic blended subdivision fairing for s > 0:
-  // Step weight α = s^(1/n) keeps multi-level displacement linear across s.
+  // Step weight α = s^(1/n) gives fine-ring stencil product α^n = s (instead
+  // of attenuating as s^n) and coarse-vertex weight 1 − (1 − s^(1/n))^n.
   const alpha = Math.pow(s, 1 / n);
   let cur = {
     positions: Array.from(skeleton.positions),

@@ -61,6 +61,11 @@ const CROSSING = [
   { base: "icosidodeca", depth: "solid", openings: false, roundingMm: 21, wallModes: ["even"] },
   { base: "icosidodeca", roundingMm: 5.7, wallModes: ["even"] },
   { base: "octahedron", spike: Math.sqrt(3), depth: "solid", openings: false, roundingMm: 6.6, wallModes: ["even"] },
+  // Smoothed + rounded cubes and spiked stars (hollow Even/Scaled and solid closed).
+  { base: "cube", soften: 50, roundingMm: 1.5, edgeDiv: 4 },
+  { base: "cube", soften: 80, roundingMm: 2, depth: "solid", openings: false, edgeDiv: 4, wallModes: ["even"] },
+  { base: "octahedron", spike: Math.sqrt(3), soften: 50, roundingMm: 0.5, borderFraction: 0.45, filletMm: 1, edgeDiv: 4 },
+  { base: "octahedron", spike: Math.sqrt(3), soften: 80, roundingMm: 1.5, depth: "solid", openings: false, edgeDiv: 4, wallModes: ["even"] },
 ];
 
 describe("Stage-2 rounding does not fold through itself", () => {
