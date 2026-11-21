@@ -67,18 +67,31 @@ describe("fitCorner", () => {
     }
   });
 
-  it("finds the same fit on wide corners, and none where enumeration finds none", () => {
-    // Normals over most of a hemisphere, or straddling its rim. The plain
-    // fit and the normals' sum can both miss every feasible point here;
-    // descent then used to return no move at all.
+  it("finds the same fit on wide and flat corners, and none where enumeration finds none", () => {
+    // Normals over most of a hemisphere, straddling its rim, or nearly in
+    // one plane (a fit thousands to millions of walls deep). The plain fit
+    // and the normals' sum can both miss every feasible point here, and the
+    // flat ones defeated a Gram-matrix hull search with absolute
+    // tolerances; descent then fell back to a fit inside the wall.
     let seed = 7;
     const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32);
     const cost = (N, d) => N.reduce((s, a) => s + (dot(a, d) - 1) ** 2, 0);
-    const wide = () => unit([2 * rnd() - 1, 2 * rnd() - 1, -(0.001 + rnd() * 0.3)]);
-    const rim = () => unit([2 * rnd() - 1, 2 * rnd() - 1, 0.005 - rnd() * 0.02]);
-    for (const [name, gen] of [["wide", wide], ["rim", rim]]) {
-      for (let trial = 0; trial < 300; trial++) {
-        const N = Array.from({ length: 11 + Math.floor(rnd() * 10) }, gen);
+    const wide = () => () => unit([2 * rnd() - 1, 2 * rnd() - 1, -(0.001 + rnd() * 0.3)]);
+    const rim = () => () => unit([2 * rnd() - 1, 2 * rnd() - 1, 0.005 - rnd() * 0.02]);
+    const flat = () => {
+      const eps = 10 ** (-3 - rnd() * 3);
+      return () => unit([2 * rnd() - 1, 2 * rnd() - 1, -eps * (0.1 + rnd())]);
+    };
+    for (const [name, makeGen, trials, count] of [
+      ["wide", wide, 300, () => 11 + Math.floor(rnd() * 10)],
+      ["rim", rim, 300, () => 11 + Math.floor(rnd() * 10)],
+      // From a fresh seed, flat trial 314 is the case found in review.
+      ["flat", flat, 400, () => 11],
+    ]) {
+      if (name === "flat") seed = 7;
+      for (let trial = 0; trial < trials; trial++) {
+        const gen = makeGen();
+        const N = Array.from({ length: count() }, gen);
         const exact = fitCorner(N, { enumerateMax: Infinity });
         const fast = fitCorner(N, { enumerateMax: 0 });
         const at = `${name} ${trial}`;
