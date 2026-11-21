@@ -44,22 +44,31 @@ onward every release gets a full entry here, and breaking changes to the
   with fillet radius.
 - A failed rebuild now says so on the status line, even with the last good
   model on screen. The status used to keep showing the old dimensions.
-- **Rounding with Truncate on irregular shapes no longer builds a shell that
-  passes through itself.** Four faults, all on the tiny or sliver faces
-  Truncate leaves on a distorted or random shape. Under Even walls the inner
-  copy of the rounding kept its outer size on inner faces a fraction of that
-  size, so strips overlapped and reached past the openings; it now shrinks
-  towards its corner until the inner face holds (the outside is unchanged).
-  A sliver face's inner opening could lie across its own border, even with
-  Rounding off; it is now laid out along the inner outline. A rounded edge
-  ending against a sharp one on a straight boundary stepped the face
-  outline and crossed the opening rim; both now take the narrower width.
-  And corner caps a fraction of a millimetre across left fins that crossed
-  once the STL rounded positions; those caps are filled flat. In a sweep of
-  800 random states, 128 crossed in the exported STL before and 34 do now,
-  none of them new. Fourteen of the 34 are still Rounding with Truncate on
-  a distorted shape; the rest also have Subdivide, Spike or Scaled walls,
-  or cross without Rounding.
+- **Shapes with tiny, sliver or needle faces no longer build a shell that
+  passes through itself.** Truncate, Subdivide or Spike on a distorted or
+  random shape leaves such faces, and most of the faults needed Rounding as
+  well. What changed:
+  - Under Even walls the inner copy of the rounding kept its outer size on
+    inner faces a fraction of that size, or tilted against them, so strips
+    overlapped and reached past the openings. It now shrinks towards its
+    corner until the inner face holds. The outside is unchanged.
+  - A sliver face's inner opening could lie across its own border, even
+    with Rounding off. It is now laid out along the inner outline.
+  - A thick Even wall could turn a sliver face inside out on the inner
+    surface. Its corners now move together, as the ends of a very short
+    edge already did.
+  - A rounded edge ending against a sharp one on a straight boundary
+    stepped the face outline and crossed the opening rim. Both now take the
+    narrower width.
+  - Corner caps a fraction of a millimetre across left fins that crossed
+    once the STL rounded positions. Those caps are filled flat.
+- **Faces with no room for an opening stay closed**, with a warning that
+  counts them: openings under 0.2 mm across (Through already did this), and
+  with Rounding, faces whose outline the rounding moves off their centre or
+  in past their opening. Their walls crossed before.
+
+  In a sweep of 800 random states, 128 crossed in the exported STL before
+  these two changes and 15 do now, none of them new.
 
 ## [0.16.1] — 2026-10-11
 

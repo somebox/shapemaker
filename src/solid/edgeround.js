@@ -1285,14 +1285,14 @@ export function buildEdgeRounding(skeleton, frames, opts) {
     // Even with the apex inside the loop, rings blended between very
     // different strip radii can fold. Every fan triangle must face away
     // from X; if one turns toward it, the loop fills flat instead. On a
-    // shallow cap (its apex less than the width floor above the loop's
-    // plane, so flat costs nothing to see) so does one that stands edge-on
+    // shallow cap (its apex less than twice the width floor above the
+    // loop's plane, so flat costs nothing to see) so does one that stands edge-on
     // to X: a ring there can land on a strip's end column instead of
     // inside the loop, leaving a fin flat against the strip end. In double
     // precision the two only overlap in one plane; rounded to float32 for
     // the STL, they cross.
     const rise = dot(sub(apexPos, mul([sx, sy, sz], 1 / clean.length)), norm([nx, ny, nz]));
-    const edgeOnLimit = Math.abs(rise) < wFloor ? CAP_EDGE_ON : 0;
+    const edgeOnLimit = Math.abs(rise) < 2 * wFloor ? CAP_EDGE_ON : 0;
     let folded = false;
     for (let ti = fanStart; ti < tris.length && !folded; ti++) {
       const [a, b, c] = tris[ti];

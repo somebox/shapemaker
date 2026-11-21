@@ -18,9 +18,11 @@ import { edgeList } from "../skeleton.js";
  * Per-corner inward displacement for a 1 mm wall.
  * @param {{ positions: Float64Array, faces: number[][] }} skeleton
  * @param {{ normal: number[] }[]} frames
+ * @param {number[]} [asOne]  faces whose corners all move as one
+ *   (see {@link cornerOffsetsForWall})
  * @returns {Float64Array} xyz per skeleton vertex
  */
-export function cornerOffsets(skeleton, frames) {
+export function cornerOffsets(skeleton, frames, asOne = []) {
   const P = skeleton.positions;
   const n = P.length / 3;
   // Corners joined by a very short edge (Distort's vertex splits, the tiny
@@ -37,6 +39,10 @@ export function cornerOffsets(skeleton, frames) {
   for (const [a, c] of skeleton.edges ?? edgeList(skeleton.faces)) {
     const len = Math.hypot(P[c * 3] - P[a * 3], P[c * 3 + 1] - P[a * 3 + 1], P[c * 3 + 2] - P[a * 3 + 2]);
     if (len < shortLen) root[find(a)] = find(c);
+  }
+  for (const f of asOne) {
+    const ring = skeleton.faces[f];
+    for (let k = 1; k < ring.length; k++) root[find(ring[k])] = find(ring[0]);
   }
 
   /** Inward unit normals per cluster root, coplanar duplicates dropped. */
@@ -61,6 +67,88 @@ export function cornerOffsets(skeleton, frames) {
     const r = find(v);
     if (r === v) continue;
     out[v * 3] = out[r * 3]; out[v * 3 + 1] = out[r * 3 + 1]; out[v * 3 + 2] = out[r * 3 + 2];
+  }
+  return out;
+}
+
+/** A face must keep this share of its width on the inner surface. */
+const FACE_WIDTH_KEPT = 0.1;
+
+/**
+ * Corner displacements for one wall thickness (still per millimetre of it).
+ * The edge limit below keeps every inner edge pointing its own way, but a
+ * sliver face between two long edges can still turn inside out: the planes
+ * either side of it close over it within a fraction of a millimetre, and
+ * its inner copy flips while each of its edges keeps its direction. Where
+ * the wall would leave a narrow face less than a tenth of its width, the
+ * face's corners move as one instead, as the ends of a very short edge do:
+ * the inner face keeps its outer shape and the wall beside it is a little
+ * thicker than asked.
+ * @param {{ positions: Float64Array, faces: number[][] }} skeleton
+ * @param {{ origin: number[], u: number[], w: number[], normal: number[], edgeDist: number[] }[]} frames
+ * @param {number} wallMm
+ * @param {Float64Array} [plain]  `cornerOffsets(skeleton, frames)`, if at hand
+ * @returns {Float64Array} xyz per skeleton vertex; `plain` itself when no
+ *   face needs it
+ */
+export function cornerOffsetsForWall(skeleton, frames, wallMm, plain = cornerOffsets(skeleton, frames)) {
+  let dHat = plain;
+  const asOne = [];
+  for (let pass = 0; pass < 4; pass++) {
+    const thin = thinnedFaces(skeleton, frames, dHat, wallMm).filter((f) => !asOne.includes(f));
+    if (thin.length === 0) break;
+    asOne.push(...thin);
+    dHat = cornerOffsets(skeleton, frames, asOne);
+  }
+  return dHat;
+}
+
+/** Narrow faces whose inner copy keeps less than a tenth of their width somewhere. */
+function thinnedFaces(skeleton, frames, dHat, wallMm) {
+  const P = skeleton.positions;
+  let minInradius = Infinity;
+  for (const fr of frames) minInradius = Math.min(minInradius, fr.inradius);
+  // Narrow by the measure that makes an edge short (see `cornerOffsets`).
+  const thinMm = 0.05 * minInradius;
+  const out = [];
+  for (let f = 0; f < skeleton.faces.length; f++) {
+    const ring = skeleton.faces[f];
+    const { origin, u, w, edgeDist, edgeDistMin } = frames[f];
+    // Only a narrow face moves as one: a wide one would drag its
+    // neighbours' corners far from where their own planes put them.
+    if (!(2 * edgeDistMin < thinMm)) continue;
+    const n = ring.length;
+    const outer = new Float64Array(n * 2), inner = new Float64Array(n * 2);
+    for (let k = 0; k < n; k++) {
+      const v = ring[k];
+      const dx = P[v * 3] - origin[0], dy = P[v * 3 + 1] - origin[1], dz = P[v * 3 + 2] - origin[2];
+      const ex = wallMm * dHat[v * 3], ey = wallMm * dHat[v * 3 + 1], ez = wallMm * dHat[v * 3 + 2];
+      outer[k * 2] = dx * u[0] + dy * u[1] + dz * u[2];
+      outer[k * 2 + 1] = dx * w[0] + dy * w[1] + dz * w[2];
+      inner[k * 2] = outer[k * 2] + ex * u[0] + ey * u[1] + ez * u[2];
+      inner[k * 2 + 1] = outer[k * 2 + 1] + ex * w[0] + ey * w[1] + ez * w[2];
+    }
+    // Where the centroid lands on the inner face, and which way the ring runs.
+    const wgt = meanValueWeights(outer, 0, 0);
+    let mx = 0, my = 0, area2 = 0;
+    for (let k = 0; k < n; k++) {
+      const k2 = (k + 1) % n;
+      mx += wgt[k] * inner[k * 2];
+      my += wgt[k] * inner[k * 2 + 1];
+      area2 += outer[k * 2] * outer[k2 * 2 + 1] - outer[k2 * 2] * outer[k * 2 + 1];
+    }
+    const turn = area2 < 0 ? -1 : 1;
+    for (let k = 0; k < n; k++) {
+      const k2 = (k + 1) % n;
+      const ax = inner[k * 2], ay = inner[k * 2 + 1];
+      const bx = inner[k2 * 2] - ax, by = inner[k2 * 2 + 1] - ay;
+      const len = Math.hypot(bx, by);
+      const dist = len > 0 ? (turn * (bx * (my - ay) - by * (mx - ax))) / len : 0;
+      if (dist < FACE_WIDTH_KEPT * edgeDist[k]) {
+        out.push(f);
+        break;
+      }
+    }
   }
   return out;
 }

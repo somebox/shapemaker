@@ -140,6 +140,49 @@ describe("wallMode", () => {
     assert.deepEqual(selfIntersections(r.mesh, 5), []);
   });
 
+  it("keeps an opening too narrow to be one closed, and says so", () => {
+    // Subdivide on a distorted octahedron leaves needle triangles 37 mm long
+    // and 0.16 mm wide. Their openings were microns across at the tips, and
+    // the two walls, each leaning its own way, crossed.
+    const state = {
+      base: "octahedron", jitter: 20, jitterMode: "surface", seed: 102, subdiv: 1, points: 12,
+      wallMm: 1.4, borderFraction: 0.2, filletMm: 0, edgeDiv: 4, wallMode: "even",
+    };
+    const r = compile(state);
+    assert.equal(r.validation.ok, true);
+    assert.deepEqual(selfIntersections(r.mesh, 5), []);
+    const closed = r.metrics.faceMetrics.filter((f) => f.openingMinDiameterMm === 0).length;
+    assert.ok(closed > 0 && closed < r.skeleton.faces.length);
+    const note = r.validation.warnings.find((w) => /stay closed/.test(w.message));
+    assert.ok(note, "warns about the closed faces");
+    assert.ok(note.message.startsWith(`${closed} of ${r.skeleton.faces.length} faces`), note.message);
+    // The same faces close under Scaled walls: the rule is about the
+    // opening, not the wall.
+    const scaled = compile({ ...state, wallMode: "scaled" });
+    assert.equal(
+      scaled.metrics.faceMetrics.filter((f) => f.openingMinDiameterMm === 0).length, closed,
+    );
+    // A shape without such faces has no closed ones and no warning.
+    const plain = compile({ wallMode: "even" });
+    assert.ok(plain.metrics.faceMetrics.every((f) => f.openingMinDiameterMm > 0));
+    assert.ok(!plain.validation.warnings.some((w) => /stay closed/.test(w.message)));
+  });
+
+  it("moves a sliver face the wall would turn inside out as one piece", () => {
+    // A 10 mm × 0.2 mm hexagon on a truncated globe: the planes either side
+    // close over it within a fraction of the 2.4 mm wall, and its inner
+    // copy flipped while every edge kept its direction.
+    const r = compile({
+      base: "twistedglobe", jitter: 20, jitterMode: "radial", truncate: 40, seed: 2190,
+      wallMm: 2.4, borderFraction: 0.36, filletMm: 0, edgeDiv: 2, wallMode: "even",
+    });
+    assert.equal(r.validation.ok, true);
+    assert.deepEqual(selfIntersections(r.mesh, 5), []);
+    // Fitted corners sit within a micron of the wall; the piece moved as
+    // one is a little thicker, not thinner.
+    assert.ok(r.metrics.wallMm.min >= 2.4 - 1e-5, "never thinner than the wall");
+  });
+
   it("short Distort edges do not cap the Wall slider", () => {
     const r = compile({ jitter: 12.5, wallMode: "even" });
     assert.ok(r.metrics.limits.wallMmMax > 2);

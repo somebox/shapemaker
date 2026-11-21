@@ -297,6 +297,14 @@ displacement:
   points blend their corners' moves; face-interior points (closed-face
   centres, opening rings) use mean value coordinates over the face corners.
   The wall limit is where an inner edge would shrink below 10% of its length.
+  That limit keeps every inner edge pointing its own way, but a sliver face
+  between two long edges can still turn inside out: the planes either side
+  close over it within a fraction of a millimetre of wall. So where the
+  wall asked for would leave a face narrower than 5% of the smallest
+  inradius less than a tenth of its width, that face's corners move
+  together too, and its inner copy keeps the outer shape under a slightly
+  thicker wall. Wider faces are left alone: moving one as a piece would
+  drag its neighbours' corners far from their own planes.
 - **Scaled** shrinks the whole surface by `s = 1 − wall / inradius_min`
   about the origin. The face nearest the centre gets the set wall and faces
   farther out get thicker. This is the construction before Even existed, and
@@ -329,6 +337,18 @@ subdivided globally so adjacent faces share identical points. The opening is
 sampled on matching centroid rays, preserving the prototype's non-intersecting
 annulus construction. Spike does not change this: openings still require
 hollow, and each unmerged pyramid flank is one opening.
+
+A face with no room for its opening stays closed, reported as a warning
+with the count. That is a face whose opening would be under 0.2 mm across
+(twice the centroid's distance to its nearest edge, scaled by 1 − border),
+which is the Through rule applied to the other Sides as well: nothing that
+narrow prints, and the two walls of a slot microns wide, each leaning its
+own way under Even walls, cross. With Rounding it is also a face whose
+outline the strips have moved off its centroid, or in past its opening. Both
+happen on needle faces (Subdivide or Truncate on a distorted shape leaves
+triangles tens of millimetres long and a fraction wide), where a corner's
+trim can exceed the face's width. Such a face is fanned from its centroid,
+or from the mean point of its outline when the centroid lies outside it.
 
 **Sides** (`openingAxis`) sets the direction of the opening wall through the
 shell. Under **Tapered** (`center`, default) each inner opening point is its
@@ -477,8 +497,8 @@ size, or another shape where a corner's inner position is a best fit. So
 each face's inner band is checked before anything is emitted: every quad
 from the inner boundary ring to the inner opening must keep its winding in
 the face plane (on a closed face, every triangle of the fan from the
-middle), and the ring must sit on the inner face, rising no more than half
-the band's width off the slope the opening has along that ray. Where a
+middle), and the ring must sit on the inner face, rising no more than a
+tenth of the band's width off the slope the opening has along that ray. Where a
 quad fails, the inner copy of the rounding at the corners its two ring
 points move with halves about the corner, strips in between blending, and
 the faces are checked again, up to six times: towards the sharp inner
@@ -499,7 +519,7 @@ Jitter, Dual) a strip arc can lie on that line or past it, and the apex
 aims at the loop's mean direction instead. If that is not inside either,
 or any fan triangle ends up facing X (the rings folded), the loop is
 filled flat in its best-fit plane. So is a shallow cap, one whose apex is
-less than the strip-width floor above its loop's plane, if a fan triangle
+less than twice the strip-width floor above its loop's plane, if a fan triangle
 stands within half a degree of edge-on to X: a ring there can land on a
 strip's end column and leave a fin flat against the strip end, which
 crosses it once the STL rounds positions to float32. A flat fill (ear-clipped, else fanned

@@ -222,6 +222,15 @@ export function compile(partial = {}) {
           `small to cut through and stay closed`,
       });
     }
+    if (solid.info.closedFaces > 0) {
+      validation.warnings.push({
+        stage: "solid",
+        key: "openings",
+        message:
+          `${solid.info.closedFaces} of ${skeleton.faces.length} faces are too ` +
+          `thin for an opening and stay closed`,
+      });
+    }
     if (solid.info.looseDropped > 0) {
       const v = solid.info.looseVolumeMm3 / 1000;
       const cm3 = v < 0.01 ? "< 0.01" : v.toFixed(2);

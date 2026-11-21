@@ -19,7 +19,9 @@ import {
   radialSample, quadToTris, edgeClearances, rayToRing, straightRing, zipperBand,
 } from "../geom/annulus.js";
 import { edgeList, inradiusRange } from "../skeleton.js";
-import { cornerOffsets, meanValueWeights, offsetWallLimit, offsetWallRange } from "./offset.js";
+import {
+  cornerOffsets, cornerOffsetsForWall, meanValueWeights, offsetWallLimit, offsetWallRange,
+} from "./offset.js";
 import { faceFrames } from "../faceframe.js";
 import { assertMeshInvariants, toMesh } from "../mesh.js";
 import { validationError } from "../validate.js";
@@ -47,8 +49,13 @@ export function filletSegmentsFor(edgeDiv) {
   return Math.max(4, Math.round(edgeDiv * 6.4));
 }
 
-/** Through openings narrower than this stay closed. */
-const THROUGH_MIN_OPENING_MM = 0.2;
+/**
+ * Openings narrower than this stay closed: nothing that small prints, and
+ * the two sides of a slot a few microns wide end up crossing (as walls
+ * under Even, where each leans its own way, or as cutter contacts under
+ * Through).
+ */
+const OPENING_MIN_MM = 0.2;
 
 /**
  * Inner flat a Normal opening keeps along every inner edge (about one
@@ -72,7 +79,7 @@ const INNER_FIT_HALVINGS = 6;
  * strip end copied flat then sits above or below it, and an opening wall
  * beside a band that steep passes through it.
  */
-const INNER_BAND_RISE = 0.5;
+const INNER_BAND_RISE = 0.1;
 
 /** Normal openings tilting less than this count as straight in reports. */
 const AXIS_TILT_REPORT_DEG = 1;
@@ -243,17 +250,27 @@ export function buildShell(skeleton, opts) {
   // one. Even: every face plane moves in by wallMm, which is valid until
   // an inner edge folds over.
   const even = depth === "hollow" && wallMode === "even";
-  const dHat = even ? cornerOffsets(skeleton, frames) : null;
+  let dHat = null;
   if (even) {
-    const limit = offsetWallLimit(skeleton, dHat);
-    if (wallMm >= limit) {
-      throw validationError(
-        "solid",
-        "wallMm",
-        `Wall ${wallMm} mm is too thick — inner edges fold over beyond ` +
-        `${limit.toFixed(2)} mm on this shape`,
-        { clampTo: limit * 0.9 },
-      );
+    const checkWall = () => {
+      const limit = offsetWallLimit(skeleton, dHat);
+      if (wallMm >= limit) {
+        throw validationError(
+          "solid",
+          "wallMm",
+          `Wall ${wallMm} mm is too thick — inner edges fold over beyond ` +
+          `${limit.toFixed(2)} mm on this shape`,
+          { clampTo: limit * 0.9 },
+        );
+      }
+    };
+    dHat = cornerOffsets(skeleton, frames);
+    checkWall();
+    // Sliver faces this wall would turn inside out move as one piece.
+    const fitted = cornerOffsetsForWall(skeleton, frames, wallMm, dHat);
+    if (fitted !== dHat) {
+      dHat = fitted;
+      checkWall();
     }
   } else if (depth === "hollow" && wallMm >= inradius.min) {
     throw validationError(
@@ -429,17 +446,22 @@ export function buildShell(skeleton, opts) {
     const p = [verts[i][0] + d[0], verts[i][1] + d[1], verts[i][2] + d[2]];
     if (innerFit) {
       for (const [v, wgt, rx, ry, rz] of host) {
-        const pull = wgt * (innerFit[v] - 1);
-        if (pull === 0) continue;
+        const k = innerFit[v];
+        if (k === 1 || wgt === 0) continue;
         // A blended point carries the place of each end's own point; one
         // that moves with a single corner sits where it is relative to it.
+        let x, y, z;
         if (rx !== undefined) {
-          p[0] += pull * rx; p[1] += pull * ry; p[2] += pull * rz;
+          x = rx; y = ry; z = rz;
         } else if (host.length === 1) {
-          p[0] += pull * (verts[i][0] - corners[v * 3]);
-          p[1] += pull * (verts[i][1] - corners[v * 3 + 1]);
-          p[2] += pull * (verts[i][2] - corners[v * 3 + 2]);
+          x = verts[i][0] - corners[v * 3];
+          y = verts[i][1] - corners[v * 3 + 1];
+          z = verts[i][2] - corners[v * 3 + 2];
+        } else {
+          continue;
         }
+        const pull = wgt * (k - 1);
+        p[0] += pull * x; p[1] += pull * y; p[2] += pull * z;
       }
     }
     return p;
@@ -503,6 +525,17 @@ export function buildShell(skeleton, opts) {
     const ang = new Float64Array(m);
     for (let k = 0; k < m; k++) ang[k] = Math.atan2(B2y[k], B2x[k]);
 
+    // A face with no room for its opening stays closed. On a needle face
+    // (Subdivide or Truncate on a distorted shape leaves triangles tens of
+    // millimetres long and a fraction wide) the corner rounding can move
+    // the outline off the centroid the opening is laid out around; and an
+    // opening can be too narrow to be one.
+    const mid = stage2 ? fanPoint(B2x, B2y) : null;
+    if (mid) return { B2x, B2y, ang, closed: true, mid };
+    if (!through && 2 * (1 - frac) * frame.edgeDistMin < OPENING_MIN_MM) {
+      return { B2x, B2y, ang, closed: true, mid: null };
+    }
+
     // The authored opening derives from the ORIGINAL face corners — Smooth and
     // Rounding fillet the outer form and border without contracting the opening.
     const corner2d = new Float64Array(ring.length * 2);
@@ -542,6 +575,14 @@ export function buildShell(skeleton, opts) {
       ({ opening, radiusUsed } = openingGenerator.generate(corner2d, frac, 0, 1));
       rad = radialSample(opening, ang);
     }
+    // ... or reach past the outline the rounding leaves it.
+    if (stage2 && !through) {
+      for (let k = 0; k < m; k++) {
+        if (!(rad[k] < Math.hypot(B2x[k], B2y[k]))) {
+          return { B2x, B2y, ang, closed: true, mid: null };
+        }
+      }
+    }
     let minR = Infinity;
     /** @type {number[][]} virtual outer-lip corners (not always pushed) */
     const ooPts = [];
@@ -560,6 +601,22 @@ export function buildShell(skeleton, opts) {
   /** Layouts the inner-fit pass already made, for the face loop to reuse. */
   const layouts = new Array(faces.length);
 
+  /** Where a face that takes no opening is fanned from (see `fanPoint`). */
+  const fanPointOf = (fi, BOr) => {
+    if (!stage2) return null;
+    const [cx, cy, cz] = frames[fi].origin;
+    const [ux, uy, uz] = frames[fi].u;
+    const [wx, wy, wz] = frames[fi].w;
+    const Bx = new Float64Array(BOr.length), By = new Float64Array(BOr.length);
+    for (let k = 0; k < BOr.length; k++) {
+      const p = verts[BOr[k]];
+      const dx = p[0] - cx, dy = p[1] - cy, dz = p[2] - cz;
+      Bx[k] = dx * ux + dy * uy + dz * uz;
+      By[k] = dx * wx + dy * wy + dz * wz;
+    }
+    return fanPoint(Bx, By);
+  };
+
   /**
    * Even walls, Centre: the opening carried to the inner face by the
    * corner-weighted offset, as the face itself is.
@@ -571,6 +628,27 @@ export function buildShell(skeleton, opts) {
       ));
       return [oo[0] + d[0], oo[1] + d[1], oo[2] + d[2]];
     });
+
+  /**
+   * Even walls: the opening laid out along the inner ring's own rays, each
+   * point as far from the inner face's centre towards its ring point as
+   * the outer opening is along its ray. It follows the ring wherever the
+   * inner face has moved, tilted or changed shape.
+   */
+  const alongInnerRays = (fi, BOr, skel2d, { rad, B2x, B2y }) => {
+    const [cx, cy, cz] = frames[fi].origin;
+    const d0 = offsetOf(faceHost(faces[fi], skel2d, 0, 0));
+    const c = [cx + d0[0], cy + d0[1], cz + d0[2]];
+    return BOr.map((v, k) => {
+      const b = verts[v + baseI];
+      const f = rad[k] / Math.hypot(B2x[k], B2y[k]);
+      return [
+        c[0] + f * (b[0] - c[0]),
+        c[1] + f * (b[1] - c[1]),
+        c[2] + f * (b[2] - c[2]),
+      ];
+    });
+  };
 
   // Even walls: fit the inner copy of the rounding to the inner faces. They
   // are smaller than the outer ones, and under a thick wall a tiny face
@@ -604,11 +682,16 @@ export function buildShell(skeleton, opts) {
           ];
         };
         const B = BOr.map((v) => flat(verts[v + baseI]));
-        const d0 = offsetOf(faceHost(ring, skelFlat(fi), 0, 0));
-        const c = flat([cx + d0[0], cy + d0[1], cz + d0[2]]);
+        const lay = openings ? (layouts[fi] ??= layoutFace(fi, BOr)) : null;
+        const [mx, my] = (lay ? lay.mid : fanPointOf(fi, BOr)) ?? [0, 0];
+        const d0 = offsetOf(faceHost(ring, skelFlat(fi), mx, my));
+        const c = flat([
+          cx + mx * ux + my * wx + d0[0],
+          cy + mx * uy + my * wy + d0[1],
+          cz + mx * uz + my * wz + d0[2],
+        ]);
         let faults;
-        if (openings && !through) {
-          const lay = (layouts[fi] ??= layoutFace(fi, BOr));
+        if (lay && !lay.closed && !through) {
           lay.oiCentre ??= carryInner(ring, skelFlat(fi), lay);
           const O = lay.oiCentre.map(flat);
           faults = bandFaults(B, O);
@@ -653,6 +736,8 @@ export function buildShell(skeleton, opts) {
   let straightWallMm = Infinity;
   let throughSpillFaces = 0;
   let throughClosedFaces = 0;
+  /** Faces with no room for their opening (Centre and Straight sides). */
+  let closedFaces = 0;
   let throughBreakOutFaces = 0;
   let innerPolys = null, outerPolys = null;
 
@@ -703,12 +788,17 @@ export function buildShell(skeleton, opts) {
     /** Skeleton corners in this face's frame, for Even-wall weights. */
     const skel2d = even ? skelFlat(fi) : null;
 
-    const closeFace = () => {
+    /** @param {number[]|null} [mid]  fan point in the face frame; the centroid if null */
+    const closeFace = (mid = null) => {
       // Fan from a dedicated face-centre vertex, never from a corner: two
       // faces sharing a corner would emit the same directed diagonal from it,
       // which is a manifold violation (caught by assertMeshInvariants).
+      const [mx, my] = mid ?? [0, 0];
+      const at = mid
+        ? [cx + mx * ux + my * wx, cy + mx * uy + my * wy, cz + mx * uz + my * wz]
+        : [cx, cy, cz];
       const cOuter = verts.length;
-      verts.push([cx, cy, cz]);
+      verts.push(at);
       for (let k = 0; k < m; k++) {
         triIdx.push(cOuter, BOr[k], BOr[(k + 1) % m]);
         faceIds.push(fi);
@@ -716,10 +806,10 @@ export function buildShell(skeleton, opts) {
       if (depth === "hollow") {
         const cInner = verts.length;
         if (even) {
-          const d = offsetOf(faceHost(ring, skel2d, 0, 0));
-          verts.push([cx + d[0], cy + d[1], cz + d[2]]);
+          const d = offsetOf(faceHost(ring, skel2d, mx, my));
+          verts.push([at[0] + d[0], at[1] + d[1], at[2] + d[2]]);
         } else {
-          verts.push([cx * s, cy * s, cz * s]);
+          verts.push([at[0] * s, at[1] * s, at[2] * s]);
         }
         const inner = sharpInner ? ring : BOr;
         for (let k = 0; k < inner.length; k++) {
@@ -729,12 +819,29 @@ export function buildShell(skeleton, opts) {
       }
     };
     if (!openings) {
-      closeFace();
+      closeFace(fanPointOf(fi, BOr));
       continue;
     }
 
     const lay = layouts[fi] ?? layoutFace(fi, BOr);
     layouts[fi] = undefined;
+    if (lay.closed) {
+      closeFace(lay.mid);
+      if (through) throughClosedFaces++;
+      else closedFaces++;
+      faceMetrics.push({
+        faceIndex: fi,
+        sides: ring.length,
+        borderMinMm,
+        borderMaxMm,
+        filletUsedMm: 0,
+        roundingUsedMm: 0,
+        openingMinDiameterMm: 0,
+        axisTiltDeg: 0,
+        axisCentre: false,
+      });
+      continue;
+    }
     const { B2x, B2y, ang, opening, radiusUsed, rad, ooPts } = lay;
     let { minR } = lay;
 
@@ -759,7 +866,7 @@ export function buildShell(skeleton, opts) {
       // Microscopic faces (heavy Truncate leaves ~0.1 mm squares) stay
       // closed: a cutter that small cannot print and only leaves contacts
       // the boolean resolves into zero-area triangles.
-      if (2 * minR < THROUGH_MIN_OPENING_MM) {
+      if (2 * minR < OPENING_MIN_MM) {
         throughClosedFaces++;
         faceMetrics.push({
           faceIndex: fi,
@@ -999,17 +1106,7 @@ export function buildShell(skeleton, opts) {
       };
       const B = BOr.map((v) => proj(verts[v + baseI]));
       if (bandFaults(B, oiPts.map(proj)).length) {
-        const d0 = offsetOf(faceHost(ring, skel2d, 0, 0));
-        const c = [cx + d0[0], cy + d0[1], cz + d0[2]];
-        const radial = BOr.map((v, k) => {
-          const b = verts[v + baseI];
-          const f = rad[k] / Math.hypot(B2x[k], B2y[k]);
-          return [
-            c[0] + f * (b[0] - c[0]),
-            c[1] + f * (b[1] - c[1]),
-            c[2] + f * (b[2] - c[2]),
-          ];
-        });
+        const radial = alongInnerRays(fi, BOr, skel2d, lay);
         if (bandFaults(B, radial.map(proj)).length === 0) oiPts = radial;
       }
     }
@@ -1327,6 +1424,8 @@ export function buildShell(skeleton, opts) {
       throughSpillFaces: through ? throughSpillFaces : null,
       // Through faces too small to open (kept closed).
       throughClosedFaces: through ? throughClosedFaces : null,
+      // Faces with no room for their opening (kept closed).
+      closedFaces: openings && !through ? closedFaces : null,
       // Break out: holes that cut through a neighbour's outside, and loose
       // pieces those cuts freed (dropped from the mesh).
       throughBreakOutFaces: through ? throughBreakOutFaces : null,
@@ -1358,6 +1457,33 @@ function range(items, pick) {
 
 function scaleRange({ min, max }, k) {
   return { min: min * k, max: max * k };
+}
+
+/**
+ * Where to fan a ring from when its face's centroid (the frame origin) is
+ * not inside it: the ring's own mean point, in the face frame. Null when
+ * the centroid is inside, or when the mean point is not either.
+ * @param {Float64Array} Bx
+ * @param {Float64Array} By
+ * @returns {number[]|null}
+ */
+function fanPoint(Bx, By) {
+  if (ringHolds(Bx, By, 0, 0)) return null;
+  let mx = 0, my = 0;
+  for (let k = 0; k < Bx.length; k++) { mx += Bx[k]; my += By[k]; }
+  mx /= Bx.length;
+  my /= Bx.length;
+  return ringHolds(Bx, By, mx, my) ? [mx, my] : null;
+}
+
+/** Whether (x, y) lies inside the closed ring (even-odd rule). */
+function ringHolds(Bx, By, x, y) {
+  let inside = false;
+  for (let k = 0, j = Bx.length - 1; k < Bx.length; j = k++) {
+    if ((By[k] > y) !== (By[j] > y) &&
+      x < ((Bx[j] - Bx[k]) * (y - By[k])) / (By[j] - By[k]) + Bx[k]) inside = !inside;
+  }
+  return inside;
 }
 
 /**
