@@ -208,7 +208,8 @@ function fitWithRidge(normals, RIDGE, enumerateMax) {
 
   const free = solveLinear(H.map((row, i) => [...row, g[i]]));
   if (free && feasible(free)) return free;
-  if (k > enumerateMax) return free ? descend(normals, H, g, free) : null;
+  // No feasible point: the plain fit, as enumeration returns below.
+  if (k > enumerateMax) return free ? descend(normals, H, g, free) ?? free : null;
 
   let best = null, bestCost = Infinity;
   const tryActive = (S) => {
@@ -263,13 +264,19 @@ function fitWithRidge(normals, RIDGE, enumerateMax) {
 function descend(normals, H, g, free) {
   const k = normals.length;
   const dot = (a, d) => a[0] * d[0] + a[1] * d[1] + a[2] * d[2];
-  // Push a direction out until its nearest plane is one wall away.
+  // Push a direction out until its nearest plane is one wall away. The
+  // margin is judged per unit length: the hull point below is short when
+  // the corner is wide.
   const pushOut = (dir) => {
     let m = Infinity;
     for (const a of normals) m = Math.min(m, dot(a, dir));
-    return m > 1e-9 ? dir.map((x) => x / m) : null;
+    return m > 1e-9 * Math.hypot(dir[0], dir[1], dir[2]) ? dir.map((x) => x / m) : null;
   };
-  let d = pushOut(free) ?? pushOut(g);
+  // The plain fit and the normals' sum usually clear every plane already.
+  // On a wide corner (normals spread over most of a hemisphere) both can
+  // miss; the nearest point of the normals' hull always clears them when
+  // anything does.
+  let d = pushOut(free) ?? pushOut(g) ?? pushOut(minNormPoint(normals));
   if (!d) return null;
 
   let first = 0;
@@ -323,6 +330,59 @@ function descend(normals, H, g, free) {
     if (block >= 0) W.push(block);
   }
   return d;
+}
+
+/**
+ * Point of the points' convex hull nearest the origin — Wolfe's algorithm
+ * (1976). Every point a then has a·z ≥ |z|², so z clears all of them by the
+ * widest margin; z is (near) zero when the origin is inside the hull and no
+ * such direction exists. In 3D the corral holds at most four points, so
+ * each step is a tiny solve and a pass over the points.
+ * @param {number[][]} pts
+ * @returns {number[]}
+ */
+function minNormPoint(pts) {
+  const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  let maxSq = 0, s0 = 0;
+  for (let i = 0; i < pts.length; i++) {
+    const q = dot(pts[i], pts[i]);
+    maxSq = Math.max(maxSq, q);
+    if (q < dot(pts[s0], pts[s0])) s0 = i;
+  }
+  let S = [s0], w = [1];
+  let x = [...pts[s0]];
+  /** Weights v (Σv = 1) of the point of S's affine hull nearest the origin. */
+  const affineMin = () => {
+    const m = S.length;
+    const rows = S.map((si) => [...S.map((sj) => dot(pts[si], pts[sj])), 1, 0]);
+    rows.push([...S.map(() => 1), 0, 1]);
+    const v = solveLinear(rows);
+    return v ? v.slice(0, m) : null;
+  };
+  for (let major = 0; major < 4 * pts.length + 50; major++) {
+    let j = 0;
+    for (let i = 1; i < pts.length; i++) if (dot(x, pts[i]) < dot(x, pts[j])) j = i;
+    if (dot(x, pts[j]) > dot(x, x) - 1e-12 * maxSq || S.includes(j)) break;
+    S.push(j);
+    w.push(0);
+    for (let minor = 0; minor < 8; minor++) {
+      const v = affineMin();
+      if (!v) return x;
+      if (v.every((vi) => vi > 1e-12)) { w = v; break; }
+      // Step from w toward v until a weight reaches zero, and drop it.
+      let theta = 1;
+      for (let i = 0; i < S.length; i++) {
+        if (v[i] <= 1e-12 && w[i] > v[i]) theta = Math.min(theta, w[i] / (w[i] - v[i]));
+      }
+      w = w.map((wi, i) => (1 - theta) * wi + theta * v[i]);
+      const keep = w.map((wi) => wi > 1e-12);
+      S = S.filter((_, i) => keep[i]);
+      w = w.filter((_, i) => keep[i]);
+    }
+    x = [0, 0, 0];
+    S.forEach((s, i) => { for (let c = 0; c < 3; c++) x[c] += w[i] * pts[s][c]; });
+  }
+  return x;
 }
 
 /** Gaussian elimination with partial pivoting on an augmented matrix. */

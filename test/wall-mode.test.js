@@ -67,6 +67,32 @@ describe("fitCorner", () => {
     }
   });
 
+  it("finds the same fit on wide corners, and none where enumeration finds none", () => {
+    // Normals over most of a hemisphere, or straddling its rim. The plain
+    // fit and the normals' sum can both miss every feasible point here;
+    // descent then used to return no move at all.
+    let seed = 7;
+    const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32);
+    const cost = (N, d) => N.reduce((s, a) => s + (dot(a, d) - 1) ** 2, 0);
+    const wide = () => unit([2 * rnd() - 1, 2 * rnd() - 1, -(0.001 + rnd() * 0.3)]);
+    const rim = () => unit([2 * rnd() - 1, 2 * rnd() - 1, 0.005 - rnd() * 0.02]);
+    for (const [name, gen] of [["wide", wide], ["rim", rim]]) {
+      for (let trial = 0; trial < 300; trial++) {
+        const N = Array.from({ length: 11 + Math.floor(rnd() * 10) }, gen);
+        const exact = fitCorner(N, { enumerateMax: Infinity });
+        const fast = fitCorner(N, { enumerateMax: 0 });
+        const at = `${name} ${trial}`;
+        if (N.every((a) => dot(a, exact) >= 1 - 1e-9)) {
+          for (const a of N) assert.ok(dot(a, fast) >= 1 - 1e-9, `${at}: a plane is inside the wall`);
+          assert.ok(cost(N, fast) <= cost(N, exact) * (1 + 1e-9) + 1e-12, `${at}: descent is thicker`);
+        } else {
+          const gap = Math.hypot(...exact.map((x, i) => x - fast[i]));
+          assert.ok(gap <= 1e-6 * Math.hypot(...exact), `${at}: a different fallback`);
+        }
+      }
+    }
+  });
+
   it("fits a corner of hundreds of planes quickly", () => {
     // Smooth on a dense globe gathers a pole into one corner like this.
     // Trying every set of three took 2.5 s here (minutes over a whole
