@@ -33,6 +33,9 @@ onward every release gets a full entry here, and breaking changes to the
   every shape**: dragging Smooth when Subdivide is None auto-refines the mesh,
   and Smooth is unlocked under Grid and Spike (softening star spikes into
   rounded lobes and relaxing concave valleys into saddle transitions).
+- **Split is faster on dense shapes**: choosing the cut on a subdivided globe
+  (380,000 triangles) takes about a quarter of the time. The cut it picks is
+  the same.
 
 ### Fixed
 
