@@ -5,8 +5,9 @@
  * which keeps most of a large machine busy for the length of a run.
  *
  * The number and the file list are worked out here, not by the shell, so the
- * command is the same under every shell npm may use. Arguments are passed on
- * after the files.
+ * command is the same under every shell npm may use. Arguments go to
+ * `node --test` ahead of the files, because it reads no option after the
+ * first file: `npm test -- --test-name-pattern="crossing scan"`.
  */
 import { spawnSync } from "node:child_process";
 import { readdirSync } from "node:fs";
@@ -26,7 +27,7 @@ const files = readdirSync(new URL("test/", root))
 
 const run = spawnSync(
   process.execPath,
-  ["--test", `--test-concurrency=${jobs}`, ...files, ...process.argv.slice(2)],
+  ["--test", `--test-concurrency=${jobs}`, ...process.argv.slice(2), ...files],
   { cwd: fileURLToPath(root), stdio: "inherit" },
 );
 if (run.error) throw run.error;
