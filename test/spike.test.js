@@ -199,6 +199,40 @@ describe("spike through compile", () => {
     assert.ok(b.metrics.triangleCount > a.metrics.triangleCount);
     assert.ok(b.metrics.roundingMm.max > 0);
   });
+
+  it("smoothing on a spiked star fillets sharp spikes into soft domes and rounds inner valleys", () => {
+    clearPipelineCache();
+    const sharp = compile({
+      base: "octahedron",
+      spike: Math.sqrt(3),
+      soften: 0,
+      depth: "solid",
+      openings: false,
+    });
+    const soft = compile({
+      base: "octahedron",
+      spike: Math.sqrt(3),
+      soften: 80,
+      depth: "solid",
+      openings: false,
+    });
+    assert.equal(sharp.validation.ok, true);
+    assert.equal(soft.validation.ok, true, soft.validation.errors[0]?.message);
+    assert.equal(soft.skeleton.faces.length, 24);
+    assert.ok(soft.metrics.triangleCount > sharp.metrics.triangleCount);
+    const maxMeshR = (mesh) => {
+      const p = mesh.positions;
+      let m = 0;
+      for (let i = 0; i < p.length; i += 3) {
+        m = Math.max(m, Math.hypot(p[i], p[i + 1], p[i + 2]));
+      }
+      return m;
+    };
+    assert.ok(
+      maxMeshR(soft.mesh) < maxMeshR(sharp.mesh) * 0.85,
+      "spike tips are filleted inward into soft domes without inflating the centre",
+    );
+  });
 });
 
 describe("assertStarShaped on convex parents", () => {
@@ -215,5 +249,19 @@ describe("assertStarShaped on convex parents", () => {
     };
     assert.throws(() => assertStarShaped(shifted));
     assert.ok(Math.abs(starCover(shifted)) < 1e-5, starCover(shifted));
+  });
+
+  it("rejects a closed manifold mesh with total cover ≈ 1 that has a radially folded triangle", () => {
+    const octa = parent("octahedron");
+    const s1 = spikeSkeleton(octa, 1.2);
+    const pos = Float64Array.from(s1.positions);
+    // Displace one equatorial corner tangentially across its neighbour so a
+    // flank triangle flips its radial orientation while the mesh stays closed
+    // around the origin with total winding number (starCover) equal to 1.
+    pos[0] = 0.2;
+    pos[1] = 1.2;
+    const folded = { positions: pos, faces: s1.faces };
+    assert.ok(Math.abs(starCover(folded) - 1) < 1e-6, `cover=${starCover(folded)}`);
+    assert.throws(() => assertStarShaped(folded), /solid angle/);
   });
 });

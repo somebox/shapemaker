@@ -285,11 +285,9 @@ export const CONTROL_DEFS = [
     inertWhen: (s) => !(s.subdiv > 0),
   },
   {
-    // Edge fillet by rounding clip: soften sets a radius (fraction of the
-    // inradius) and vertices project onto the rounded parent solid, so
-    // edges AND corners soften from the first step while flat interiors
-    // hold. 100 turns a cube into its inscribed ball. Needs Subdivide for
-    // resolution; most pronounced on cube and tetra.
+    // Polygonal subdivision fairing: softens corners, ridges, and concave
+    // spike valleys into flowing surfaces; auto-refines when Subdivide is
+    // None so dragging Smooth works directly on any shape.
     key: "soften",
     group: "shape",
     label: "Smooth",
@@ -298,7 +296,6 @@ export const CONTROL_DEFS = [
     min: 0,
     max: 100,
     step: 1,
-    inertWhen: (s) => !(s.subdiv > 0) || s.subdivStyle === "grid" || s.spike > 0,
   },
   // `group` is the panel tab. Build holds what only a printed shell reads
   // (PRINT_KEYS); `advanced` folds a control into the collapsed Advanced

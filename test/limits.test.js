@@ -92,16 +92,30 @@ describe("metrics.limits", () => {
     );
   });
 
-  it("roundingMmMax stays usable after subdivision (uses pre-subdiv ceiling)", () => {
-    const plain = compile({ base: "cube", subdiv: 0 });
-    const once = compile({ base: "cube", subdiv: 1 });
-    assert.equal(plain.validation.ok, true);
-    assert.equal(once.validation.ok, true);
-    assert.ok(once.metrics.limits.roundingMmMax > 0.5,
-      `subdiv rounding ceiling too tight: ${once.metrics.limits.roundingMmMax}`);
-    assert.ok(
-      once.metrics.limits.roundingMmMax >= plain.metrics.limits.roundingMmMax * 0.9,
-    );
+  it("roundingMmMax matches applied macro-edge budget (zero dead slider zone)", () => {
+    for (const state of [
+      { base: "icosidodeca" },
+      { base: "icosidodeca", depth: "solid", openings: false },
+      { base: "cube" },
+      { base: "cube", depth: "solid", openings: false },
+      { base: "cube", subdiv: 1 },
+      { base: "octahedron", spike: Math.sqrt(3), depth: "solid", openings: false },
+    ]) {
+      const probe = compile(state);
+      assert.equal(probe.validation.ok, true);
+      const maxR = probe.metrics.limits.roundingMmMax;
+      assert.ok(maxR > 1, `${JSON.stringify(state)}: ceiling ${maxR}`);
+      const atMax = compile({ ...state, roundingMm: maxR });
+      assert.equal(atMax.validation.ok, true);
+      assert.ok(
+        Math.abs(atMax.metrics.roundingMm.max - maxR) < 1e-6,
+        `${JSON.stringify(state)}: applied ${atMax.metrics.roundingMm.max} !== ceiling ${maxR}`,
+      );
+    }
+    // Obtuse polyhedra convert face-band budget via cot(ω/2), yielding >5 mm
+    // ball radius on the default Ø100 mm open icosidodecahedron (was 1.93 mm).
+    const def = compile({ base: "icosidodeca" });
+    assert.ok(def.metrics.limits.roundingMmMax > 5.5);
   });
 
   it("grid subdiv shrinks borderMmMax vs radial (style is a reshape)", () => {

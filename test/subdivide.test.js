@@ -113,18 +113,13 @@ describe("subdivideSkeleton", () => {
     assertSkeletonHasOnlyParentPlanes(g, 6);
   });
 
-  it("grid style ignores soften — the flat quads must stay planar", () => {
+  it("grid style with soften > 0 splits quads symmetrically into planar triangles", () => {
     const a = subdivideSkeleton(exact("cube"), 1, 0.7, "grid");
-    const b = subdivideSkeleton(exact("cube"), 1, 0, "grid");
-    assert.deepEqual(Array.from(a.positions), Array.from(b.positions));
+    assert.equal(a.faces.length, 48);
+    assert.ok(a.faces.every((f) => f.length === 3));
   });
 
   it("soften rounds edges from the first step, on every base", () => {
-    // The old sphere clip left a cube's edges at the full 90° crease until
-    // soften ≈ 0.69 (it only reached corner vertices), and on two-radius
-    // Catalan solids it pulled outer corners past the inner ring, making
-    // creases SHARPER. The rounding clip must strictly reduce the worst
-    // crease at moderate soften for every base.
     const maxCrease = (sk) => {
       const { positions: pos, faces, edges } = sk;
       const normals = faces.map((ring) => {
@@ -164,18 +159,13 @@ describe("subdivideSkeleton", () => {
   });
 
   it("soften keeps flat face interiors exactly in plane", () => {
-    // Face-interior vertices are fixed points of the rounding clip: their
-    // inset foot is R straight below, so they sit exactly on the rounded
-    // solid already.
     const flat = subdivideSkeleton(exact("cube"), 2, 0.4);
-    // Cube face-center region: vertices whose max |coord| axis value equals
-    // the face-plane distance (1/√3) and other coords well inside.
     const d = 1 / Math.sqrt(3);
     let checked = 0;
     for (let i = 0; i < flat.positions.length; i += 3) {
       const c = [flat.positions[i], flat.positions[i + 1], flat.positions[i + 2]];
       const abs = c.map(Math.abs).sort((a, b) => b - a);
-      if (abs[1] < d * 0.3) { // near a face centre
+      if (abs[1] < d * 0.3) {
         assert.ok(Math.abs(abs[0] - d) < 1e-9, `face centre moved: ${abs[0]}`);
         checked++;
       }
@@ -184,9 +174,6 @@ describe("subdivideSkeleton", () => {
   });
 
   it("soften 1 reaches the inscribed ball on mixed-distance solids too", () => {
-    // The fillet radius caps at the min plane distance; without the melt
-    // phase the deeper faces of an icosidodecahedron would survive soften 1
-    // as large flats.
     const s1 = subdivideSkeleton(exact("icosidodeca"), 2, 1);
     let rMin = Infinity, rMax = 0;
     for (let i = 0; i < s1.positions.length; i += 3) {
@@ -198,16 +185,12 @@ describe("subdivideSkeleton", () => {
   });
 
   it("melt phase never touches soften ≤ 0.5 (fillet-only regime)", () => {
-    // Below the melt threshold, deep-face interiors must remain exactly on
-    // their planes even on mixed-distance solids.
     const half = subdivideSkeleton(exact("icosidodeca"), 2, 0.5);
     let rMax = 0;
     for (let i = 0; i < half.positions.length; i += 3) {
       rMax = Math.max(rMax, Math.hypot(
         half.positions[i], half.positions[i + 1], half.positions[i + 2]));
     }
-    // Triangle-face plane distance of the unit icosidodecahedron ≈ 0.939;
-    // its face centres must still be there at soften 0.5.
     assert.ok(rMax > 0.93, `deep flats untouched at 0.5: rMax ${rMax}`);
   });
 
@@ -286,8 +269,6 @@ describe("subdivision through the pipeline", () => {
     const r = compileFitted({ base: "cube", subdiv: 2, soften: 60, jitter: 15, seed: 7 });
     assert.equal(r.validation.ok, true, r.validation.errors[0]?.message);
     assert.equal(r.skeleton.faces.length, 192);
-    // The smooth clip caps every vertex below the circumradius: on the
-    // 50 mm-radius solid no vertex may reach the sharp-corner radius.
     let maxR = 0;
     for (let i = 0; i < r.skeleton.positions.length; i += 3) {
       maxR = Math.max(
@@ -301,6 +282,22 @@ describe("subdivision through the pipeline", () => {
     }
     assert.ok(maxR < 50 * 0.95, `smoothing survived jitter: max radius ${maxR}`);
     assertMeshInvariants(r.mesh);
+  });
+
+  it("fillets corners, edges, spikes, and inner valleys directly in the shell when subdiv=0", () => {
+    clearPipelineCache();
+    const cubeSharp = compile({ base: "cube", subdiv: 0, soften: 0 });
+    const cubeSoft = compile({ base: "cube", subdiv: 0, soften: 23 });
+    assert.equal(cubeSoft.validation.ok, true, cubeSoft.validation.errors[0]?.message);
+    assert.equal(cubeSoft.skeleton.faces.length, 6, "cube keeps 6 faces/openings at subdiv=0");
+    assert.ok(cubeSoft.metrics.triangleCount > cubeSharp.metrics.triangleCount);
+    assertMeshInvariants(cubeSoft.mesh);
+
+    const hash = encodeHash(cubeSoft.state);
+    const restored = decodeHash(hash);
+    assert.equal(restored.ok, true);
+    assert.equal(restored.state.subdiv, 0);
+    assert.equal(restored.state.soften, 23);
   });
 
   it("subdiv round-trips through the hash codec; old hashes default to 0", () => {

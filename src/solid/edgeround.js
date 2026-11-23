@@ -109,7 +109,16 @@ const norm = (a) => {
  */
 export function buildEdgeRounding(skeleton, frames, opts) {
   const { positions, faces } = skeleton;
-  const { radiusForEdge, allowForEdge, segments: J, lengthwise, pushVert, getVert } = opts;
+  const {
+    radiusForEdge,
+    allowForEdge,
+    smoothAllowForEdge,
+    roundValleys = false,
+    segments: baseSegments,
+    lengthwise,
+    pushVert,
+    getVert,
+  } = opts;
   const topo = buildMacroTopology(skeleton, frames);
   const {
     macroFaceId, directed, outerRing, cornerVerts, internalKeys,
@@ -170,17 +179,25 @@ export function buildEdgeRounding(skeleton, frames, opts) {
     const cosw = Math.max(-1, Math.min(1, dot(t0, t1)));
     const sinw = Math.sqrt(Math.max(1 - cosw * cosw, 0));
     const cotHalf = sinw > 1e-9 ? (1 + cosw) / sinw : 1;
-    let r = 0;
-    let budget = 0;
+    let rRound = 0;
     if (!flat && !reflex) {
-      r = Math.min(...me.keys.map((k) => radiusForEdge(k)));
-      budget = Math.min(...me.keys.map((k) => allowForEdge?.(k) ?? r));
-      if (!(r > 0) || !Number.isFinite(r)) r = 0;
+      let rReq = Math.min(...me.keys.map((k) => radiusForEdge(k)));
+      let budget = Math.min(...me.keys.map((k) => allowForEdge?.(k) ?? rReq));
+      if (!(rReq > 0) || !Number.isFinite(rReq)) rReq = 0;
       if (!(budget > 0) || !Number.isFinite(budget)) budget = 0;
+      if (rReq * cotHalf > budget) rReq = budget / cotHalf;
+      if (!(rReq > 0) || !Number.isFinite(rReq) || rReq * cotHalf < wFloor) {
+        rReq = 0;
+      }
+      rRound = rReq;
     }
-    if (r * cotHalf > budget) r = budget / cotHalf;
-    if (!(r > 0) || !Number.isFinite(r)) r = 0;
-    if (r * cotHalf < wFloor) r = 0;
+    let rSmooth = 0;
+    if (!flat && (!reflex || roundValleys) && smoothAllowForEdge) {
+      let wSmooth = Math.min(...me.keys.map((k) => smoothAllowForEdge(k)));
+      if (!(wSmooth >= wFloor) || !Number.isFinite(wSmooth)) wSmooth = 0;
+      rSmooth = cotHalf > 1e-9 ? wSmooth / cotHalf : wSmooth;
+    }
+    const r = Math.max(rRound, rSmooth);
     const w = r * cotHalf;
     const len = Math.hypot(...sub(V, U));
     if (!(len > 1e-12) || !Number.isFinite(len)) continue;
@@ -191,28 +208,13 @@ export function buildEdgeRounding(skeleton, frames, opts) {
       fb: me.fb,
       ma: me.ma,
       mb: me.mb,
-      u, v, U, V, d, t0, t1, r, w, cosw, sinw, cotHalf, len,
+      u, v, U, V, d, t0, t1, r, rRound, w, cosw, sinw, cotHalf, len, reflex,
     });
   }
 
   const edgeByTopo = new Map();
   for (let i = 0; i < edges.length; i++) {
     for (const k of edges[i].keys) edgeByTopo.set(k, i);
-  }
-
-  for (const e of edges) {
-    if (e.r === 0) continue;
-    for (const vert of [e.u, e.v]) {
-      if (!cornerVerts.has(vert)) continue;
-      for (const m of [e.ma, e.mb]) {
-        const gamma = macroAngleAt(m, vert);
-        const wCap = 0.2 * e.len * Math.max(Math.sin(gamma), 0.05);
-        if (e.w > wCap) {
-          e.w = wCap;
-          e.r = e.cotHalf > 1e-9 ? wCap / e.cotHalf : wCap;
-        }
-      }
-    }
   }
 
   const otherEdgeAtMacro = (m, v, self) => {
@@ -245,6 +247,7 @@ export function buildEdgeRounding(skeleton, frames, opts) {
     e.w *= k;
     e.r = e.w < wFloor ? 0 : e.cotHalf > 1e-9 ? e.w / e.cotHalf : e.w;
     if (e.r === 0) e.w = 0;
+    if (e.rRound > e.r) e.rRound = e.r;
   };
   for (let pass = 0; pass < 12; pass++) {
     let changed = false;
@@ -282,6 +285,17 @@ export function buildEdgeRounding(skeleton, frames, opts) {
       e.trim[vert] = { lMax, perFace };
     }
   }
+
+  let maxArcMm = 0;
+  for (const e of edges) {
+    if (!(e.r > 0)) continue;
+    const turn = Math.acos(Math.max(-1, Math.min(1, -e.cosw)));
+    maxArcMm = Math.max(maxArcMm, e.r * turn);
+  }
+  const J = Math.min(
+    12,
+    Math.max(baseSegments, Math.round((maxArcMm * baseSegments) / 2.4)),
+  );
 
   for (const e of edges) {
     const lu = e.trim[e.u].lMax, lv = e.trim[e.v].lMax;
@@ -665,9 +679,11 @@ export function buildEdgeRounding(skeleton, frames, opts) {
   let radiusMin = Infinity;
   let radiusMax = 0;
   for (const e of edges) {
+    if (e.rRound > 0) {
+      radiusMin = Math.min(radiusMin, e.rRound);
+      radiusMax = Math.max(radiusMax, e.rRound);
+    }
     if (e.r === 0) continue;
-    radiusMin = Math.min(radiusMin, e.r);
-    radiusMax = Math.max(radiusMax, e.r);
     if (e.cols < 2) continue;
     const flip = !outward(e.grid[0][0], e.grid[0][1], e.grid[1][1]);
     for (let j = 0; j < J; j++) {
@@ -945,9 +961,83 @@ export function buildEdgeRounding(skeleton, frames, opts) {
       continue;
     }
 
+    // Saddle / concave-valley corner (e.g. inner joints of a spiked star
+    // when Smooth fillets both ridges and valleys): incident faces alternate
+    // convex and reflex dihedrals, so there is no single inward sphere centre X.
+    // Fill with a multi-ring harmonic saddle patch relaxed from the boundary loop.
+    if (spokes.some((sp) => edges[sp.ei].reflex)) {
+      const capFid = spokes[0].f;
+      let nx = 0, ny = 0, nz = 0, sx = 0, sy = 0, sz = 0, perim = 0;
+      for (let i = 0; i < clean.length; i++) {
+        const a = getVert(clean[i]);
+        const b = getVert(clean[(i + 1) % clean.length]);
+        nx += (a[1] - b[1]) * (a[2] + b[2]);
+        ny += (a[2] - b[2]) * (a[0] + b[0]);
+        nz += (a[0] - b[0]) * (a[1] + b[1]);
+        sx += a[0]; sy += a[1]; sz += a[2];
+        perim += Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+      }
+      const loopArea = Math.hypot(nx, ny, nz) / 2;
+      if (!(loopArea > 1e-9 * perim * perim)) continue;
+      const outwardLoop = nx * sx + ny * sy + nz * sz > 0;
+      const ordered = outwardLoop ? clean : [...clean].reverse();
+      const M = ordered.length;
+      const L = Math.max(3, J);
+      const c0 = mul([sx, sy, sz], 1 / M);
+      const gridRings = [ordered];
+      for (let l = 1; l < L; l++) {
+        const t = l / L;
+        const ring = ordered.map((idx) => {
+          const b = getVert(idx);
+          const p = add(mul(b, 1 - t), mul(c0, t));
+          return pushVert(p[0], p[1], p[2], [[v, 1]]);
+        });
+        gridRings.push(ring);
+      }
+      const apex = pushVert(c0[0], c0[1], c0[2], [[v, 1]]);
+      for (let iter = 0; iter < 12; iter++) {
+        for (let l = 1; l < L; l++) {
+          for (let i = 0; i < M; i++) {
+            const pPrev = getVert(gridRings[l][(i - 1 + M) % M]);
+            const pNext = getVert(gridRings[l][(i + 1) % M]);
+            const pOut = getVert(gridRings[l - 1][i]);
+            const pIn = l + 1 < L ? getVert(gridRings[l + 1][i]) : getVert(apex);
+            const cur = getVert(gridRings[l][i]);
+            cur[0] = (pPrev[0] + pNext[0] + pOut[0] + pIn[0]) / 4;
+            cur[1] = (pPrev[1] + pNext[1] + pOut[1] + pIn[1]) / 4;
+            cur[2] = (pPrev[2] + pNext[2] + pOut[2] + pIn[2]) / 4;
+          }
+        }
+        let ax = 0, ay = 0, az = 0;
+        for (const idx of gridRings[L - 1]) {
+          const p = getVert(idx);
+          ax += p[0]; ay += p[1]; az += p[2];
+        }
+        const ap = getVert(apex);
+        ap[0] = ax / M; ap[1] = ay / M; ap[2] = az / M;
+      }
+      for (let l = 0; l < L - 1; l++) {
+        const r0 = gridRings[l], r1 = gridRings[l + 1];
+        for (let i = 0; i < M; i++) {
+          const i2 = (i + 1) % M;
+          capEmitTri(r0[i], r0[i2], r1[i2], capFid, tris);
+          capEmitTri(r0[i], r1[i2], r1[i], capFid, tris);
+        }
+      }
+      const rLast = gridRings[L - 1];
+      for (let i = 0; i < M; i++) {
+        capEmitTri(apex, rLast[i], rLast[(i + 1) % M], capFid, tris);
+      }
+      continue;
+    }
+
     let rMin = Infinity;
+    let rMaxSpoke = 0;
     let nAvg = [0, 0, 0];
-    for (const s of spokes) rMin = Math.min(rMin, edges[s.ei].r);
+    for (const s of spokes) {
+      rMin = Math.min(rMin, edges[s.ei].r);
+      rMaxSpoke = Math.max(rMaxSpoke, edges[s.ei].r);
+    }
     let A = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
     let rhs = [0, 0, 0];
     const seen = new Set();
@@ -1078,7 +1168,15 @@ export function buildEdgeRounding(skeleton, frames, opts) {
     // An incomplete or failed ear-clip falls through to the apex fan.
     if (compact < 0.03 && flatCap()) continue;
 
-    const apexPos = clampRadial(dirApex, rApex);
+    // On 4+-valent corners with uniform spoke radius, the incident offset
+    // planes do not share a single sphere centre X, and taking the union of
+    // all 4+ edge cylinders in envelope(dir) projects star ridges across the
+    // cap. Smoothly blending each ray's radius from its boundary distance
+    // |b − X| at t = 0 to rMin at t = 1 keeps C⁰/C¹ continuity with the
+    // boundary loop and produces a clean spherical dome.
+    const uniformMultiCorner =
+      seenFaces.length >= 4 && rMaxSpoke - rMin <= 1e-5 * rMin;
+    const apexPos = clampRadial(dirApex, uniformMultiCorner ? rMin : rApex);
     const apex = pushVert(apexPos[0], apexPos[1], apexPos[2], [[v, 1]]);
 
     const L = Math.max(2, J);
@@ -1098,10 +1196,15 @@ export function buildEdgeRounding(skeleton, frames, opts) {
       const ring = new Array(ordered.length);
       for (let i = 0; i < ordered.length; i++) {
         const b = getVert(ordered[i]);
+        const bRel = sub(b, X);
+        const rho0 = Math.hypot(bRel[0], bRel[1], bRel[2]) || rMin;
         const dir = norm(
-          add(mul(norm(sub(b, X)), 1 - t), mul(dirApex, t)),
+          add(mul(mul(bRel, 1 / rho0), 1 - t), mul(dirApex, t)),
         );
-        const p = clampRadial(dir, envelope(dir));
+        const rho = uniformMultiCorner
+          ? (1 - t) * rho0 + t * rMin
+          : envelope(dir);
+        const p = clampRadial(dir, rho);
         const nearPt = (idx) => {
           const q = getVert(idx);
           return Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]) < 1e-9;

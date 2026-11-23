@@ -29,8 +29,19 @@ onward every release gets a full entry here, and breaking changes to the
   rows and tabs stack, with the tabs under the thumb, and sideways the tabs are
   a rail. Touch targets are at least 44 px.
 
+- **Smooth (`soften`) is polygonal subdivision fairing and works directly on
+  every shape**: dragging Smooth when Subdivide is None auto-refines the mesh,
+  and Smooth is unlocked under Grid and Spike (softening star spikes into
+  rounded lobes and relaxing concave valleys into saddle transitions).
+
 ### Fixed
 
+- **Rounding (`roundingMm`) uses full physical radii and accurate slider
+  ceilings**: fixed the ball-radius vs. tangency-width clamp (~3× wider fillets
+  on obtuse solids), removed the redundant 20% edge-length pre-cap, derived
+  `roundingMmMax` from the macro-edge graph so the slider has no dead travel,
+  removed 4-valent corner-cap cylinder-union ridges, and scaled arc segments
+  with fillet radius.
 - A failed rebuild now says so on the status line, even with the last good
   model on screen. The status used to keep showing the old dimensions.
 
