@@ -7,7 +7,7 @@
   "bin": { "shapemaker": "scripts/shapemaker.mjs" },
   "description": "Browser app for designing printable 3D shapes",
   "scripts": {
-    "test": "node --test test/*.test.js",
+    "test": "node --test --test-concurrency=${TEST_JOBS:-4} test/*.test.js",
     "acceptance": "bash scripts/acceptance.sh"
   }
 }
