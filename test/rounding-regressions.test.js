@@ -173,12 +173,13 @@ describe("the crossing scan", () => {
     const want = everyPair(crossing);
     assert.ok(want.length > 100, `${want.length} pairs cross`);
     assert.deepEqual(selfIntersections(crossing), want);
-    // Small and apart, the list's second half a row up: nothing crosses.
-    // 200,000 of them take about 40 ms; halving alone took 9 s.
-    const apart = soup(200000, (t) => [0, 0, 0, 0.5, 0, 0, 0, 0.5, 0].map((p, i) => (i % 3 === 1 && t >= 100000 ? p + 2 : p)));
-    const start = performance.now();
-    assert.deepEqual(selfIntersections(apart), []);
-    const ms = performance.now() - start;
-    assert.ok(ms < 2000, `the scan took ${ms.toFixed(0)} ms`);
+    // Small and apart, the list's second half a row up: nothing crosses,
+    // and halving the tree's nodes stays within its bound of 9 n log2 n
+    // triangles passed over. Without the sort it passes over 90 times that
+    // bound here.
+    const n = 50000, tally = {};
+    const apart = soup(n, (t) => [0, 0, 0, 0.5, 0, 0, 0, 0.5, 0].map((p, i) => (i % 3 === 1 && t >= n / 2 ? p + 2 : p)));
+    assert.deepEqual(selfIntersections(apart, Infinity, tally), []);
+    assert.ok(tally.halving < 9 * n * Math.log2(n), `halving passed over ${tally.halving} triangles`);
   });
 });

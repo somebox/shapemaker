@@ -21,9 +21,13 @@ const CLEAR = 1e-12;
  * when the mesh holds more.
  * @param {{ positions: ArrayLike<number>, indices: ArrayLike<number> }} mesh
  * @param {number} [limit=Infinity]  stop after this many pairs
+ * @param {{ halving?: number }} [tally]  if given, `halving` is set to the
+ *   number of triangles the tree build passed over while halving its nodes:
+ *   under 9 n log2 n for n triangles in any order
  * @returns {[number, number][]}
  */
-export function selfIntersections(mesh, limit = Infinity) {
+export function selfIntersections(mesh, limit = Infinity, tally = null) {
+  if (tally) tally.halving = 0;
   // Own copies: one element type whatever the caller passes (float32 or
   // float64 positions, plain arrays), so the loops below stay fast.
   const P = new Float64Array(mesh.positions);
@@ -55,7 +59,7 @@ export function selfIntersections(mesh, limit = Infinity) {
   const nodeBox = new Float64Array(cap * 6);
   const nodeRight = new Uint32Array(cap); // 0 marks a leaf
   const nodeStart = new Uint32Array(cap), nodeEnd = new Uint32Array(cap);
-  let nodes = 0;
+  let nodes = 0, halving = 0;
   const build = (start, end) => {
     const id = nodes++;
     nodeStart[id] = start;
@@ -90,7 +94,7 @@ export function selfIntersections(mesh, limit = Infinity) {
     if (cy1 - cy0 > wide) { axis = 1; wide = cy1 - cy0; }
     if (cz1 - cz0 > wide) axis = 2;
     const half = (start + end) >> 1;
-    splitAt(order, mid, axis, start, end - 1, half);
+    halving += splitAt(order, mid, axis, start, end - 1, half);
     const left = build(start, half), right = build(half, end);
     nodeRight[id] = right;
     // The node's box holds its children's.
@@ -102,6 +106,7 @@ export function selfIntersections(mesh, limit = Infinity) {
     return id;
   };
   build(0, n);
+  if (tally) tally.halving = halving;
 
   // The pairs of triangles under two leaves (or under one, taken with itself).
   const hits = [];
@@ -203,14 +208,18 @@ export function selfIntersections(mesh, limit = Infinity) {
  * round a ring, leave the middle pivot at the far end every time. So the
  * passes have a budget of eight times the range, and when it is spent what
  * is left is sorted.
+ *
+ * Returns the number of triangles passed over, counting those sorted once:
+ * no more than nine times the range.
  */
 function splitAt(order, mid, axis, lo, hi, k) {
-  let budget = 8 * (hi - lo + 1);
+  const budget = 8 * (hi - lo + 1);
+  let passed = 0;
   while (lo < hi) {
-    budget -= hi - lo + 1;
-    if (budget < 0) {
+    passed += hi - lo + 1;
+    if (passed > budget) {
       order.subarray(lo, hi + 1).sort((a, b) => mid[a * 3 + axis] - mid[b * 3 + axis]);
-      return;
+      return passed;
     }
     const pivot = mid[order[(lo + hi) >> 1] * 3 + axis];
     let i = lo, j = hi;
@@ -227,8 +236,9 @@ function splitAt(order, mid, axis, lo, hi, k) {
     }
     if (k <= j) hi = j;
     else if (k >= i) lo = i;
-    else return;
+    else break;
   }
+  return passed;
 }
 
 /** Whether an edge of triangle (a, b, c) passes through triangle (p, q, r), or one of its edges through (a, b, c). */
