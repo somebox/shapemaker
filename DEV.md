@@ -182,7 +182,7 @@ src/
   viewer.js         only module that imports Three.js
 prototype/          Python reference (meshcheck, original generator)
 test/               node --test + fixtures; mini-dom.js runs the real panel
-scripts/            shapemaker.mjs (CLI), export-stl.mjs, acceptance.sh, build-examples.mjs (+ lib/)
+scripts/            shapemaker.mjs (CLI), export-stl.mjs, acceptance.sh, build-examples.mjs, test.mjs (npm test) (+ lib/)
 docs/               spec, roadmap, production design, examples/, research/
 ```
 
