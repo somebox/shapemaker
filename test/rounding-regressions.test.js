@@ -151,4 +151,34 @@ describe("the crossing scan", () => {
     assert.equal(selfIntersections({ positions, indices }, 1).length, 1);
     assert.deepEqual(selfIntersections({ positions: [], indices: [] }), []);
   });
+
+  it("stays quick and right when centres rise and then fall along the list", () => {
+    // Centres at 0, 1, ... m ... 1, 0 along x, as round a ring. Halving a
+    // list in this order by its middle triangle takes a pass per handful of
+    // triangles, so the scan sorts what is left once that has cost enough.
+    let seed = 2468;
+    const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+    const soup = (count, corner) => {
+      const positions = [], indices = [];
+      for (let t = 0; t < count; t++) {
+        const tri = corner(t);
+        const shift = Math.min(t, count - 1 - t) - (tri[0] + tri[3] + tri[6]) / 3;
+        for (let v = 0; v < 3; v++) positions.push(tri[v * 3] + shift, tri[v * 3 + 1], tri[v * 3 + 2]);
+        indices.push(t * 3, t * 3 + 1, t * 3 + 2);
+      }
+      return { positions, indices };
+    };
+    // Turned every way and larger than the step between them: neighbours cross.
+    const crossing = soup(600, () => Array.from({ length: 9 }, () => (rnd() - 0.5) * 4));
+    const want = everyPair(crossing);
+    assert.ok(want.length > 100, `${want.length} pairs cross`);
+    assert.deepEqual(selfIntersections(crossing), want);
+    // Small and apart, the list's second half a row up: nothing crosses.
+    // 200,000 of them take about 40 ms; halving alone took 9 s.
+    const apart = soup(200000, (t) => [0, 0, 0, 0.5, 0, 0, 0, 0.5, 0].map((p, i) => (i % 3 === 1 && t >= 100000 ? p + 2 : p)));
+    const start = performance.now();
+    assert.deepEqual(selfIntersections(apart), []);
+    const ms = performance.now() - start;
+    assert.ok(ms < 2000, `the scan took ${ms.toFixed(0)} ms`);
+  });
 });

@@ -197,9 +197,21 @@ export function selfIntersections(mesh, limit = Infinity) {
  * Reorder order[lo..hi] so that the triangle at k is the one a full sort by
  * centre along `axis` would put there, with none before it farther along
  * than any after it (Hoare's selection).
+ *
+ * Selection takes a few passes over the range in most orders, but one pass
+ * per handful of triangles in some: centres that rise and then fall, as
+ * round a ring, leave the middle pivot at the far end every time. So the
+ * passes have a budget of eight times the range, and when it is spent what
+ * is left is sorted.
  */
 function splitAt(order, mid, axis, lo, hi, k) {
+  let budget = 8 * (hi - lo + 1);
   while (lo < hi) {
+    budget -= hi - lo + 1;
+    if (budget < 0) {
+      order.subarray(lo, hi + 1).sort((a, b) => mid[a * 3 + axis] - mid[b * 3 + axis]);
+      return;
+    }
     const pivot = mid[order[(lo + hi) >> 1] * 3 + axis];
     let i = lo, j = hi;
     while (i <= j) {
