@@ -416,4 +416,33 @@ describe("splitMeshAtPlane", () => {
       }
     }
   });
+
+  it("snapPlaneZ reads the heights in any order, repeated or not", () => {
+    // Vertices at 0, 0.5 and 3 mm: out of order, each height several times,
+    // one a rounding error off. The gaps to cut in are 0 to 0.5 and 0.5 to 3.
+    const at = (zs) => Float64Array.from(zs.flatMap((z, i) => [(i * 7) % 3, i, z]));
+    const pos = at([3, 0, 0.5, 0, 3, 0.5 + 5e-13, 0.5, 0, 3]);
+    assert.equal(snapPlaneZ(pos, 0.2), 0.25);
+    assert.equal(snapPlaneZ(pos, 2), 1.75);
+    assert.equal(snapPlaneZ(pos, -10), 0.25);
+    assert.equal(snapPlaneZ(pos, 99), 1.75);
+    // Heights closer than the clearance leave no room between them.
+    assert.equal(snapPlaneZ(at([4, 0.01, 0]), 0), (0.01 + 4) / 2);
+    // One height, however often: no gap at all.
+    assert.equal(snapPlaneZ(at([2, 2 + 1e-13, 2]), 1), null);
+  });
+
+  it("plane ranking measures clearance on the float64 heights it cuts", () => {
+    const r = compileFresh({ base: "cuboctahedron", depth: "hollow",
+      wallMm: 1.4, openings: true, borderMm: 3.2, filletMm: 4.5 });
+    const placed = placedOf(r);
+    const opts = { heightMm: heightOf(placed).heightMm,
+      seamZs: skeletonSeamLevels(r.skeleton, r.orientation.matrix) };
+    const ranked = rankSplitPlanes(placed, opts);
+    assert.ok(ranked.length > 5, `${ranked.length} planes`);
+    // The float32 copy moved off its heights: the planes stay where they are.
+    const moved = Float32Array.from(placed.positions);
+    for (let i = 2; i < moved.length; i += 3) moved[i] += 0.37 * (((i - 2) / 3) % 5);
+    assert.deepEqual(rankSplitPlanes({ ...placed, positions: moved }, opts), ranked);
+  });
 });
