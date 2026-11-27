@@ -506,22 +506,27 @@ function descend(normals, H, g, free, hullStart) {
       W.splice(worst, 1);
       continue;
     }
-    // A plane whose normal lies in the span of W's (a duplicate, say)
+    // A plane whose normal lies exactly in the span of W's (a repeat, say)
     // keeps its distance along any step that holds W, so it never blocks;
     // rounding can make it look as if it does, and adding it would leave W
-    // singular and stop the descent short.
+    // singular. Only exact (to rounding) cases qualify: a plane even 1e-9
+    // off the span moves by that fraction of the step, and on a corner
+    // millions of walls deep it can genuinely block. Those go into W, and
+    // the null-space solve handles them. A single held plane passes only a
+    // repeat facing the same way, never one facing the other way.
     const cross = (a, b) =>
       [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
     const spanNormal = W.length === 2 ? cross(normals[W[0]], normals[W[1]]) : null;
+    const SPAN_SIN2 = 1e-24;
     const inSpan = (c) => {
       if (W.length >= 3) return true;
       const cc = dot(c, c);
       if (W.length === 1) {
         const w = normals[W[0]], x = cross(w, c);
-        return dot(x, x) <= 1e-18 * dot(w, w) * cc;
+        return dot(w, c) > 0 && dot(x, x) <= SPAN_SIN2 * dot(w, w) * cc;
       }
       const s = dot(spanNormal, c);
-      return s * s <= 1e-18 * dot(spanNormal, spanNormal) * cc;
+      return s * s <= SPAN_SIN2 * dot(spanNormal, spanNormal) * cc;
     };
     let alpha = 1, block = -1;
     for (let i = 0; i < k; i++) {

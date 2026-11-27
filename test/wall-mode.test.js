@@ -147,6 +147,23 @@ describe("fitCorner", () => {
     }
   });
 
+  it("never skips a nearly opposite plane as if it were in the working set's span", () => {
+    // Planes 1e-9 off the span were skipped as if exactly in it; on a fit
+    // 3e8 walls deep that small angle moves a plane by a third of a wall per
+    // step, so a nearly opposite one could be stepped through (clearance −1,
+    // raised in review). Only exact repeats facing the same way are skipped.
+    for (const [e, ring] of [[3e-9, 298], [3e-8, 298], [3e-9, 50]]) {
+      const N = [unit([1, 0, -e]), unit([-1, 0, -e]), ...Array.from({ length: ring }, (_, i) => {
+        const t = (2 * Math.PI * i) / ring;
+        return unit([0.2 * Math.cos(t), 0.2 * Math.sin(t), -1]);
+      })];
+      const d = fitCorner(N);
+      const depth = Math.max(1, Math.hypot(...d));
+      for (const a of N) assert.ok(dot(a, d) >= 1 - 1e-12 * depth, `e = ${e}, ${ring}: a plane is inside the wall`);
+      assert.ok(depth > 0.9 / e, `e = ${e}, ${ring}: the fit is only ${depth.toExponential(2)} deep`);
+    }
+  });
+
   it("finds a fit for a tight cone with a few planes barely leaning on it", () => {
     // Hundreds of planes; most hug −z, a few lean on it by a hair. The
     // scaled frame shrank this margin below the floor, so the start search
