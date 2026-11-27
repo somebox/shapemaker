@@ -658,15 +658,18 @@
       overflow: hidden;
       text-overflow: ellipsis;
     }
+    /* A 24 px target (WCAG 2.5.8) around a 1 rem ring; the label's line
+       grows to hold it, so it overlaps nothing. */
     .control-help-toggle {
       appearance: none;
       flex: none;
-      width: 1rem;
-      height: 1rem;
+      width: 24px;
+      height: 24px;
       padding: 0;
-      border: 1px solid var(--line);
+      border: none;
       border-radius: 50%;
-      background: transparent;
+      background: radial-gradient(circle, transparent calc(0.5rem - 1px),
+        var(--line) calc(0.5rem - 1px), var(--line) 0.5rem, transparent 0.5rem);
       color: var(--text-dim);
       font: 600 0.6rem var(--font-mono);
       line-height: 1;
@@ -675,7 +678,8 @@
     .control-help-toggle:hover,
     .control-help-toggle[aria-expanded="true"] {
       color: var(--accent);
-      border-color: var(--accent);
+      background: radial-gradient(circle, transparent calc(0.5rem - 1px),
+        var(--accent) calc(0.5rem - 1px), var(--accent) 0.5rem, transparent 0.5rem);
     }
     .control-help-toggle:focus-visible {
       outline: 2px solid var(--focus);
@@ -1314,20 +1318,7 @@
       /* Fields side by side line up at their inputs, under a taller label. */
       .tab-body,
       .cluster-body { align-items: end; }
-      .control-help-toggle {
-        width: 44px;
-        min-height: 44px;
-        border-color: transparent;
-        /* The same small ring, drawn inside the larger target. */
-        background: radial-gradient(circle, transparent calc(0.5rem - 1px),
-          var(--line) calc(0.5rem - 1px), var(--line) 0.5rem, transparent 0.5rem);
-      }
-      .control-help-toggle:hover,
-      .control-help-toggle[aria-expanded="true"] {
-        border-color: transparent;
-        background: radial-gradient(circle, transparent calc(0.5rem - 1px),
-          var(--accent) calc(0.5rem - 1px), var(--accent) 0.5rem, transparent 0.5rem);
-      }
+      .control-help-toggle { width: 44px; min-height: 44px; }
       button.value-readout:hover { background: transparent; border-color: transparent; }
       .control-row input[type="number"] { min-height: 44px; }
       .panel-tab { min-height: 52px; }
