@@ -210,6 +210,7 @@ describe("panel controls", () => {
     toggle.click();
     assert.equal(help.hidden, false);
     assert.equal(toggle.getAttribute("aria-expanded"), "true");
+    assert.equal(dual.dataset.helpOpen, "1", "takes the full row");
     assert.match(help.textContent, /cube becomes an octahedron/);
     toggle.click();
     assert.equal(help.hidden, true);

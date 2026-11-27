@@ -327,6 +327,8 @@ export function buildControl(def, inputs, ranges, errNodes, limitLabels) {
           if (!help) return;
           help.hidden = !help.hidden;
           toggle.setAttribute("aria-expanded", String(!help.hidden));
+          // Lets the field take the full row while its help is open.
+          root.dataset.helpOpen = help.hidden ? "0" : "1";
         });
         head.append(toggle);
       }
