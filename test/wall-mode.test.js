@@ -127,6 +127,26 @@ describe("fitCorner", () => {
     assert.ok(N.some((a) => Math.abs(dot(a, d) - 1) < 1e-9), "at least one plane sits at the wall");
   });
 
+  it("never fits inside a wall when planes nearly oppose", () => {
+    // Two planes facing almost opposite ways put the fit tens of thousands
+    // of walls deep, where rounding in the scaled frame left it ~1e-7 of a
+    // wall inside the nearest plane (raised in review). It is now scaled
+    // out to clear them all.
+    let seed = 4242;
+    const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32);
+    const cost = (N, d) => N.reduce((s, a) => s + (dot(a, d) - 1) ** 2, 0);
+    for (let trial = 0; trial < 300; trial++) {
+      const e = 10 ** (-1 - rnd() * 4);
+      const N = [unit([1, 0, -e]), unit([-1, (rnd() - 0.5) * e, -e])];
+      for (let i = 0; i < 9 + rnd() * 20; i++) N.push(unit([(rnd() - 0.5) * 2, (rnd() - 0.5) * 2, -e - rnd()]));
+      const exact = fitCorner(N, { enumerateMax: Infinity });
+      if (!N.every((a) => dot(a, exact) >= 1 - 1e-9)) continue;
+      const fast = fitCorner(N);
+      for (const a of N) assert.ok(dot(a, fast) >= 1 - 1e-9, `trial ${trial}: a plane is inside the wall`);
+      assert.ok(cost(N, fast) <= cost(N, exact) * (1 + 1e-6) + 1e-12, `trial ${trial}: thicker than enumeration`);
+    }
+  });
+
   it("finds the same fit when planes repeat", () => {
     // A repeated plane once looked like it blocked a step by rounding; the
     // working set then held both copies, went singular, and the descent

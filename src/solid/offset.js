@@ -254,18 +254,27 @@ function fitMany(normals) {
     return d;
   };
 
+  // Back in the original frame, a fit that clears every plane is scaled
+  // out to clear them exactly: on a corner tens of thousands of walls deep
+  // (nearly opposing planes), rounding in the scaled frame can leave it
+  // ~1e-12 of its depth inside the nearest one.
+  const clearing = (y) => {
+    const d = toDelta(y);
+    const m = Math.min(...normals.map((a) => dot3(a, d)));
+    return m < 1 && m > 0 ? d.map((x) => x / m) : d;
+  };
   const free = solveLinear(Hb.map((row, i) => [...row, gb[i]]));
-  if (free && clears(B, free)) return toDelta(free);
+  if (free && clears(B, free)) return clearing(free);
   let fit = free ? descend(B, Hb, gb, free) : undefined;
   if (fit === undefined && normals.length <= ENUMERATE_FALLBACK_MAX) {
     // The search for a start failed numerically (never seen in testing):
     // enumerate, exact, while that stays quick.
     fit = enumerate(B, Hb, gb);
   }
+  if (fit) return clearing(fit);
   // null: no point clears every plane, so the plain fit, as enumeration
   // returns for small corners.
-  const y = fit ?? free;
-  return y ? toDelta(y) : [0, 0, 0];
+  return free ? toDelta(free) : [0, 0, 0];
 }
 
 /**
