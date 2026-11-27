@@ -399,39 +399,70 @@ function descend(normals, H, g, free) {
   for (let i = 1; i < k; i++) if (dot(normals[i], d) < dot(normals[first], d)) first = i;
   const W = [first];
 
-  /** Minimiser of the fit with every plane in W held at the wall. */
+  /**
+   * Minimiser of the fit with every plane in W held at the wall, and the
+   * multipliers (H δ + Σ μ a = g): [δx, δy, δz, μ...], or null if W's
+   * normals are dependent. A null-space solve: W's normals are
+   * orthonormalised (A = L Q), the walls fix δ along Q by substitution,
+   * and the fit picks it along the rest. Two planes nearly parallel or
+   * nearly opposite leave the full KKT matrix too ill-conditioned to
+   * eliminate in float64, but not this.
+   */
   const solveOn = () => {
-    const m = 3 + W.length;
-    const rows = [];
-    for (let i = 0; i < 3; i++) {
-      const row = new Array(m + 1).fill(0);
-      for (let j = 0; j < 3; j++) row[j] = H[i][j];
-      W.forEach((s, q) => { row[3 + q] = normals[s][i]; });
-      row[m] = g[i];
-      rows.push(row);
+    const m = W.length;
+    /** @type {number[][]} */ const Q = [];
+    const L = W.map(() => [0, 0, 0]);
+    for (let i = 0; i < m; i++) {
+      const a = normals[W[i]];
+      let v = [...a];
+      // Gram–Schmidt, twice for orthogonality to working precision.
+      for (let pass = 0; pass < 2; pass++) {
+        for (let j = 0; j < i; j++) {
+          const r = dot(Q[j], v);
+          L[i][j] += r;
+          v = [v[0] - r * Q[j][0], v[1] - r * Q[j][1], v[2] - r * Q[j][2]];
+        }
+      }
+      const n = len(v);
+      if (!(n > 1e-13 * len(a))) return null;
+      L[i][i] = n;
+      Q.push([v[0] / n, v[1] / n, v[2] / n]);
     }
-    for (const s of W) {
-      const row = new Array(m + 1).fill(0);
-      for (let j = 0; j < 3; j++) row[j] = normals[s][j];
-      row[m] = 1;
-      rows.push(row);
+    // The walls: L z = 1, with z = Q δ.
+    const z = [];
+    for (let i = 0; i < m; i++) {
+      let r = 1;
+      for (let j = 0; j < i; j++) r -= L[i][j] * z[j];
+      z.push(r / L[i][i]);
     }
-    return solveLinear(rows);
+    const delta = [0, 0, 0];
+    Q.forEach((q, i) => { for (let c = 0; c < 3; c++) delta[c] += z[i] * q[c]; });
+    // The fit along the free directions Z: (Zᵀ H Z) w = Zᵀ (g − H δ).
+    const Z = completeBasis(Q);
+    if (Z.length) {
+      const Hd = H.map((row) => dot(row, delta));
+      const r = [g[0] - Hd[0], g[1] - Hd[1], g[2] - Hd[2]];
+      const rows = Z.map((za) => [...Z.map((zb) => dot(za, H.map((row) => dot(row, zb)))), dot(za, r)]);
+      const w = solveLinear(rows);
+      if (!w) return null;
+      Z.forEach((zv, a) => { for (let c = 0; c < 3; c++) delta[c] += w[a] * zv[c]; });
+    }
+    // Multipliers: Lᵀ μ = Q (g − H δ), by back substitution.
+    const Hd = H.map((row) => dot(row, delta));
+    const res = [g[0] - Hd[0], g[1] - Hd[1], g[2] - Hd[2]];
+    const mu = new Array(m).fill(0);
+    for (let j = m - 1; j >= 0; j--) {
+      let r = dot(Q[j], res);
+      for (let i = j + 1; i < m; i++) r -= L[i][j] * mu[i];
+      mu[j] = r / L[j][j];
+    }
+    return [...delta, ...mu];
   };
 
-  /** Planes that left W singular: they stay out, and fitMany's final
-   * scale-out keeps them clear. */
-  const skip = new Set();
   for (let iter = 0; iter < 8 * k + 50; iter++) {
     const x = solveOn();
-    if (!x) {
-      // A plane nearly in the span of the others makes the solve on W
-      // singular (its multiplier splits from a twin's by 1/sin²). Drop the
-      // newest one and go on, rather than stop the descent short.
-      if (W.length < 2) return d;
-      skip.add(/** @type {number} */ (W.pop()));
-      continue;
-    }
+    // Every iterate clears every plane, so stopping here is safe.
+    if (!x) return d;
     const p = [x[0] - d[0], x[1] - d[1], x[2] - d[2]];
     // Tolerances scale with the move: a nearly flat corner can sit
     // thousands of walls deep, where rounding alone exceeds 1e-12.
@@ -467,7 +498,7 @@ function descend(normals, H, g, free) {
     };
     let alpha = 1, block = -1;
     for (let i = 0; i < k; i++) {
-      if (W.includes(i) || skip.has(i)) continue;
+      if (W.includes(i)) continue;
       const ap = dot(normals[i], p);
       if (ap >= -1e-15 * pn || inSpan(normals[i])) continue;
       const t = Math.max(0, (1 - dot(normals[i], d)) / ap);
@@ -477,6 +508,27 @@ function descend(normals, H, g, free) {
     if (block >= 0) W.push(block);
   }
   return d;
+}
+
+/**
+ * Unit vectors completing orthonormal rows Q (0–3 of them) to a basis of
+ * space.
+ * @param {number[][]} Q
+ * @returns {number[][]}
+ */
+function completeBasis(Q) {
+  const cross = (a, b) =>
+    [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+  const unitOf = (v) => { const l = Math.hypot(v[0], v[1], v[2]); return [v[0] / l, v[1] / l, v[2] / l]; };
+  if (Q.length === 0) return [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+  if (Q.length === 2) return [unitOf(cross(Q[0], Q[1]))];
+  if (Q.length === 3) return [];
+  const q = Q[0];
+  // The axis q leans on least, so the cross product is well sized.
+  const ax = Math.abs(q[0]) <= Math.abs(q[1]) && Math.abs(q[0]) <= Math.abs(q[2]) ? [1, 0, 0]
+    : Math.abs(q[1]) <= Math.abs(q[2]) ? [0, 1, 0] : [0, 0, 1];
+  const z1 = unitOf(cross(q, ax));
+  return [z1, cross(q, z1)];
 }
 
 /**

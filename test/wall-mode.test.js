@@ -147,6 +147,27 @@ describe("fitCorner", () => {
     }
   });
 
+  it("clears a nearly opposite pair held together at the wall", () => {
+    // Two planes facing almost opposite ways, both at the wall, made the
+    // working-set solve singular to Gaussian elimination; dropping one then
+    // left the fit on the wrong side of it (clearance −1, raised in
+    // review). The null-space solve holds both.
+    const cost = (N, d) => N.reduce((s, a) => s + (dot(a, d) - 1) ** 2, 0);
+    for (const e of [1e-3, 3e-5, 3e-7, 1e-8]) {
+      const N = [unit([1, 0, -e]), unit([-1, 0, -e]), ...Array.from({ length: 9 }, (_, i) => {
+        const t = (2 * Math.PI * i) / 9;
+        return unit([0.2 * Math.cos(t), 0.2 * Math.sin(t), -1]);
+      })];
+      const fast = fitCorner(N);
+      const depth = Math.max(1, Math.hypot(...fast));
+      for (const a of N) assert.ok(dot(a, fast) >= 1 - 1e-12 * depth, `e = ${e}: a plane is inside the wall`);
+      const exact = fitCorner(N, { enumerateMax: Infinity });
+      if (N.every((a) => dot(a, exact) >= 1 - 1e-9)) {
+        assert.ok(cost(N, fast) <= cost(N, exact) * (1 + 1e-6), `e = ${e}: thicker than enumeration`);
+      }
+    }
+  });
+
   it("finds the same fit when planes nearly repeat", () => {
     // Two planes a hair apart in the working set make its solve singular
     // to float64; the descent stopped there, up to half again as thick
