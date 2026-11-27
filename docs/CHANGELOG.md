@@ -85,7 +85,8 @@ onward every release gets a full entry here, and breaking changes to the
   closed, and the border and fillet ranges leave closed faces out. A shape
   whose faces all stay closed gets no thin-border warning.
 - **Faces with no room for an opening stay closed**, with a warning that
-  counts them: openings under 0.2 mm across (Through already did this), and
+  counts them: openings under 0.2 mm across (Through already did this; an
+  ellipse is measured across its own narrowest), and
   with Rounding or Smooth, faces whose outline the rounding moves off their
   centre, dents so that the centre no longer sees all of it, or moves in
   past their opening. Their walls crossed before.

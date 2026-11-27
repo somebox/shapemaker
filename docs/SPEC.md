@@ -356,7 +356,8 @@ hollow, and each unmerged pyramid flank is one opening.
 
 A face with no room for its opening stays closed, reported as a warning
 with the count. That is a face whose opening would be under 0.2 mm across
-(twice the centroid's distance to its nearest edge, scaled by 1 − border).
+(twice the centroid's distance to its nearest edge, scaled by 1 − border;
+for an ellipse also its own minor axis, which can be shorter).
 Through has the same 0.2 mm floor, measured on the opening it cuts.
 Nothing that narrow prints, and the two walls of a slot microns wide, each
 leaning its own way under Even walls, cross. With Rounding or Smooth it is

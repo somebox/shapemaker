@@ -2,7 +2,8 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { inscribedMomentEllipse, ellipsePolyline } from "../src/geom/ellipse.js";
+import { inscribedMomentEllipse, ellipseMinorAxis, ellipsePolyline } from "../src/geom/ellipse.js";
+import { faceFrames, projectToFrame } from "../src/faceframe.js";
 import { radialSample } from "../src/geom/annulus.js";
 import { insetEllipse, insetFillet, OPENING_GENERATORS } from "../src/solid/shell.js";
 import { compile } from "../src/compile.js";
@@ -142,6 +143,51 @@ describe("insetEllipse generator", () => {
     const { opening, radiusUsed } = insetEllipse.generate(sliver, 0.5, 0, 8);
     assert.equal(radiusUsed, 0);
     assert.deepEqual(Array.from(opening), [0, 0, 0.5, 0, 1, 0]);
+  });
+});
+
+describe("ellipse width and the opening floor", () => {
+  it("measures an ellipse across its narrowest", () => {
+    // The incircle of a regular polygon: twice its apothem, scaled.
+    const hex = inscribedMomentEllipse(centred(regular(6)));
+    assert.ok(Math.abs(ellipseMinorAxis(hex, 0.5) - Math.cos(Math.PI / 6)) < 1e-12);
+    // A long skewed quad: no point of the ellipse is nearer its centre.
+    const quad = centred([[0, 0], [9, 1], [10, 2.5], [2, 2]]);
+    const e = inscribedMomentEllipse(quad);
+    const width = ellipseMinorAxis(e, 0.7);
+    const pts = ellipsePolyline(e, 0.7, 720);
+    let least = Infinity;
+    for (let i = 0; i < pts.length; i += 2) least = Math.min(least, Math.hypot(pts[i], pts[i + 1]));
+    assert.ok(2 * least >= width - 1e-12 && 2 * least < width * 1.001, `${2 * least} vs ${width}`);
+    assert.equal(insetEllipse.generate(quad, 0.3, 0).minWidth, width);
+    assert.equal(insetFillet.generate(quad, 0.3, 0).minWidth, undefined);
+  });
+
+  it("keeps a face closed when its ellipse is under 0.2 mm across", () => {
+    // The floor was measured on the inset polygon alone. On two long faces
+    // of this shape the polygon passes it and the ellipse inside does not.
+    const state = {
+      base: "rhombictriaconta", seed: 4840, jitter: 8, jitterMode: "radial", truncate: 15,
+      points: 12, wallMm: 1.4, wallMode: "scaled", borderFraction: 0.2, edgeDiv: 4,
+      openingStyle: "ellipse",
+    };
+    const r = compile(state);
+    assert.equal(r.validation.ok, true);
+    const frames = faceFrames(r.skeleton);
+    const P = r.skeleton.positions;
+    const narrow = [], byEllipseOnly = [];
+    r.skeleton.faces.forEach((ring, fi) => {
+      const flat = ring.flatMap((v) => projectToFrame(frames[fi], P[v * 3], P[v * 3 + 1], P[v * 3 + 2]));
+      const polygon = 2 * (1 - state.borderFraction) * frames[fi].edgeDistMin;
+      const ellipse = insetEllipse.generate(flat, state.borderFraction, 0).minWidth;
+      if (polygon < 0.2 || ellipse < 0.2) narrow.push(fi);
+      if (polygon >= 0.2 && ellipse < 0.2) byEllipseOnly.push(fi);
+    });
+    assert.equal(byEllipseOnly.length, 2);
+    const closed = r.metrics.faceMetrics
+      .filter((f) => f.openingMinDiameterMm === 0).map((f) => f.faceIndex);
+    assert.deepEqual(closed, narrow);
+    assert.ok(r.validation.warnings.some((w) => w.message.startsWith(`${narrow.length} of `)));
   });
 });
 

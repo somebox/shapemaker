@@ -10,6 +10,7 @@ import { edgeKey } from "./geom/edgesub.js";
 import { DEFAULT_STATE, SPIKE_T_MAX } from "./schema.js";
 import { evenWallCeiling } from "./solid/offset.js";
 import { buildMacroTopology } from "./solid/macro-topo.js";
+import { shareRunWidths } from "./solid/edgeround.js";
 
 /** Practical FDM floor (≈ 6 lines at 0.4 mm nozzle). */
 export const PRINTABLE_BORDER_MM = 2.5;
@@ -239,7 +240,7 @@ function maxMacroEdgeRoundingMm(skeleton, frames, openings, state) {
       if (!(w >= wFloor) || !Number.isFinite(w)) w = 0;
     }
     const r = cotHalf > 1e-9 ? w / cotHalf : w;
-    edges.push({ keys: me.keys, ma: me.ma, mb: me.mb, u, v, r, w, cotHalf, len });
+    edges.push({ keys: me.keys, ma: me.ma, mb: me.mb, u, v, d, r, w, cotHalf, len });
   }
 
   const edgeByTopo = new Map();
@@ -265,10 +266,17 @@ function maxMacroEdgeRoundingMm(skeleton, frames, openings, state) {
       0,
     );
   };
-  const narrow = (e, k) => {
-    e.w *= k;
+  const setWidth = (e, w) => {
+    e.w = w;
     e.r = e.w < wFloor ? 0 : e.cotHalf > 1e-9 ? e.w / e.cotHalf : e.w;
     if (e.r === 0) e.w = 0;
+  };
+  // The builder gives each straight run of strips one width, and narrows a
+  // run together: a ceiling solved edge by edge would promise a radius the
+  // builder then clamps, leaving dead travel at the top of the slider.
+  if (!skeleton.macroFaceId) shareRunWidths(edges, topo, cornerVerts, edgeByTopo, setWidth);
+  const narrow = (e, k) => {
+    for (const x of e.run ?? [e]) setWidth(x, x.w * k);
   };
   for (let pass = 0; pass < 12; pass++) {
     let changed = false;

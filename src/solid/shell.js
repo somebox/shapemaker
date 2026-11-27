@@ -14,7 +14,7 @@
 
 import { edgeInteriorFractions, edgeKey } from "../geom/edgesub.js";
 import { filletPolygon, insetScale } from "../geom/poly2.js";
-import { inscribedMomentEllipse, ellipsePolyline } from "../geom/ellipse.js";
+import { inscribedMomentEllipse, ellipseMinorAxis, ellipsePolyline } from "../geom/ellipse.js";
 import {
   radialSample, quadToTris, edgeClearances, rayToRing, straightRing, zipperBand,
 } from "../geom/annulus.js";
@@ -32,9 +32,11 @@ import { polysNear, surfacePolys, throughCutter, throughDepth } from "./through.
 /**
  * A hole generator works purely in face-local 2D. Adding `circle` or `mirror`
  * (v1.1) means adding one of these — the solidifier does not change.
+ * `minWidth` is the opening's narrowest width in mm, given where it is not
+ * the inset polygon's: the floor on openings is checked against it too.
  * @typedef {{
  *   generate: (faceCorners2d: Float64Array, borderFraction: number, filletMm: number, filletSegments?: number) =>
- *     { opening: Float64Array, radiusUsed: number }
+ *     { opening: Float64Array, radiusUsed: number, minWidth?: number }
  * }} OpeningGenerator
  */
 
@@ -176,6 +178,9 @@ export const insetEllipse = {
     return {
       opening: ellipsePolyline(e, 1 - borderFraction, Math.max(64, filletSegments * 2)),
       radiusUsed: 0,
+      // The ellipse lies inside the inset polygon, so it can be narrower
+      // than the polygon's width where that one passes the opening floor.
+      minWidth: ellipseMinorAxis(e, 1 - borderFraction),
     };
   },
 };
@@ -565,12 +570,15 @@ export function buildShell(skeleton, opts) {
       }
     }
 
-    let { opening, radiusUsed } = openingGenerator.generate(
+    let { opening, radiusUsed, minWidth } = openingGenerator.generate(
       corner2d,
       frac,
       filletMm,
       filletSegmentsFor(edgeDiv),
     );
+    // The floor above measures the inset polygon. An opening that says it
+    // is narrower than that (an ellipse on a long face) is held to it too.
+    if (!through && minWidth < OPENING_MIN_MM) return { B2x, B2y, ang, turn, closed: true };
 
     // Sample the opening along the same rays as the boundary points: both
     // rings are convex and contain the centroid, so the rays are in strict

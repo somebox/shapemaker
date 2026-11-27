@@ -124,6 +124,41 @@ const norm = (a) => {
  *   radiusMax: number,
  * }}
  */
+/**
+ * Straight knees. Without subdivision tags, two macro edges meet at a
+ * vertex that touches only two macros where the face across was split
+ * into nearly coplanar parts (Distort and Truncate leave such pairs), so
+ * both strips lie on one straight boundary. Those that do (a knee can also
+ * be bent) keep one width, the narrower. A rounded strip ending against a
+ * sharp one steps the face outline square in, and where that step runs
+ * backwards as seen from the face centre, the opening's rays (and the rim
+ * lips on them) cross.
+ *
+ * Each strip of a run gets `run`, the strips of its run, so that later
+ * narrowing can take the whole run along. The Rounding slider's ceiling
+ * (`src/limits.js`) solves the same widths and calls this too.
+ * @param {{ d: number[], w: number, run?: object[] }[]} edges  strips, by index
+ * @param {{ vertEdges: Map<number, number[]>, edges: { keys: string[] }[] }} topo
+ * @param {Set<number>} cornerVerts
+ * @param {Map<string, number>} edgeByTopo  edge key → index in `edges`
+ * @param {(e: object, w: number) => void} setWidth
+ */
+export function shareRunWidths(edges, topo, cornerVerts, edgeByTopo, setWidth) {
+  for (const [v, eids] of topo.vertEdges) {
+    if (cornerVerts.has(v) || eids.length !== 2) continue;
+    const [a, b] = eids.map((ti) => edges[edgeByTopo.get(topo.edges[ti].keys[0])]);
+    if (!a || !b || a === b) continue;
+    if (Math.abs(dot(a.d, b.d)) < KNEE_STRAIGHT_COS) continue;
+    const run = [...new Set([...(a.run ?? [a]), ...(b.run ?? [b])])];
+    for (const e of run) e.run = run;
+  }
+  for (const e of edges) {
+    if (!e.run || e.run[0] !== e) continue;
+    const w = Math.min(...e.run.map((x) => x.w));
+    for (const x of e.run) if (x.w > w) setWidth(x, w);
+  }
+}
+
 export function buildEdgeRounding(skeleton, frames, opts) {
   const { positions, faces } = skeleton;
   const {
@@ -268,28 +303,7 @@ export function buildEdgeRounding(skeleton, frames, opts) {
     if (e.rRound > e.r) e.rRound = e.r;
   };
 
-  // Straight knees. Without subdivision tags, two macro edges meet at a
-  // vertex that touches only two macros where the face across was split
-  // into nearly coplanar parts (Distort and Truncate leave such pairs),
-  // so both strips lie on one straight boundary. Those that do (a knee
-  // can also be bent) keep one width, the narrower. A rounded strip ending against a sharp one steps the face
-  // outline square in, and where that step runs backwards as seen from the
-  // face centre, the opening's rays (and the rim lips on them) cross.
-  if (!skeleton.macroFaceId) {
-    for (const [v, eids] of topo.vertEdges) {
-      if (cornerVerts.has(v) || eids.length !== 2) continue;
-      const [a, b] = eids.map((ti) => edges[edgeByTopo.get(topo.edges[ti].keys[0])]);
-      if (!a || !b || a === b) continue;
-      if (Math.abs(dot(a.d, b.d)) < KNEE_STRAIGHT_COS) continue;
-      const run = [...new Set([...(a.run ?? [a]), ...(b.run ?? [b])])];
-      for (const e of run) e.run = run;
-    }
-    for (const e of edges) {
-      if (!e.run || e.run[0] !== e) continue;
-      const w = Math.min(...e.run.map((x) => x.w));
-      for (const x of e.run) if (x.w > w) setWidth(x, w);
-    }
-  }
+  if (!skeleton.macroFaceId) shareRunWidths(edges, topo, cornerVerts, edgeByTopo, setWidth);
   /** Scale a strip's width, and with it the rest of its straight run. */
   const narrow = (e, k) => {
     for (const x of e.run ?? [e]) setWidth(x, x.w * k);
