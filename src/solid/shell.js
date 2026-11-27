@@ -558,12 +558,6 @@ export function buildShell(skeleton, opts) {
     if (2 * (1 - frac) * frame.edgeDistMin < OPENING_MIN_MM) {
       return { B2x, B2y, ang, turn, closed: "narrow" };
     }
-    // The opening and its band are laid out along rays from the centroid,
-    // so it must see every edge of the outline, not merely lie inside it:
-    // an edge that runs backwards seen from there folds the band.
-    if (stage2 && !fansFrom(Array.from(B2x, (x, k) => [x, B2y[k]]), FRAME_ORIGIN, turn)) {
-      return { B2x, B2y, ang, turn, closed: "rounding" };
-    }
 
     // The authored opening derives from the ORIGINAL face corners — Smooth and
     // Rounding fillet the outer form and border without contracting the opening.
@@ -588,8 +582,15 @@ export function buildShell(skeleton, opts) {
       filletSegmentsFor(edgeDiv),
     );
     // The floor above measures the inset polygon. An opening that says it
-    // is narrower than that (an ellipse on a long face) is held to it too.
+    // is narrower than that (an ellipse on a long face) is held to it too,
+    // and before the outline is looked at: less rounding cannot open it.
     if (minWidth < OPENING_MIN_MM) return { B2x, B2y, ang, turn, closed: "narrow" };
+    // The opening and its band are laid out along rays from the centroid,
+    // so it must see every edge of the outline, not merely lie inside it:
+    // an edge that runs backwards seen from there folds the band.
+    if (stage2 && !fansFrom(Array.from(B2x, (x, k) => [x, B2y[k]]), FRAME_ORIGIN, turn)) {
+      return { B2x, B2y, ang, turn, closed: "rounding" };
+    }
 
     // Sample the opening along the same rays as the boundary points: both
     // rings are convex and contain the centroid, so the rays are in strict

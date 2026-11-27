@@ -200,6 +200,37 @@ describe("ellipse width and the opening floor", () => {
   });
 });
 
+describe("why an ellipse face stays closed", () => {
+  it("is too thin when its ellipse is, even where the rounding also dents its outline", () => {
+    // One face of this shape has an ellipse under 0.2 mm across and an
+    // outline its centroid cannot see all of. Less rounding cannot open
+    // it, so it is counted as too thin, not as closed by its rounding.
+    const state = {
+      base: "rhombicdodeca", seed: 4998, jitter: 20, jitterMode: "radial", subdiv: 1,
+      wallMm: 1.4, wallMode: "scaled", roundingMm: 1.5, borderFraction: 0.2, filletMm: 1.5,
+      openingStyle: "ellipse",
+    };
+    const r = compile(state);
+    assert.equal(r.validation.ok, true);
+    const frames = faceFrames(r.skeleton);
+    const P = r.skeleton.positions;
+    let narrow = 0;
+    r.skeleton.faces.forEach((ring, fi) => {
+      const flat = ring.flatMap((v) => projectToFrame(frames[fi], P[v * 3], P[v * 3 + 1], P[v * 3 + 2]));
+      const polygon = 2 * (1 - state.borderFraction) * frames[fi].edgeDistMin;
+      const ellipse = insetEllipse.generate(flat, state.borderFraction, 0).minWidth;
+      if (polygon < 0.2 || ellipse < 0.2) narrow++;
+    });
+    assert.equal(narrow, 12);
+    const note = r.validation.warnings.find((w) => /stay closed/.test(w.message));
+    assert.equal(
+      note.message,
+      "16 of 120 faces stay closed: 12 too thin for an opening, " +
+        "4 with no room for one inside their rounded edges",
+    );
+  });
+});
+
 describe("openingStyle through compile", () => {
   it("is canonical, polygon by default, and a Form control that idles Fillet", () => {
     assert.equal(DEFAULT_STATE.openingStyle, "polygon");
