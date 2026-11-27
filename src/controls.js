@@ -559,7 +559,9 @@ export function applyStateToControls(state, inputs, ranges, controlRoots, defs) 
     if (root && def.inertWhen) {
       const inert = !!def.inertWhen(state);
       root.setAttribute("data-inert", inert ? "1" : "0");
+      // The ? stays live: its help says what the control would do.
       root.querySelectorAll("input, select, button").forEach((node) => {
+        if (node.classList.contains("control-help-toggle")) return;
         /** @type {HTMLInputElement} */ (node).disabled = inert;
       });
     }

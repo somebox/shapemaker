@@ -37,8 +37,8 @@ onward every release gets a full entry here, and breaking changes to the
   hover). Split's ? describes Radial and Grid. Screen readers hear the same
   text as each button's description.
 - **Smooth is about 5× faster** on dense meshes, with identical results.
-- **Smooth (`soften`) is polygonal subdivision fairing and works directly on
-  every shape**: dragging Smooth when Subdivide is None auto-refines the mesh,
+- **Smooth (`soften`) works directly on every shape**: with Subdivide None
+  it rounds the shell's edges and corners and keeps every face and opening,
   and Smooth is unlocked under Grid and Spike (softening star spikes into
   rounded lobes and relaxing concave valleys into saddle transitions).
 

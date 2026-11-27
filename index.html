@@ -536,7 +536,8 @@
     .tab-body > :not(.control),
     .cluster-body > :not(.control),
     .control[data-wide="1"],
-    .control.has-error { grid-column: 1 / -1; }
+    .control.has-error,
+    .control:has(> .control-help:not([hidden])) { grid-column: 1 / -1; }
     .tab-body[hidden] { display: none; }
 
     .identity {
@@ -634,10 +635,10 @@
 
     .control { display: flex; flex-direction: column; gap: 2px; }
     .control[data-hidden="1"] { display: none; }
-    .control[data-inert="1"] {
-      opacity: 0.38;
-      pointer-events: none;
-    }
+    .control[data-inert="1"] { pointer-events: none; }
+    /* Dim the field but not its help, and keep the ? that opens it live. */
+    .control[data-inert="1"] > :not(.control-help) { opacity: 0.38; }
+    .control[data-inert="1"] .control-help-toggle { pointer-events: auto; }
     .control-head {
       display: flex;
       align-items: center;
@@ -1302,11 +1303,17 @@
       input[type="range"],
       .section-hud input[type="range"] { height: 44px; }
       button.value-readout { min-height: 44px; margin-block: -10px; }
-      /* A finger's reach, without making the label's line taller. */
+      /* A finger's reach. The label's line grows to hold it, so the target
+         never overlaps the choices under it. */
+      .control[data-wide="1"] .control-row--seg {
+        grid-template-columns: minmax(4.5rem, max-content) minmax(0, 1fr);
+      }
+      /* Fields side by side line up at their inputs, under a taller label. */
+      .tab-body,
+      .cluster-body { align-items: end; }
       .control-help-toggle {
         width: 44px;
         min-height: 44px;
-        margin-block: -14px;
         border-color: transparent;
         /* The same small ring, drawn inside the larger target. */
         background: radial-gradient(circle, transparent calc(0.5rem - 1px),

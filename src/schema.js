@@ -259,9 +259,10 @@ export const CONTROL_DEFS = [
     step: 0.01,
   },
   {
-    // Polygonal subdivision fairing: softens corners, ridges, and concave
-    // spike valleys into flowing surfaces; auto-refines when Subdivide is
-    // None so dragging Smooth works directly on any shape.
+    // Softens corners, ridges, and concave spike valleys into flowing
+    // surfaces on any shape. With Subdivide, the subdivided skeleton is
+    // faired; with Subdivide None, the shell rounds its edges and corners
+    // instead, so every face and opening stays.
     key: "soften",
     group: "shape",
     label: "Smooth",

@@ -216,6 +216,22 @@ describe("panel controls", () => {
     assert.equal(toggle.getAttribute("aria-expanded"), "false");
   });
 
+  it("keep the ? live on a greyed-out choice", () => {
+    const { panelEl, ui } = mount();
+    ui.setResult({ state: state({ subdiv: 0 }) });
+    const split = panelEl.querySelector('.control[data-key="subdivStyle"]');
+    assert.equal(split.dataset.inert, "1");
+    assert.ok(split.querySelector('[data-seg-value="grid"]').disabled, "the choices are off");
+    const toggle = split.querySelector(".control-help-toggle");
+    assert.equal(toggle.disabled, false);
+    toggle.click();
+    const help = panelEl.querySelector(`#${toggle.getAttribute("aria-controls")}`);
+    assert.equal(help.hidden, false);
+    assert.match(help.textContent, /corner quads/);
+    toggle.click();
+    assert.equal(help.hidden, true, "and it closes again");
+  });
+
   it("describe each choice to its button, keeping the hover titles", () => {
     const { panelEl } = mount();
     const text = (id) => panelEl.querySelector(`#${id}`).textContent;

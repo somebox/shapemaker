@@ -681,7 +681,8 @@ captioned with its current value so the design reads at a glance:
   density/seed, jitter, dual, truncate, spike, smooth, uniform scale. Dual
   carries a short caption (faces ↔ corners). A choice with help (Dual,
   Split) has a ? button beside its label that shows it, for keyboard and
-  touch; the text also describes each button (`aria-describedby`) and
+  touch, even while the choice is greyed out; open, the help takes the
+  full row. The text also describes each button (`aria-describedby`) and
   shows on hover.
 - **Openings:** open or closed faces, outline, border, fillet, and
   subdivide with its split (Radial or Grid), which mostly set how many
