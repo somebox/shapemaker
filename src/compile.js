@@ -13,7 +13,7 @@ import { DEFAULT_STATE, PRINT_KEYS } from "./schema.js";
 import { runPipeline, hullSkeletonForBase, scaleSkeleton } from "./pipeline.js";
 import { computeOrientation, defaultRestingFace } from "./orient.js";
 import { computeMetrics } from "./metrics.js";
-import { computeLimits, borderPrintabilityWarning } from "./limits.js";
+import { computeLimits, borderPrintabilityWarning, filletCeiling } from "./limits.js";
 import { validateState } from "./validate.js";
 import { csgLoadError, csgReady, needsCsg } from "./solid/csg.js";
 
@@ -88,11 +88,13 @@ export function limitsForState(state) {
  */
 function limitsFor(skeleton, state) {
   const limits = computeLimits(skeleton, state);
-  if ((state.subdiv ?? 0) > 0) {
+  if ((state.subdiv ?? 0) > 0 && state.openings !== false) {
+    // Only the Fillet ceiling is wanted of the pre-subdivision solid: its
+    // wall and rounding limits are not, and take far longer to work out.
     const unit = hullSkeletonForBase(state.base, { ...state, subdiv: 0, soften: 0 });
-    const preSub = computeLimits(scaleSkeleton(unit, state.circumdiameterMm / 2), state);
-    if (limits.filletMmMax != null && preSub.filletMmMax != null) {
-      limits.filletMmMax = Math.max(limits.filletMmMax, preSub.filletMmMax);
+    const preSub = filletCeiling(scaleSkeleton(unit, state.circumdiameterMm / 2), state);
+    if (limits.filletMmMax != null && preSub != null) {
+      limits.filletMmMax = Math.max(limits.filletMmMax, preSub);
     }
   }
   return limits;
@@ -164,6 +166,47 @@ export function compileShape(partial = {}) {
 }
 
 /**
+ * @param {number} n  faces that stay closed
+ * @param {number} rounded  those of them closed by their rounded outline
+ * @param {number} faces  faces on the shape
+ * @param {string} small  what the others are: "too thin for an opening"
+ */
+function closedMessage(n, rounded, faces, small) {
+  const of = `${n} of ${faces} faces`;
+  if (rounded === 0) return `${of} are ${small} and stay closed`;
+  if (rounded === n) {
+    return `${of} have no room for an opening inside their rounded edges and stay closed`;
+  }
+  return `${of} stay closed: ${n - rounded} ${small}, ` +
+    `${rounded} with no room for one inside their rounded edges`;
+}
+
+/**
+ * The warning for faces no repair could fit, with advice that names only
+ * what the state has on. What helps depends on the wall. Under Even walls
+ * most of these are inner faces too small for their rounding, and a
+ * thinner wall leaves them larger. A Scaled inner surface is a copy of the
+ * outer one, and a solid shape has none: there the outline itself is at
+ * fault, which only the rounding (Smooth alone can do it) changes.
+ * Exported for tests.
+ * @param {number} n  faces that could not be fitted
+ * @param {number} faces  faces on the shape
+ * @param {{ depth: string, wallMode: string, roundingMm: number, soften: number }} state
+ */
+export function unfitWarning(n, faces, state) {
+  const evenWall = state.depth === "hollow" && state.wallMode === "even";
+  const less = state.roundingMm > 0 ? "less rounding" : state.soften > 0 ? "less Smooth" : null;
+  const advice = evenWall
+    ? `; a thinner wall usually helps${less ? `, ${less} sometimes` : ""}`
+    : less ? `; ${less} can help` : "";
+  return {
+    stage: "solid",
+    key: evenWall ? "wallMm" : state.soften > 0 && !(state.roundingMm > 0) ? "soften" : "roundingMm",
+    message: `${n} of ${faces} faces could not be fitted and may pass through their neighbours${advice}`,
+  };
+}
+
+/**
  * @param {Partial<typeof DEFAULT_STATE>} [partial]
  */
 export function compile(partial = {}) {
@@ -209,18 +252,40 @@ export function compile(partial = {}) {
     const limits = limitsFor(skeleton, state);
     // State-derived, so shared links / presets / project opens see it too —
     // not only the edit that clamped a border.
-    const guidance = borderPrintabilityWarning(state, limits, solid.info.borderMm);
+    // With every face closed no border was built, and there is none to
+    // call thin: the guidance would fall back on the widths asked for.
+    const noneOpened = solid.info.openingMinDiameterMm === 0;
+    const guidance = noneOpened
+      ? null
+      : borderPrintabilityWarning(state, limits, solid.info.borderMm);
     if (guidance) validation.warnings.push(guidance);
     const axisWarning = straightAxisWarning(solid.info, skeleton.faces.length, state.wallMm);
     if (axisWarning) validation.warnings.push(axisWarning);
+    // Faces that stay closed, with the cause: too small for any opening,
+    // or a rounded outline that leaves the opening no room, which less
+    // rounding opens again.
     if (solid.info.throughClosedFaces > 0) {
       validation.warnings.push({
         stage: "solid",
         key: "openingAxis",
-        message:
-          `${solid.info.throughClosedFaces} of ${skeleton.faces.length} faces are too ` +
-          `small to cut through and stay closed`,
+        message: closedMessage(
+          solid.info.throughClosedFaces, solid.info.throughClosedByRoundingFaces ?? 0,
+          skeleton.faces.length, "too small to cut through",
+        ),
       });
+    }
+    if (solid.info.closedFaces > 0) {
+      validation.warnings.push({
+        stage: "solid",
+        key: "openings",
+        message: closedMessage(
+          solid.info.closedFaces, solid.info.closedByRoundingFaces ?? 0,
+          skeleton.faces.length, "too thin for an opening",
+        ),
+      });
+    }
+    if (solid.info.unfitFaces > 0) {
+      validation.warnings.push(unfitWarning(solid.info.unfitFaces, skeleton.faces.length, state));
     }
     if (solid.info.looseDropped > 0) {
       const v = solid.info.looseVolumeMm3 / 1000;

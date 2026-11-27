@@ -72,6 +72,19 @@ function vertexFans(faces, directed) {
   return fans;
 }
 
+/**
+ * On a shallow corner cap, a fan triangle whose normal is within this
+ * cosine of perpendicular to the line from the corner sphere's centre
+ * counts as folded (about half a degree from edge-on).
+ */
+const CAP_EDGE_ON = 0.01;
+
+/**
+ * Two macro edges meeting at a knee count as one straight boundary when
+ * they turn by less than five degrees (this is the cosine).
+ */
+const KNEE_STRAIGHT_COS = Math.cos((5 * Math.PI) / 180);
+
 const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
 const add = (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
 const mul = (a, s) => [a[0] * s, a[1] * s, a[2] * s];
@@ -96,9 +109,13 @@ const norm = (a) => {
  *   allowForEdge?: (key: string) => number,
  *   segments: number,
  *   lengthwise: number[],
- *   pushVert: (x: number, y: number, z: number, host: [number, number][]) => number,
+ *   pushVert: (x: number, y: number, z: number, host: number[][]) => number,
  *   getVert: (i: number) => number[],
+ *   getHost?: (i: number) => number[][]|undefined,
  * }} opts
+ *   `host` lists the skeleton vertices a new vertex moves with on the inner
+ *   shell, as [vertex, weight], optionally followed by the xyz place of
+ *   that vertex's own point on the rounding relative to the vertex.
  * @returns {{
  *   faceRings: Map<number, number[]>,
  *   quads: number[][],
@@ -107,6 +124,41 @@ const norm = (a) => {
  *   radiusMax: number,
  * }}
  */
+/**
+ * Straight knees. Without subdivision tags, two macro edges meet at a
+ * vertex that touches only two macros where the face across was split
+ * into nearly coplanar parts (Distort and Truncate leave such pairs), so
+ * both strips lie on one straight boundary. Those that do (a knee can also
+ * be bent) keep one width, the narrower. A rounded strip ending against a
+ * sharp one steps the face outline square in, and where that step runs
+ * backwards as seen from the face centre, the opening's rays (and the rim
+ * lips on them) cross.
+ *
+ * Each strip of a run gets `run`, the strips of its run, so that later
+ * narrowing can take the whole run along. The Rounding slider's ceiling
+ * (`src/limits.js`) solves the same widths and calls this too.
+ * @param {{ d: number[], w: number, run?: object[] }[]} edges  strips, by index
+ * @param {{ vertEdges: Map<number, number[]>, edges: { keys: string[] }[] }} topo
+ * @param {Set<number>} cornerVerts
+ * @param {Map<string, number>} edgeByTopo  edge key → index in `edges`
+ * @param {(e: object, w: number) => void} setWidth
+ */
+export function shareRunWidths(edges, topo, cornerVerts, edgeByTopo, setWidth) {
+  for (const [v, eids] of topo.vertEdges) {
+    if (cornerVerts.has(v) || eids.length !== 2) continue;
+    const [a, b] = eids.map((ti) => edges[edgeByTopo.get(topo.edges[ti].keys[0])]);
+    if (!a || !b || a === b) continue;
+    if (Math.abs(dot(a.d, b.d)) < KNEE_STRAIGHT_COS) continue;
+    const run = [...new Set([...(a.run ?? [a]), ...(b.run ?? [b])])];
+    for (const e of run) e.run = run;
+  }
+  for (const e of edges) {
+    if (!e.run || e.run[0] !== e) continue;
+    const w = Math.min(...e.run.map((x) => x.w));
+    for (const x of e.run) if (x.w > w) setWidth(x, w);
+  }
+}
+
 export function buildEdgeRounding(skeleton, frames, opts) {
   const { positions, faces } = skeleton;
   const {
@@ -118,6 +170,7 @@ export function buildEdgeRounding(skeleton, frames, opts) {
     lengthwise,
     pushVert,
     getVert,
+    getHost,
   } = opts;
   const topo = buildMacroTopology(skeleton, frames);
   const {
@@ -243,11 +296,17 @@ export function buildEdgeRounding(skeleton, frames, opts) {
       0,
     );
   };
-  const narrow = (e, k) => {
-    e.w *= k;
+  const setWidth = (e, w) => {
+    e.w = w;
     e.r = e.w < wFloor ? 0 : e.cotHalf > 1e-9 ? e.w / e.cotHalf : e.w;
     if (e.r === 0) e.w = 0;
     if (e.rRound > e.r) e.rRound = e.r;
+  };
+
+  if (!skeleton.macroFaceId) shareRunWidths(edges, topo, cornerVerts, edgeByTopo, setWidth);
+  /** Scale a strip's width, and with it the rest of its straight run. */
+  const narrow = (e, k) => {
+    for (const x of e.run ?? [e]) setWidth(x, x.w * k);
   };
   for (let pass = 0; pass < 12; pass++) {
     let changed = false;
@@ -331,13 +390,25 @@ export function buildEdgeRounding(skeleton, frames, opts) {
     // that vertex, as the faces' inner rims beside it do (blending only the
     // two end corners there folds the inner strip into its neighbours on a
     // thick Even wall).
+    // Each weight carries where that vertex's own column sits relative to
+    // the vertex (the end trim along the edge plus the row's offset), so
+    // the shell can draw the inner copy of the strip in towards a corner
+    // whose inner faces are too small for it (the inner-fit pass in shell.js).
     const anchors = merged.filter((c) => c.vert >= 0);
-    const hostAt = (frac) => {
+    const lastAnchor = anchors[anchors.length - 1];
+    const hostAt = (frac, off) => {
       let i = 0;
       while (i < anchors.length - 2 && anchors[i + 1].frac <= frac) i++;
       const a = anchors[i], b = anchors[i + 1];
       const t = (frac - a.frac) / (b.frac - a.frac);
-      return [[a.vert, 1 - t], [b.vert, t]];
+      const entry = (c, wgt) => {
+        const along = c === anchors[0] ? lu : c === lastAnchor ? -lv : 0;
+        return [
+          c.vert, wgt,
+          e.d[0] * along + off[0], e.d[1] * along + off[1], e.d[2] * along + off[2],
+        ];
+      };
+      return [entry(a, 1 - t), entry(b, t)];
     };
 
     const grid = [];
@@ -345,7 +416,7 @@ export function buildEdgeRounding(skeleton, frames, opts) {
       const row = [];
       for (const c of merged) {
         const p = add(U2, mul(span, c.frac));
-        row.push(pushVert(p[0], p[1], p[2], hostAt(c.frac)));
+        row.push(pushVert(p[0], p[1], p[2], hostAt(c.frac, [0, 0, 0])));
       }
       for (let j = 0; j <= J; j++) grid.push(row);
     } else {
@@ -379,7 +450,7 @@ export function buildEdgeRounding(skeleton, frames, opts) {
           if (!Number.isFinite(p[0]) || !Number.isFinite(p[1]) || !Number.isFinite(p[2])) {
             throw new Error("rounding strip produced a non-finite vertex");
           }
-          row.push(pushVert(p[0], p[1], p[2], hostAt(c.frac)));
+          row.push(pushVert(p[0], p[1], p[2], hostAt(c.frac, off)));
         }
         grid.push(row);
       }
@@ -455,6 +526,13 @@ export function buildEdgeRounding(skeleton, frames, opts) {
       pa[1] = (pa[1] + pb[1]) / 2;
       pa[2] = (pa[2] + pb[2]) / 2;
       eB.grid[jb][colB] = a[j];
+      // The shared point has moved, and with it its place relative to the
+      // knee vertex, which the inner-fit pass scales (see `hostAt`).
+      const pv = P(v);
+      for (const h of getHost?.(a[j]) ?? []) {
+        if (h[0] !== v || h.length < 5) continue;
+        h[2] = pa[0] - pv[0]; h[3] = pa[1] - pv[1]; h[4] = pa[2] - pv[2];
+      }
     }
   }
 
@@ -604,13 +682,14 @@ export function buildEdgeRounding(skeleton, frames, opts) {
     // meets the strip/corner points exactly.
     const lo = a < b ? a : b, hi = a < b ? b : a;
     const A = getVert(represent(lo, f)), B = getVert(represent(hi, f));
+    const relA = sub(A, P(lo)), relB = sub(B, P(hi));
     idx = [];
     for (const t of lengthwise) {
       idx.push(pushVert(
         A[0] + (B[0] - A[0]) * t,
         A[1] + (B[1] - A[1]) * t,
         A[2] + (B[2] - A[2]) * t,
-        [[lo, 1 - t], [hi, t]],
+        [[lo, 1 - t, ...relA], [hi, t, ...relB]],
       ));
     }
     seamExtra.set(key, idx);
@@ -1235,7 +1314,15 @@ export function buildEdgeRounding(skeleton, frames, opts) {
 
     // Even with the apex inside the loop, rings blended between very
     // different strip radii can fold. Every fan triangle must face away
-    // from X; if one turns toward it, the loop fills flat instead.
+    // from X; if one turns toward it, the loop fills flat instead. On a
+    // shallow cap (its apex less than twice the width floor above the
+    // loop's plane, so flat costs nothing to see) so does one that stands edge-on
+    // to X: a ring there can land on a strip's end column instead of
+    // inside the loop, leaving a fin flat against the strip end. In double
+    // precision the two only overlap in one plane; rounded to float32 for
+    // the STL, they cross.
+    const rise = dot(sub(apexPos, mul([sx, sy, sz], 1 / clean.length)), norm([nx, ny, nz]));
+    const edgeOnLimit = Math.abs(rise) < 2 * wFloor ? CAP_EDGE_ON : 0;
     let folded = false;
     for (let ti = fanStart; ti < tris.length && !folded; ti++) {
       const [a, b, c] = tris[ti];
@@ -1243,7 +1330,9 @@ export function buildEdgeRounding(skeleton, frames, opts) {
       const n = cross(sub(pb, pa), sub(pc, pa));
       const nl = Math.hypot(n[0], n[1], n[2]);
       const g = mul(add(add(pa, pb), pc), 1 / 3);
-      if (nl > 1e-12 * perim * perim && dot(n, sub(g, X)) < 0) folded = true;
+      const out = sub(g, X);
+      const edgeOn = edgeOnLimit * nl * Math.hypot(out[0], out[1], out[2]);
+      if (nl > 1e-12 * perim * perim && dot(n, out) < edgeOn) folded = true;
     }
     if (folded) {
       tris.length = fanStart;

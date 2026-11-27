@@ -62,6 +62,72 @@ onward every release gets a full entry here, and breaking changes to the
   with fillet radius.
 - A failed rebuild now says so on the status line, even with the last good
   model on screen. The status used to keep showing the old dimensions.
+- **Far fewer shapes with tiny, sliver or needle faces build a shell that
+  passes through itself.** Truncate, Subdivide or Spike on a distorted or
+  random shape leaves such faces, and most of the faults needed Rounding as
+  well. Some still do (the counts are below). What changed:
+  - Under Even walls the inner copy of the rounding kept its outer size on
+    inner faces a fraction of that size, or tilted against them, so strips
+    overlapped and reached past the openings. It now shrinks towards its
+    corner until the inner face holds. The outside is unchanged.
+  - A sliver face's inner opening could lie across its own border, even
+    with Rounding off. It is now laid out along the inner outline.
+  - A thick Even wall could turn a sliver face inside out on the inner
+    surface. Its corners now move together, as the ends of a very short
+    edge already did, where one move clears every face around it and the
+    corners moved touch no more than 48 faces.
+  - A rounded edge ending against a sharp one on a straight boundary
+    stepped the face outline and crossed the opening rim. Both now take the
+    narrower width.
+  - Corner caps a fraction of a millimetre across left fins that crossed
+    once the STL rounded positions. Those caps are filled flat.
+  - A wall could turn a face inside out on the inner surface while every
+    edge still pointed its own way, which is all the wall limit watched.
+    Such a wall is now refused, with one that fits offered, and the Wall
+    slider stops at that same wall, checked with the corner moves it is
+    built with. The message names the wall from which walls are refused.
+    On about one shape in ten the slider ended too late,
+    typically by 11% and at worst by half; a plain rhombic
+    enneacontahedron went to 35 mm, and a face of it flips at 32.
+  - With Smooth, two rounded edges mitred where a smoothed edge bends kept
+    the unmitred position on the inner surface once the rounding there was
+    drawn in, up to 0.5 mm off.
+  - A closed face is fanned from a point that sees its whole outline,
+    inside and out. Being inside the outline was not enough.
+  - Edges that meet at a bend of more than 5° no longer share one rounding
+    width as if they were one straight run.
+- **A warning says when a face could not be fitted**, with the count.
+  Those faces are built as they are and may pass through their neighbours.
+  A face that a second layout of its inner opening fits is not counted.
+  Under Even walls a thinner wall usually helps; under Scaled walls and on
+  solid shapes only less rounding can. Before, nothing said so.
+- The smallest-opening figure no longer reads 0 mm because one face stays
+  closed, and the border and fillet ranges leave closed faces out. A shape
+  whose faces all stay closed gets no thin-border warning.
+- On a sliver face, a fillet near the largest that fits could draw the
+  opening's rim to within microns of the face centre, leaving the opening
+  lopsided and sometimes under 0.2 mm across. Such a face keeps its
+  unfilleted opening, as it already did where the fillet put the centre
+  outside.
+- At a coarse mesh setting, an ellipse opening on a sliver face could be
+  built from so few points that it came out a fraction of its width, under
+  0.2 mm across. Such a face takes the plain inset opening, or stays
+  closed where that does not fit.
+- **Faces with no room for an opening stay closed**, with a warning that
+  counts them and says why (too thin, or no room inside their rounded
+  edges): openings under 0.2 mm across under every Sides setting
+  (Through had its own, looser measure; an ellipse is measured across its
+  own narrowest), and
+  with Rounding or Smooth, faces whose outline the rounding moves off their
+  centre, dents so that the centre no longer sees all of it, or moves in
+  past their opening. Their walls crossed before.
+
+  In a sweep of 800 random states, 128 crossed in the exported STL before
+  these changes and 15 do now. Fourteen of those crossed before. The other
+  failed to build before, and now builds with one crossing. With Smooth on
+  (400 more states) 93 crossed before and 45 do now, and 16 still fail to
+  build (23 before). The new warning marks 25 of the 60 that still cross,
+  and 33 states in which the scan finds no crossing.
 
 ## [0.16.1] — 2026-10-11
 

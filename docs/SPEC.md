@@ -302,6 +302,33 @@ displacement:
   points blend their corners' moves; face-interior points (closed-face
   centres, opening rings) use mean value coordinates over the face corners.
   The wall limit is where an inner edge would shrink below 10% of its length.
+  That limit keeps every inner edge pointing its own way, but a sliver face
+  between two long edges can still turn inside out: the planes either side
+  close over it within a fraction of a millimetre of wall. So where the
+  wall asked for would leave a face narrower than 5% of the smallest
+  inradius less than a tenth of its width, that face's corners move
+  together too, and its inner copy keeps the outer shape under a slightly
+  thicker wall. That needs one move that clears every face around the
+  sliver. A sliver that runs from one face to another facing it (a strip
+  planed off the whole length of an edge) has none, and keeps its corners'
+  own moves. So do slivers whose corners, taken together, touch more than
+  48 face planes: on a subdivided face they chain through the fan centre
+  into a patch no single move clears.
+  Wider faces are left alone: moving one as a piece would
+  drag its neighbours' corners far from their own planes. A wider face can
+  turn inside out as well, each edge still pointing its own way: a rhombus
+  closing along its short diagonal, or a triangle Truncate leaves between
+  steep neighbours. So the wall limit is also where a face would keep less
+  than 1% of its area, seen along its own normal (a tenth of its size each
+  way; a face that shrinks evenly reaches both limits at the same wall). A
+  wall past either limit is refused. Slivers move together only from some
+  wall on, so the corner moves, and both limits with them, can change with
+  the wall. The Wall slider stops at 90% of the first wall that would be
+  refused, each wall tried with the moves it is built with. A refused wall
+  is told that first refusal and its cause, not the limit it ran into
+  itself, and is offered the slider's maximum. The maximum is worked out
+  once per shape and kept for the last few shapes, so that dragging Wall
+  or Rounding does not search for it again on every rebuild.
 - **Scaled** shrinks the whole surface by `s = 1 − wall / inradius_min`
   about the origin. The face nearest the centre gets the set wall and faces
   farther out get thicker. This is the construction before Even existed, and
@@ -329,11 +356,53 @@ hexagon cells a Dual produces, and as a perforated ball on triangles.
 
 **Polygon** openings use a centroid-scaled inset and tangent fillet. Fillet is authored as
 a radius in millimetres; a face whose opening cannot fit the requested radius
-clamps it locally, and the applied range is reported. Each face boundary is
+clamps it locally, and the applied range is reported. The slider's ceiling
+is the room of the face with the least, among the faces wide enough for an
+opening. On a sliver face a
+fillet near the largest that fits pulls the opening off the face centroid
+the opening is laid out around. Where that would put the centroid outside
+the opening, or within 0.1 mm of its rim, the face keeps its unfilleted
+opening. The rim is measured as it is emitted, segment by segment between
+its samples (under Through sides, the cutter's): on a sliver the samples
+can all lie far out while a segment between two passes the centroid
+closely. An ellipse is held to the same measure. Where its samples are too
+few across a sliver, the rim built from them cuts straight across the
+ellipse, and the face takes the bare inset polygon, whose straight edges
+are built exactly. A face whose built rim would still come within 0.1 mm
+of the centroid stays closed. Each face boundary is
 subdivided globally so adjacent faces share identical points. The opening is
 sampled on matching centroid rays, preserving the prototype's non-intersecting
 annulus construction. Spike does not change this: openings still require
 hollow, and each unmerged pyramid flank is one opening.
+
+A face with no room for its opening stays closed, reported as a warning
+with the count, split by cause where both occur: too thin for an opening
+(under Through sides, too small to cut through), or no room for one
+inside its rounded edges (less rounding opens those again). The first is
+a face whose opening would be under 0.2 mm across
+(twice the centroid's distance to its nearest edge, scaled by 1 − border;
+for an ellipse also its own minor axis, which can be shorter).
+Through sides are held to the same measure, and also to the opening they
+cut, sampled at a few angles (which alone can read a narrow opening a few
+percent wide).
+Nothing that narrow prints, and the two walls of a slot microns wide, each
+leaning its own way under Even walls, cross. With Rounding or Smooth it is
+also a face whose centroid cannot see all of its outline: the strips have
+moved the outline off it, or dented it so that an edge runs backwards seen
+from there, and the opening and its band are laid out along rays from the
+centroid. And (not under Through, which cuts its openings out of the
+closed shell) a face whose outline the strips have moved in past its
+opening. These happen on needle faces (Subdivide or Truncate on a distorted
+shape leaves triangles tens of millimetres long and a fraction wide),
+where a corner's trim can exceed the face's width. The border and fillet
+ranges reported for the shape leave closed faces out, as the smallest
+opening does, and with every face closed there is no thin-border guidance.
+A closed face is fanned
+from its centroid, or from the mean point of its outline where the
+centroid cannot see all of the outline: seen from the fan point, every
+edge must run the way the outline does. Being inside the outline is not
+enough. The inner side is fanned from the same point carried in with the
+face, or from the inner outline's own mean point by the same test.
 
 **Sides** (`openingAxis`) sets the direction of the opening wall through the
 shell. Under **Tapered** (`center`, default) each inner opening point is its
@@ -474,6 +543,45 @@ edge between samples (tiny faces, where the inner boundary and the inner
 opening move by different blends) halves its radius until the band from
 the lip to the boundary keeps its winding, or stays sharp.
 
+Under Even walls the inner faces are smaller than the outer ones, and the
+copy of the rounding is sized for the outer ones: each corner's strip ends,
+inset corners and cap move as one with the corner. Under a thick wall a
+tiny face (what Truncate leaves of a vertex) can be a third of its outer
+size, or another shape where a corner's inner position is a best fit. So
+each face's inner band is checked before anything is emitted: every quad
+from the inner boundary ring to the inner opening must keep the winding
+its outer ring has in the face plane (on a closed face, every triangle of
+the fan from the middle), and the ring must sit on the inner face, rising
+no more than a tenth of the band's width off the slope the opening has
+along that ray. The opening here is the one Centre lays out, for Straight
+sides too, whose own layout comes later and differs a little. Where a
+quad fails, the inner copy of the rounding at the corners its two ring
+points move with halves about the corner, strips in between blending, and
+the faces are checked again, up to six times and once more after the
+last: towards the sharp inner corner a shape without Rounding has. The
+outer surface takes no part in
+this, and a shape whose inner faces all hold builds the same bytes as
+before the check existed. A band that still folds, which a sliver face's
+can without any Rounding, has its inner opening laid out along the inner
+ring's own rays instead: each point as far from the inner face's centre
+towards its ring point as the outer opening is along its ray.
+
+Some faces no repair fits: a ring that still stands off its inner face
+after the last halving, an inner opening neither layout holds (a band that
+only folds against the Centre opening gets the second layout first, and is
+not counted if that holds), a closed face no point can be
+fanned from (a needle face's inner outline can keep a spur a few microns
+long at its tip). They are built as they are and counted, and a warning
+gives the count and says they may pass through their neighbours. The count
+covers both surfaces, and the advice depends on the wall. Under Even walls
+most of these are inner faces too small for their rounding, and a thinner
+wall usually helps: in a sweep, halving the wall lowered the count on 42
+of 51 such shapes, and halving Rounding on 17 of 47. A Scaled inner
+surface is a copy of the outer one, and a solid shape has none: there the
+outline itself is at fault, the wall changes nothing (0 of 7), and the
+warning belongs to Rounding (to Smooth, with Rounding off). It names
+neither when neither is on.
+
 A corner cap is a fan of rings swept from the cap's loop toward an apex
 along directions out of the corner sphere's centre X, so the apex must lie
 inside the loop as seen from X. On 4+-valent corners with uniform spoke radius,
@@ -483,7 +591,11 @@ Where strips of very different widths meet (Truncate,
 Jitter, Dual) a strip arc can lie on that line or past it, and the apex
 aims at the loop's mean direction instead. If that is not inside either,
 or any fan triangle ends up facing X (the rings folded), the loop is
-filled flat in its best-fit plane. A flat fill (ear-clipped, else fanned
+filled flat in its best-fit plane. So is a shallow cap, one whose apex is
+less than twice the strip-width floor above its loop's plane, if a fan triangle
+stands within half a degree of edge-on to X: a ring there can land on a
+strip's end column and leave a fin flat against the strip end, which
+crosses it once the STL rounds positions to float32. A flat fill (ear-clipped, else fanned
 from its centroid) keeps its ear-clip only if no triangle faces the
 origin by more than 60° past edge-on: the surface is star-shaped about the
 origin, and on a strongly bent loop the best-fit projection can turn a
@@ -491,6 +603,11 @@ reflex corner into an ear lying back across a face. A face outline that
 steps out to a sharp strip end and straight back (a spur of a few microns
 where Jitter leaves two faces almost coplanar) drops the spur, whose two
 edges only pair with each other; left in, the rim lips on its rays cross.
+Two strips that meet end to end on one straight boundary (turning by less
+than five degrees), at a vertex where the face across is split into two
+nearly coplanar parts, keep one width, the narrower: a rounded strip ending against a sharp one steps the
+outline square in, and where that step runs backwards as seen from the
+face centre the opening's rays cross.
 Arc segment count scales with both the quality preset (`edgeDiv`) and the
 subtended fillet arc length so wide roundovers stay smooth under flat shading.
 

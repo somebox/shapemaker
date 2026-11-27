@@ -18,7 +18,9 @@ const CLEAR = 1e-12;
  * through the interior of the other. Pairs come as [t, u] with t < u, in
  * order of t and then u. With a `limit` the scan stops once it has that
  * many: no more than `limit` pairs come back, and which ones is not fixed
- * when the mesh holds more.
+ * when the mesh holds more. A compiled mesh passed as it is gets its
+ * `positions` scanned: the float32 copy an STL holds. For the builder's
+ * own doubles pass `{ positions: mesh.positions64, indices: mesh.indices }`.
  * @param {{ positions: ArrayLike<number>, indices: ArrayLike<number> }} mesh
  * @param {number} [limit=Infinity]  stop after this many pairs
  * @param {{ halving?: number }} [tally]  if given, `halving` is set to the

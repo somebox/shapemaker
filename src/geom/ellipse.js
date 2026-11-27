@@ -85,3 +85,17 @@ export function ellipsePolyline(e, scale, segments) {
   }
   return out;
 }
+
+/**
+ * Minor axis (full width across its narrowest) of the ellipse at `scale` ×
+ * its inscribed size: twice the smaller singular value of k·scale·L.
+ * @param {{ l11: number, l21: number, l22: number, k: number }} e
+ * @param {number} scale
+ * @returns {number}
+ */
+export function ellipseMinorAxis(e, scale) {
+  const trace = e.l11 * e.l11 + e.l21 * e.l21 + e.l22 * e.l22;
+  const det = e.l11 * e.l22;
+  const least = 0.5 * (trace - Math.sqrt(Math.max(trace * trace - 4 * det * det, 0)));
+  return 2 * e.k * scale * Math.sqrt(Math.max(least, 0));
+}

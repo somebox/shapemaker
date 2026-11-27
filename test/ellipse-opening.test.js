@@ -2,9 +2,11 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { inscribedMomentEllipse, ellipsePolyline } from "../src/geom/ellipse.js";
+import { inscribedMomentEllipse, ellipseMinorAxis, ellipsePolyline } from "../src/geom/ellipse.js";
+import { faceFrames, projectToFrame } from "../src/faceframe.js";
+import { loadCsg } from "../src/solid/csg.js";
 import { radialSample } from "../src/geom/annulus.js";
-import { insetEllipse, insetFillet, OPENING_GENERATORS } from "../src/solid/shell.js";
+import { insetEllipse, insetFillet, OPENING_GENERATORS, rimClearance } from "../src/solid/shell.js";
 import { compile } from "../src/compile.js";
 import { clearPipelineCache } from "../src/pipeline.js";
 import { assertMeshInvariants } from "../src/mesh.js";
@@ -142,6 +144,122 @@ describe("insetEllipse generator", () => {
     const { opening, radiusUsed } = insetEllipse.generate(sliver, 0.5, 0, 8);
     assert.equal(radiusUsed, 0);
     assert.deepEqual(Array.from(opening), [0, 0, 0.5, 0, 1, 0]);
+  });
+});
+
+describe("ellipse width and the opening floor", () => {
+  it("measures an ellipse across its narrowest", () => {
+    // The incircle of a regular polygon: twice its apothem, scaled.
+    const hex = inscribedMomentEllipse(centred(regular(6)));
+    assert.ok(Math.abs(ellipseMinorAxis(hex, 0.5) - Math.cos(Math.PI / 6)) < 1e-12);
+    // A long skewed quad: no point of the ellipse is nearer its centre.
+    const quad = centred([[0, 0], [9, 1], [10, 2.5], [2, 2]]);
+    const e = inscribedMomentEllipse(quad);
+    const width = ellipseMinorAxis(e, 0.7);
+    const pts = ellipsePolyline(e, 0.7, 720);
+    let least = Infinity;
+    for (let i = 0; i < pts.length; i += 2) least = Math.min(least, Math.hypot(pts[i], pts[i + 1]));
+    assert.ok(2 * least >= width - 1e-12 && 2 * least < width * 1.001, `${2 * least} vs ${width}`);
+    assert.equal(insetEllipse.generate(quad, 0.3, 0).minWidth, width);
+    assert.equal(insetFillet.generate(quad, 0.3, 0).minWidth, undefined);
+  });
+
+  it("keeps a face closed when its ellipse is under 0.2 mm across", async () => {
+    // The floor was measured on the inset polygon alone. On two long faces
+    // of this shape the polygon passes it and the ellipse inside does not.
+    // Through sides measured the cutter at a few angles instead, and at
+    // this mesh density read one of the two (0.196 mm wide) as 0.202 mm.
+    await loadCsg();
+    for (const openingAxis of ["center", "through"]) {
+      const state = {
+        base: "rhombictriaconta", seed: 4840, jitter: 8, jitterMode: "radial", truncate: 15,
+        points: 12, wallMm: 1.4, wallMode: "scaled", borderFraction: 0.2, edgeDiv: 4,
+        openingStyle: "ellipse", openingAxis,
+      };
+      const r = compile(state);
+      assert.equal(r.validation.ok, true, r.validation.errors[0]?.message);
+      const frames = faceFrames(r.skeleton);
+      const P = r.skeleton.positions;
+      const narrow = [], byEllipseOnly = [];
+      r.skeleton.faces.forEach((ring, fi) => {
+        const flat = ring.flatMap((v) => projectToFrame(frames[fi], P[v * 3], P[v * 3 + 1], P[v * 3 + 2]));
+        const polygon = 2 * (1 - state.borderFraction) * frames[fi].edgeDistMin;
+        const ellipse = insetEllipse.generate(flat, state.borderFraction, 0).minWidth;
+        if (polygon < 0.2 || ellipse < 0.2) narrow.push(fi);
+        if (polygon >= 0.2 && ellipse < 0.2) byEllipseOnly.push(fi);
+      });
+      assert.equal(byEllipseOnly.length, 2);
+      const closed = r.metrics.faceMetrics
+        .filter((f) => f.openingMinDiameterMm === 0).map((f) => f.faceIndex);
+      assert.deepEqual(closed, narrow, openingAxis);
+      assert.ok(
+        r.validation.warnings.some((w) => w.message.startsWith(`${narrow.length} of `)),
+        openingAxis,
+      );
+    }
+  });
+});
+
+describe("why an ellipse face stays closed", () => {
+  it("is too thin when its ellipse is, even where the rounding also dents its outline", () => {
+    // One face of this shape has an ellipse under 0.2 mm across and an
+    // outline its centroid cannot see all of. Less rounding cannot open
+    // it, so it is counted as too thin, not as closed by its rounding.
+    const state = {
+      base: "rhombicdodeca", seed: 4998, jitter: 20, jitterMode: "radial", subdiv: 1,
+      wallMm: 1.4, wallMode: "scaled", roundingMm: 1.5, borderFraction: 0.2, filletMm: 1.5,
+      openingStyle: "ellipse",
+    };
+    const r = compile(state);
+    assert.equal(r.validation.ok, true);
+    const frames = faceFrames(r.skeleton);
+    const P = r.skeleton.positions;
+    let narrow = 0;
+    r.skeleton.faces.forEach((ring, fi) => {
+      const flat = ring.flatMap((v) => projectToFrame(frames[fi], P[v * 3], P[v * 3 + 1], P[v * 3 + 2]));
+      const polygon = 2 * (1 - state.borderFraction) * frames[fi].edgeDistMin;
+      const ellipse = insetEllipse.generate(flat, state.borderFraction, 0).minWidth;
+      if (polygon < 0.2 || ellipse < 0.2) narrow++;
+    });
+    assert.equal(narrow, 12);
+    const note = r.validation.warnings.find((w) => /stay closed/.test(w.message));
+    assert.equal(
+      note.message,
+      "16 of 120 faces stay closed: 12 too thin for an opening, " +
+        "4 with no room for one inside their rounded edges",
+    );
+  });
+});
+
+describe("an ellipse as it is built", () => {
+  it("is not built from samples that cut across it", () => {
+    // An ellipse 5 mm by 0.5 mm, sampled only towards the ends of its long
+    // axis, as on a sliver whose long edges have points at their ends
+    // alone. Every sample is far out; the segments joining them pass the
+    // centre at a third of the ellipse's half-width.
+    const e = { l11: 1, l21: 0, l22: 0.1, k: 2.5 };
+    assert.ok(Math.abs(ellipseMinorAxis(e, 1) - 0.5) < 1e-12);
+    const ang = [2, 178, 182, 358].map((deg) => (deg * Math.PI) / 180);
+    const rad = radialSample(ellipsePolyline(e, 1, 256), ang);
+    assert.ok(Math.min(...rad) > 2, `nearest sample ${Math.min(...rad)}`);
+    assert.ok(2 * rimClearance(rad, ang) < 0.2, `built ${2 * rimClearance(rad, ang)} across`);
+
+    // On a shape at a coarse mesh setting: thirteen ellipses 0.25 to
+    // 0.95 mm wide were built under 0.2 mm across. One takes the bare
+    // inset; for twelve that reaches past the outline Smooth leaves them,
+    // and they stay closed, counted with that cause.
+    const r = compile({
+      base: "octahedron", seed: 2953, jitter: 20, jitterMode: "both", truncate: 15, subdiv: 1,
+      soften: 20, roundingMm: 1.5, wallMm: 1.4, wallMode: "scaled", borderFraction: 0.6,
+      filletMm: 4.5, edgeDiv: 4, openingStyle: "ellipse",
+    });
+    assert.equal(r.validation.ok, true);
+    const note = r.validation.warnings.find((w) => /stay closed/.test(w.message));
+    assert.equal(
+      note.message,
+      "45 of 192 faces stay closed: 16 too thin for an opening, " +
+        "29 with no room for one inside their rounded edges",
+    );
   });
 });
 

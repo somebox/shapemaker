@@ -8,8 +8,10 @@ import { inradiusRange } from "./skeleton.js";
 import { filletRMax, insetScale, collapseMicroEdges } from "./geom/poly2.js";
 import { edgeKey } from "./geom/edgesub.js";
 import { DEFAULT_STATE, SPIKE_T_MAX } from "./schema.js";
-import { cornerOffsets, offsetWallLimit } from "./solid/offset.js";
+import { evenWallCeiling } from "./solid/offset.js";
 import { buildMacroTopology } from "./solid/macro-topo.js";
+import { shareRunWidths } from "./solid/edgeround.js";
+import { OPENING_MIN_MM } from "./solid/shell.js";
 
 /** Practical FDM floor (≈ 6 lines at 0.4 mm nozzle). */
 export const PRINTABLE_BORDER_MM = 2.5;
@@ -60,6 +62,77 @@ export function borderPrintabilityWarning(state, limits, appliedBorderMm = null)
   };
 }
 /**
+ * The Fillet slider's ceiling: the largest radius every opening can take,
+ * so the face with the least room binds. A face too thin for an opening
+ * stays closed and has no say.
+ * @param {{ positions: Float64Array, faces: number[][] }} skeleton
+ * @param {{ borderMm?: number|null, borderFraction?: number|null }} state
+ * @param {object[]} [frames]  `faceFrames(skeleton)`, if at hand
+ * @returns {number|null}  null when no face takes an opening
+ */
+export function filletCeiling(skeleton, state, frames = faceFrames(skeleton)) {
+  let least = Infinity;
+  for (let fi = 0; fi < frames.length; fi++) {
+    const frame = frames[fi];
+    const fraction = state.borderMm != null
+      ? state.borderMm / frame.edgeDistMin
+      : state.borderFraction;
+    if (!(Number.isFinite(fraction) && fraction >= 0 && fraction < 1)) continue;
+    if (2 * (1 - fraction) * frame.edgeDistMin < OPENING_MIN_MM) continue;
+    const corners = [];
+    for (const vi of skeleton.faces[fi]) {
+      corners.push(projectToFrame(
+        frame,
+        skeleton.positions[vi * 3],
+        skeleton.positions[vi * 3 + 1],
+        skeleton.positions[vi * 3 + 2],
+      ));
+    }
+    // Micro edges are swallowed by the fillet path, so they must not
+    // drag the slider ceiling down either.
+    least = Math.min(least, filletRMax(collapseMicroEdges(insetScale(corners, fraction))) * 0.999);
+  }
+  return Number.isFinite(least) ? least : null;
+}
+
+/**
+ * Even-wall ceilings of the last few skeletons, newest first. Every
+ * rebuild asks for the ceiling, and dragging Wall, Rounding, Border or
+ * Fillet rebuilds on the same skeleton. The corner offsets, and where
+ * slivers are in play the search for the first refused wall (tens of
+ * milliseconds on some shapes), are worked out once per shape. Kept
+ * by content, as copies: a rebuild makes a new skeleton object each time.
+ */
+const wallCeilings = [];
+const WALL_CEILINGS_KEPT = 4;
+
+function evenWallCeilingOf(skeleton, frames) {
+  const hit = wallCeilings.find((kept) => sameSkeleton(kept, skeleton));
+  if (hit) return hit.ceiling;
+  const ceiling = evenWallCeiling(skeleton, frames);
+  wallCeilings.unshift({
+    positions: skeleton.positions.slice(),
+    faces: skeleton.faces.map((ring) => ring.slice()),
+    ceiling,
+  });
+  wallCeilings.length = Math.min(wallCeilings.length, WALL_CEILINGS_KEPT);
+  return ceiling;
+}
+
+function sameSkeleton(a, b) {
+  if (a.positions.length !== b.positions.length || a.faces.length !== b.faces.length) return false;
+  for (let i = 0; i < a.positions.length; i++) {
+    if (a.positions[i] !== b.positions[i]) return false;
+  }
+  for (let f = 0; f < a.faces.length; f++) {
+    const p = a.faces[f], q = b.faces[f];
+    if (p.length !== q.length) return false;
+    for (let k = 0; k < p.length; k++) if (p[k] !== q[k]) return false;
+  }
+  return true;
+}
+
+/**
  * @param {{ positions: Float64Array, faces: number[][] }} skeleton
  * @param {{
  *   depth?: string,
@@ -80,7 +153,10 @@ export function computeLimits(skeleton, state) {
   const wallMmMax = depth !== "hollow"
     ? null
     : even
-      ? offsetWallLimit(skeleton, cornerOffsets(skeleton, frames)) * 0.9
+      // 90% of the wall the builder first refuses: an inner edge folds or
+      // an inner face turns inside out, with the offsets that wall is
+      // built with.
+      ? evenWallCeilingOf(skeleton, frames)
       : inradius.min * 0.9;
 
   let borderMmMax = null;
@@ -94,39 +170,21 @@ export function computeLimits(skeleton, state) {
 
   if (openings) {
     let minEdgeDist = Infinity;
-    let minFillet = Infinity;
     let minBorderFlat = Infinity;
     borderFractionMax = 0.9;
     for (let fi = 0; fi < frames.length; fi++) {
       const frame = frames[fi];
       minEdgeDist = Math.min(minEdgeDist, frame.edgeDistMin);
-
-      const ring = skeleton.faces[fi];
-      const corners = [];
-      for (const vi of ring) {
-        corners.push(projectToFrame(
-          frame,
-          skeleton.positions[vi * 3],
-          skeleton.positions[vi * 3 + 1],
-          skeleton.positions[vi * 3 + 2],
-        ));
-      }
       const fraction = state.borderMm != null
         ? state.borderMm / frame.edgeDistMin
         : state.borderFraction;
       if (Number.isFinite(fraction) && fraction >= 0 && fraction < 1) {
-        // Micro edges are swallowed by the fillet path, so they must not
-        // drag the slider ceiling down either.
-        minFillet = Math.min(
-          minFillet,
-          filletRMax(collapseMicroEdges(insetScale(corners, fraction))) * 0.999,
-        );
         minBorderFlat = Math.min(minBorderFlat, frame.edgeDistMin * fraction);
       }
     }
     // Constant-mm ceiling (legacy / printability): still the smallest face.
     borderMmMax = minEdgeDist * 0.95;
-    filletMmMax = Number.isFinite(minFillet) ? minFillet : null;
+    filletMmMax = filletCeiling(skeleton, state, frames);
 
     if (depth === "hollow" && Number.isFinite(minBorderFlat)) {
       const wallMm = state.wallMm ?? DEFAULT_STATE.wallMm;
@@ -236,7 +294,7 @@ function maxMacroEdgeRoundingMm(skeleton, frames, openings, state) {
       if (!(w >= wFloor) || !Number.isFinite(w)) w = 0;
     }
     const r = cotHalf > 1e-9 ? w / cotHalf : w;
-    edges.push({ keys: me.keys, ma: me.ma, mb: me.mb, u, v, r, w, cotHalf, len });
+    edges.push({ keys: me.keys, ma: me.ma, mb: me.mb, u, v, d, r, w, cotHalf, len });
   }
 
   const edgeByTopo = new Map();
@@ -262,10 +320,17 @@ function maxMacroEdgeRoundingMm(skeleton, frames, openings, state) {
       0,
     );
   };
-  const narrow = (e, k) => {
-    e.w *= k;
+  const setWidth = (e, w) => {
+    e.w = w;
     e.r = e.w < wFloor ? 0 : e.cotHalf > 1e-9 ? e.w / e.cotHalf : e.w;
     if (e.r === 0) e.w = 0;
+  };
+  // The builder gives each straight run of strips one width, and narrows a
+  // run together: a ceiling solved edge by edge would promise a radius the
+  // builder then clamps, leaving dead travel at the top of the slider.
+  if (!skeleton.macroFaceId) shareRunWidths(edges, topo, cornerVerts, edgeByTopo, setWidth);
+  const narrow = (e, k) => {
+    for (const x of e.run ?? [e]) setWidth(x, x.w * k);
   };
   for (let pass = 0; pass < 12; pass++) {
     let changed = false;
