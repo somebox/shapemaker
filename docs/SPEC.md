@@ -351,7 +351,11 @@ hexagon cells a Dual produces, and as a perforated ball on triangles.
 
 **Polygon** openings use a centroid-scaled inset and tangent fillet. Fillet is authored as
 a radius in millimetres; a face whose opening cannot fit the requested radius
-clamps it locally, and the applied range is reported. Each face boundary is
+clamps it locally, and the applied range is reported. On a sliver face a
+fillet near the largest that fits pulls the opening off the face centroid
+the opening is laid out around. Where that would put the centroid outside
+the opening, or within 0.1 mm of its rim, the face keeps its unfilleted
+opening. Each face boundary is
 subdivided globally so adjacent faces share identical points. The opening is
 sampled on matching centroid rays, preserving the prototype's non-intersecting
 annulus construction. Spike does not change this: openings still require
@@ -548,8 +552,10 @@ can without any Rounding, has its inner opening laid out along the inner
 ring's own rays instead: each point as far from the inner face's centre
 towards its ring point as the outer opening is along its ray.
 
-Some faces no repair fits: a band that still fails after the last halving,
-an inner opening neither layout holds, a closed face no point can be
+Some faces no repair fits: a ring that still stands off its inner face
+after the last halving, an inner opening neither layout holds (a band that
+only folds against the Centre opening gets the second layout first, and is
+not counted if that holds), a closed face no point can be
 fanned from (a needle face's inner outline can keep a spur a few microns
 long at its tip). They are built as they are and counted, and a warning
 gives the count and says they may pass through their neighbours. The count

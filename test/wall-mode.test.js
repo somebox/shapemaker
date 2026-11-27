@@ -240,6 +240,27 @@ describe("wallMode", () => {
     );
   });
 
+  it("drops a fillet that draws the opening's rim onto the centroid", () => {
+    // One sliver face of this shape passes the 0.2 mm floor unfilleted
+    // (its opening is 2.15 mm across the centroid). Its 0.38 mm fillet,
+    // near the largest that fits, shifted the opening until the rim passed
+    // 0.08 mm from the centroid it is laid out around. The fillet already
+    // went where it put the centroid outside; this is the step before.
+    const r = compile({
+      base: "random", seed: 2300, truncate: 40, wallMm: 1.4, borderFraction: 0.36,
+      filletMm: 4.5, edgeDiv: 4, wallMode: "even",
+    });
+    assert.equal(r.validation.ok, true);
+    const open = r.metrics.faceMetrics.filter((f) => f.openingMinDiameterMm > 0);
+    assert.equal(open.length, 128);
+    assert.ok(open.every((f) => f.openingMinDiameterMm >= 0.2));
+    assert.ok(r.metrics.openingMinDiameterMm >= 0.2);
+    const sharp = open.filter((f) => f.filletUsedMm === 0);
+    assert.deepEqual(sharp.map((f) => f.faceIndex), [125]);
+    assert.ok(sharp[0].openingMinDiameterMm > 2);
+    assert.deepEqual(selfIntersections(r.mesh, 5), []);
+  });
+
   it("gives no border guidance when no opening was built", () => {
     // A 3 mm cube: all six openings would be under 0.2 mm and stay closed.
     // The guidance used to fall back on the 0.8 mm border asked for.
@@ -445,6 +466,22 @@ describe("wallMode", () => {
     assert.match(note.message, new RegExp(`^\\d+ of ${r.skeleton.faces.length} faces`));
     assert.match(note.message, /a thinner wall usually helps/);
     assert.ok(!compile({ roundingMm: 1.5, wallMode: "even" }).validation.warnings.some(fitted));
+  });
+
+  it("does not count a face whose inner opening was laid out again", () => {
+    // Two inner bands of this shape still fold against the Centre opening
+    // after the last halving. Laid out along the inner ring's own rays
+    // they hold, and the faces were counted as unfitted all the same.
+    const r = compile({
+      base: "rhombicdodeca", seed: 1861, jitter: 8, jitterMode: "surface", truncate: 15,
+      points: 12, wallMm: 4, roundingMm: 3, borderFraction: 0.2, filletMm: 4.5, edgeDiv: 4,
+      wallMode: "even",
+    });
+    assert.equal(r.validation.ok, true);
+    assert.ok(!r.validation.warnings.some((w) => /could not be fitted/.test(w.message)));
+    assert.deepEqual(selfIntersections(r.mesh, 5), []);
+    const exact = { positions: r.mesh.positions64, indices: r.mesh.indices };
+    assert.deepEqual(selfIntersections(exact, 5), []);
   });
 
   it("advises only what the state has on", () => {

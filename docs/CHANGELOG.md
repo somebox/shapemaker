@@ -80,11 +80,17 @@ onward every release gets a full entry here, and breaking changes to the
     width as if they were one straight run.
 - **A warning says when a face could not be fitted**, with the count.
   Those faces are built as they are and may pass through their neighbours.
+  A face that a second layout of its inner opening fits is not counted.
   Under Even walls a thinner wall usually helps; under Scaled walls and on
   solid shapes only less rounding can. Before, nothing said so.
 - The smallest-opening figure no longer reads 0 mm because one face stays
   closed, and the border and fillet ranges leave closed faces out. A shape
   whose faces all stay closed gets no thin-border warning.
+- On a sliver face, a fillet near the largest that fits could draw the
+  opening's rim to within microns of the face centre, leaving the opening
+  lopsided and sometimes under 0.2 mm across. Such a face keeps its
+  unfilleted opening, as it already did where the fillet put the centre
+  outside.
 - **Faces with no room for an opening stay closed**, with a warning that
   counts them and says why (too thin, or no room inside their rounded
   edges): openings under 0.2 mm across under every Sides setting

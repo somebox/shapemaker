@@ -595,6 +595,11 @@ export function buildShell(skeleton, opts) {
     // Sample the opening along the same rays as the boundary points: both
     // rings are convex and contain the centroid, so the rays are in strict
     // angular order and consecutive rays bound exactly one quad.
+    /** The same opening without its fillet, sampled. */
+    const unfilleted = () => {
+      ({ opening, radiusUsed } = openingGenerator.generate(corner2d, frac, 0, 1));
+      return radialSample(opening, ang);
+    };
     let rad;
     try {
       rad = radialSample(opening, ang);
@@ -605,8 +610,16 @@ export function buildShell(skeleton, opts) {
       // the centroid by construction — drop the fillet on this face only.
       // If the retry still throws, the face is truly degenerate: that is an
       // internal invariant, so let it propagate.
-      ({ opening, radiusUsed } = openingGenerator.generate(corner2d, frac, 0, 1));
-      rad = radialSample(opening, ang);
+      rad = unfilleted();
+    }
+    // Short of excluding the centroid, such a fillet draws the opening's
+    // rim up to it: the opening is then off the point it is laid out
+    // around, and can be narrower than the floor its unfilleted outline
+    // passed. Within half the floor of the centroid, the fillet goes too.
+    if (radiusUsed > 0) {
+      let least = Infinity;
+      for (let k = 0; k < m; k++) least = Math.min(least, rad[k]);
+      if (2 * least < OPENING_MIN_MM) rad = unfilleted();
     }
     // ... or reach past the outline the rounding leaves it.
     if (stage2 && !through) {
@@ -657,6 +670,13 @@ export function buildShell(skeleton, opts) {
    * they are, counted and reported: they may pass through their neighbours.
    */
   const unfit = new Set();
+  /**
+   * Open faces whose inner band still folds against the Centre opening
+   * after the last halving, but sits on its face. The face loop lays their
+   * inner opening out along the inner ring's own rays, and reports them
+   * only if that fails too.
+   */
+  const folded = new Set();
 
   /**
    * Even walls, Centre: the opening carried to the inner face by the
@@ -732,7 +752,7 @@ export function buildShell(skeleton, opts) {
           cy + mx * uy + my * wy + d0[1],
           cz + mx * uz + my * wz + d0[2],
         ]);
-        let faults;
+        let faults, leaning = false;
         if (open) {
           lay.oiCentre ??= carryInner(ring, skelFlat(fi), lay);
           const O = lay.oiCentre.map(flat);
@@ -746,26 +766,34 @@ export function buildShell(skeleton, opts) {
             if (!(run > 0) || !(band > 0)) continue;
             const tilt = (O[k][2] - c[2]) / run;
             const rise = (B[k][2] - O[k][2]) / band;
-            if (Math.abs(rise - tilt) > INNER_BAND_RISE) faults.push(k);
+            if (Math.abs(rise - tilt) > INNER_BAND_RISE) {
+              faults.push(k);
+              leaning = true;
+            }
           }
         } else {
           // Closed (and Through, which cuts later): a fan from the middle.
           faults = bandFaults(B, c, true, turn);
         }
-        if (faults.length) faulty.push(fi);
+        if (faults.length) faulty.push({ fi, leaning });
         for (const k of faults) {
           for (const v of [BOr[k], BOr[(k + 1) % m]]) {
             for (const [corner, wgt] of hosts[v]) if (wgt > 0) tight.add(corner);
           }
         }
       }
-      // What is left after the last halving is built as it is, and reported.
-      // (A closed face is reported by `closeFace`, which may yet fan it
-      // from another point.)
+      // What is left after the last halving is built as it is. A ring that
+      // stands off its inner face is reported here: no layout of the
+      // opening changes that. A band that only folds may yet be laid out
+      // along the ring's own rays, and is reported if that fails. (A
+      // closed face is reported by `closeFace`, which may yet fan it from
+      // another point.)
       if (tight.size === 0 || pass === INNER_FIT_HALVINGS) {
-        for (const fi of faulty) {
+        for (const { fi, leaning } of faulty) {
           const lay = layouts[fi];
-          if (lay && !lay.closed && !through) unfit.add(fi);
+          if (!lay || lay.closed || through) continue;
+          if (leaning) unfit.add(fi);
+          else folded.add(fi);
         }
         break;
       }
@@ -1194,6 +1222,10 @@ export function buildShell(skeleton, opts) {
         if (bandFaults(B, radial.map(proj), false, lay.turn).length === 0) oiPts = radial;
         else unfit.add(fi);
       }
+    } else if (folded.has(fi)) {
+      // Straight sides have their own layout, which is not checked again:
+      // a band that folded against the Centre opening stays reported.
+      unfit.add(fi);
     }
 
     // Per-face rounding clamp from exact per-ray flat widths + wall lengths.
