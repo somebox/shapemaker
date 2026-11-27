@@ -321,7 +321,9 @@ displacement:
   the wall. The Wall slider stops at 90% of the first wall that would be
   refused, each wall tried with the moves it is built with. A refused wall
   is told that first refusal and its cause, not the limit it ran into
-  itself, and is offered the slider's maximum.
+  itself, and is offered the slider's maximum. The maximum is worked out
+  once per shape and kept for the last few shapes, so that dragging Wall
+  or Rounding does not search for it again on every rebuild.
 - **Scaled** shrinks the whole surface by `s = 1 − wall / inradius_min`
   about the origin. The face nearest the centre gets the set wall and faces
   farther out get thicker. This is the construction before Even existed, and
@@ -356,9 +358,10 @@ annulus construction. Spike does not change this: openings still require
 hollow, and each unmerged pyramid flank is one opening.
 
 A face with no room for its opening stays closed, reported as a warning
-with the count, split by cause where both occur: too thin for an opening,
-or no room for one inside its rounded edges (less rounding opens those
-again). The first is a face whose opening would be under 0.2 mm across
+with the count, split by cause where both occur: too thin for an opening
+(under Through sides, too small to cut through), or no room for one
+inside its rounded edges (less rounding opens those again). The first is
+a face whose opening would be under 0.2 mm across
 (twice the centroid's distance to its nearest edge, scaled by 1 − border;
 for an ellipse also its own minor axis, which can be shorter).
 Through sides are held to the same measure, and also to the opening they

@@ -164,6 +164,22 @@ export function compileShape(partial = {}) {
 }
 
 /**
+ * @param {number} n  faces that stay closed
+ * @param {number} rounded  those of them closed by their rounded outline
+ * @param {number} faces  faces on the shape
+ * @param {string} small  what the others are: "too thin for an opening"
+ */
+function closedMessage(n, rounded, faces, small) {
+  const of = `${n} of ${faces} faces`;
+  if (rounded === 0) return `${of} are ${small} and stay closed`;
+  if (rounded === n) {
+    return `${of} have no room for an opening inside their rounded edges and stay closed`;
+  }
+  return `${of} stay closed: ${n - rounded} ${small}, ` +
+    `${rounded} with no room for one inside their rounded edges`;
+}
+
+/**
  * The warning for faces no repair could fit, with advice that names only
  * what the state has on. What helps depends on the wall. Under Even walls
  * most of these are inner faces too small for their rounding, and a
@@ -243,31 +259,27 @@ export function compile(partial = {}) {
     if (guidance) validation.warnings.push(guidance);
     const axisWarning = straightAxisWarning(solid.info, skeleton.faces.length, state.wallMm);
     if (axisWarning) validation.warnings.push(axisWarning);
+    // Faces that stay closed, with the cause: too small for any opening,
+    // or a rounded outline that leaves the opening no room, which less
+    // rounding opens again.
     if (solid.info.throughClosedFaces > 0) {
       validation.warnings.push({
         stage: "solid",
         key: "openingAxis",
-        message:
-          `${solid.info.throughClosedFaces} of ${skeleton.faces.length} faces are too ` +
-          `small to cut through and stay closed`,
+        message: closedMessage(
+          solid.info.throughClosedFaces, solid.info.throughClosedByRoundingFaces ?? 0,
+          skeleton.faces.length, "too small to cut through",
+        ),
       });
     }
     if (solid.info.closedFaces > 0) {
-      // Two causes, told apart: a face too thin for any opening, and a
-      // face whose rounded outline leaves its opening no room, which less
-      // rounding opens again.
-      const n = solid.info.closedFaces;
-      const rounded = solid.info.closedByRoundingFaces ?? 0;
-      const of = `${n} of ${skeleton.faces.length} faces`;
       validation.warnings.push({
         stage: "solid",
         key: "openings",
-        message: rounded === 0
-          ? `${of} are too thin for an opening and stay closed`
-          : rounded === n
-            ? `${of} have no room for an opening inside their rounded edges and stay closed`
-            : `${of} stay closed: ${n - rounded} too thin for an opening, ` +
-              `${rounded} with no room for one inside their rounded edges`,
+        message: closedMessage(
+          solid.info.closedFaces, solid.info.closedByRoundingFaces ?? 0,
+          skeleton.faces.length, "too thin for an opening",
+        ),
       });
     }
     if (solid.info.unfitFaces > 0) {

@@ -61,6 +61,43 @@ export function borderPrintabilityWarning(state, limits, appliedBorderMm = null)
   };
 }
 /**
+ * Even-wall ceilings of the last few skeletons, newest first. Every
+ * rebuild asks for the ceiling, and dragging Wall, Rounding, Border or
+ * Fillet rebuilds on the same skeleton. The corner offsets, and where
+ * slivers are in play the search for the first refused wall (tens of
+ * milliseconds, 150 on some shapes), are worked out once per shape. Kept
+ * by content, as copies: a rebuild makes a new skeleton object each time.
+ */
+const wallCeilings = [];
+const WALL_CEILINGS_KEPT = 4;
+
+function evenWallCeilingOf(skeleton, frames) {
+  const hit = wallCeilings.find((kept) => sameSkeleton(kept, skeleton));
+  if (hit) return hit.ceiling;
+  const ceiling = evenWallCeiling(skeleton, frames);
+  wallCeilings.unshift({
+    positions: skeleton.positions.slice(),
+    faces: skeleton.faces.map((ring) => ring.slice()),
+    ceiling,
+  });
+  wallCeilings.length = Math.min(wallCeilings.length, WALL_CEILINGS_KEPT);
+  return ceiling;
+}
+
+function sameSkeleton(a, b) {
+  if (a.positions.length !== b.positions.length || a.faces.length !== b.faces.length) return false;
+  for (let i = 0; i < a.positions.length; i++) {
+    if (a.positions[i] !== b.positions[i]) return false;
+  }
+  for (let f = 0; f < a.faces.length; f++) {
+    const p = a.faces[f], q = b.faces[f];
+    if (p.length !== q.length) return false;
+    for (let k = 0; k < p.length; k++) if (p[k] !== q[k]) return false;
+  }
+  return true;
+}
+
+/**
  * @param {{ positions: Float64Array, faces: number[][] }} skeleton
  * @param {{
  *   depth?: string,
@@ -84,7 +121,7 @@ export function computeLimits(skeleton, state) {
       // 90% of the wall the builder first refuses: an inner edge folds or
       // an inner face turns inside out, with the offsets that wall is
       // built with.
-      ? evenWallCeiling(skeleton, frames)
+      ? evenWallCeilingOf(skeleton, frames)
       : inradius.min * 0.9;
 
   let borderMmMax = null;

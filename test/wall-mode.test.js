@@ -5,6 +5,8 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { compile, compileShape, limitsForState, unfitWarning } from "../src/compile.js";
 import { faceFrames } from "../src/faceframe.js";
+import { computeLimits } from "../src/limits.js";
+import { loadCsg } from "../src/solid/csg.js";
 import { encodeHash, decodeHash } from "../src/hashcodec.js";
 import { parseProject, serializeProjectV1 } from "../src/project-format.js";
 import { DEFAULT_STATE, CONTROL_DEFS } from "../src/schema.js";
@@ -221,6 +223,23 @@ describe("wallMode", () => {
     );
   });
 
+  it("gives Through's closed faces their cause too", async () => {
+    // Smooth dents two needle outlines so that the centroid cannot see
+    // all of them. Through called them "too small to cut through".
+    await loadCsg();
+    const r = compile({
+      base: "random", seed: 1259, subdiv: 1, soften: 80, roundingMm: 1.5, wallMm: 1.4,
+      borderFraction: 0.6, filletMm: 0, edgeDiv: 4, openingAxis: "through",
+    });
+    assert.equal(r.validation.ok, true, r.validation.errors[0]?.message);
+    const note = r.validation.warnings.find((w) => /stay closed/.test(w.message));
+    assert.equal(note.key, "openingAxis");
+    assert.equal(
+      note.message,
+      "2 of 176 faces have no room for an opening inside their rounded edges and stay closed",
+    );
+  });
+
   it("gives no border guidance when no opening was built", () => {
     // A 3 mm cube: all six openings would be under 0.2 mm and stay closed.
     // The guidance used to fall back on the 0.8 mm border asked for.
@@ -321,6 +340,28 @@ describe("wallMode", () => {
     assert.equal(cornerOffsetsForWall(skeleton, frames, wall, plain), plain);
     // The slivers keep their corners' own moves, which hold to the limit.
     assert.equal(evenWallFit(skeleton, frames, wall, plain).ok, true);
+  });
+
+  it("keeps the wall ceiling per shape, by content", () => {
+    // Every rebuild asks for it, on a new skeleton object each time.
+    const state = { wallMode: "even", depth: "hollow", openings: false };
+    const got = (skeleton) => computeLimits(skeleton, state).wallMmMax;
+    const want = (skeleton) => evenWallCeiling(skeleton, faceFrames(skeleton));
+    const moved = planedBox();
+    moved.positions.set([29.97, 0, 31], 9 * 3);
+    assert.notEqual(want(moved), want(planedBox()));
+    for (const skeleton of [planedBox(), moved, planedBox(), moved]) {
+      assert.equal(got(skeleton), want(skeleton));
+    }
+    // A skeleton changed in place is another shape.
+    const box = planedBox();
+    assert.equal(got(box), want(planedBox()));
+    box.positions.set([29.97, 0, 31], 9 * 3);
+    assert.equal(got(box), want(moved));
+    // More shapes than are kept, then the first again.
+    for (const h of [0.5, 0.6, 0.7, 0.8, 0.9, 1, 0.5]) {
+      assert.equal(got(planedBox(h)), want(planedBox(h)), `h = ${h}`);
+    }
   });
 
   it("puts the face limit at the edge limit where a face shrinks evenly", () => {

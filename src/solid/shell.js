@@ -787,6 +787,8 @@ export function buildShell(skeleton, opts) {
   let straightWallMm = Infinity;
   let throughSpillFaces = 0;
   let throughClosedFaces = 0;
+  /** Those of them the rounded outline, not a small opening, keeps closed. */
+  let throughClosedByRounding = 0;
   /** Faces with no room for their opening (Centre and Straight sides). */
   let closedFaces = 0;
   /** Those of them the rounded outline, not a narrow opening, keeps closed. */
@@ -903,8 +905,10 @@ export function buildShell(skeleton, opts) {
     layouts[fi] = undefined;
     if (lay.closed) {
       closeFace();
-      if (through) throughClosedFaces++;
-      else {
+      if (through) {
+        throughClosedFaces++;
+        if (lay.closed === "rounding") throughClosedByRounding++;
+      } else {
         closedFaces++;
         if (lay.closed === "rounding") closedByRounding++;
       }
@@ -1505,6 +1509,7 @@ export function buildShell(skeleton, opts) {
       throughSpillFaces: through ? throughSpillFaces : null,
       // Through faces too small to open (kept closed).
       throughClosedFaces: through ? throughClosedFaces : null,
+      throughClosedByRoundingFaces: through ? throughClosedByRounding : null,
       // Faces with no room for their opening (kept closed).
       closedFaces: openings && !through ? closedFaces : null,
       // Those of them closed by their rounded outline, not a narrow opening.
