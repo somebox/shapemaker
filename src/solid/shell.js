@@ -57,7 +57,7 @@ export function filletSegmentsFor(edgeDiv) {
  * under Even, where each leans its own way, or as cutter contacts under
  * Through).
  */
-const OPENING_MIN_MM = 0.2;
+export const OPENING_MIN_MM = 0.2;
 
 /**
  * Inner flat a Normal opening keeps along every inner edge (about one

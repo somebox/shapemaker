@@ -11,6 +11,7 @@ import { DEFAULT_STATE, SPIKE_T_MAX } from "./schema.js";
 import { evenWallCeiling } from "./solid/offset.js";
 import { buildMacroTopology } from "./solid/macro-topo.js";
 import { shareRunWidths } from "./solid/edgeround.js";
+import { OPENING_MIN_MM } from "./solid/shell.js";
 
 /** Practical FDM floor (≈ 6 lines at 0.4 mm nozzle). */
 export const PRINTABLE_BORDER_MM = 2.5;
@@ -60,6 +61,40 @@ export function borderPrintabilityWarning(state, limits, appliedBorderMm = null)
       `≈${PRINTABLE_BORDER_MM} mm printable floor. Scale up or reduce density to print this.`,
   };
 }
+/**
+ * The Fillet slider's ceiling: the largest radius every opening can take,
+ * so the face with the least room binds. A face too thin for an opening
+ * stays closed and has no say.
+ * @param {{ positions: Float64Array, faces: number[][] }} skeleton
+ * @param {{ borderMm?: number|null, borderFraction?: number|null }} state
+ * @param {object[]} [frames]  `faceFrames(skeleton)`, if at hand
+ * @returns {number|null}  null when no face takes an opening
+ */
+export function filletCeiling(skeleton, state, frames = faceFrames(skeleton)) {
+  let least = Infinity;
+  for (let fi = 0; fi < frames.length; fi++) {
+    const frame = frames[fi];
+    const fraction = state.borderMm != null
+      ? state.borderMm / frame.edgeDistMin
+      : state.borderFraction;
+    if (!(Number.isFinite(fraction) && fraction >= 0 && fraction < 1)) continue;
+    if (2 * (1 - fraction) * frame.edgeDistMin < OPENING_MIN_MM) continue;
+    const corners = [];
+    for (const vi of skeleton.faces[fi]) {
+      corners.push(projectToFrame(
+        frame,
+        skeleton.positions[vi * 3],
+        skeleton.positions[vi * 3 + 1],
+        skeleton.positions[vi * 3 + 2],
+      ));
+    }
+    // Micro edges are swallowed by the fillet path, so they must not
+    // drag the slider ceiling down either.
+    least = Math.min(least, filletRMax(collapseMicroEdges(insetScale(corners, fraction))) * 0.999);
+  }
+  return Number.isFinite(least) ? least : null;
+}
+
 /**
  * Even-wall ceilings of the last few skeletons, newest first. Every
  * rebuild asks for the ceiling, and dragging Wall, Rounding, Border or
@@ -135,39 +170,21 @@ export function computeLimits(skeleton, state) {
 
   if (openings) {
     let minEdgeDist = Infinity;
-    let minFillet = Infinity;
     let minBorderFlat = Infinity;
     borderFractionMax = 0.9;
     for (let fi = 0; fi < frames.length; fi++) {
       const frame = frames[fi];
       minEdgeDist = Math.min(minEdgeDist, frame.edgeDistMin);
-
-      const ring = skeleton.faces[fi];
-      const corners = [];
-      for (const vi of ring) {
-        corners.push(projectToFrame(
-          frame,
-          skeleton.positions[vi * 3],
-          skeleton.positions[vi * 3 + 1],
-          skeleton.positions[vi * 3 + 2],
-        ));
-      }
       const fraction = state.borderMm != null
         ? state.borderMm / frame.edgeDistMin
         : state.borderFraction;
       if (Number.isFinite(fraction) && fraction >= 0 && fraction < 1) {
-        // Micro edges are swallowed by the fillet path, so they must not
-        // drag the slider ceiling down either.
-        minFillet = Math.min(
-          minFillet,
-          filletRMax(collapseMicroEdges(insetScale(corners, fraction))) * 0.999,
-        );
         minBorderFlat = Math.min(minBorderFlat, frame.edgeDistMin * fraction);
       }
     }
     // Constant-mm ceiling (legacy / printability): still the smallest face.
     borderMmMax = minEdgeDist * 0.95;
-    filletMmMax = Number.isFinite(minFillet) ? minFillet : null;
+    filletMmMax = filletCeiling(skeleton, state, frames);
 
     if (depth === "hollow" && Number.isFinite(minBorderFlat)) {
       const wallMm = state.wallMm ?? DEFAULT_STATE.wallMm;

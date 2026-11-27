@@ -351,7 +351,9 @@ hexagon cells a Dual produces, and as a perforated ball on triangles.
 
 **Polygon** openings use a centroid-scaled inset and tangent fillet. Fillet is authored as
 a radius in millimetres; a face whose opening cannot fit the requested radius
-clamps it locally, and the applied range is reported. On a sliver face a
+clamps it locally, and the applied range is reported. The slider's ceiling
+is the room of the face with the least, among the faces wide enough for an
+opening. On a sliver face a
 fillet near the largest that fits pulls the opening off the face centroid
 the opening is laid out around. Where that would put the centroid outside
 the opening, or within 0.1 mm of its rim, the face keeps its unfilleted

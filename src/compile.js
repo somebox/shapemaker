@@ -13,7 +13,7 @@ import { DEFAULT_STATE, PRINT_KEYS } from "./schema.js";
 import { runPipeline, hullSkeletonForBase, scaleSkeleton } from "./pipeline.js";
 import { computeOrientation, defaultRestingFace } from "./orient.js";
 import { computeMetrics } from "./metrics.js";
-import { computeLimits, borderPrintabilityWarning } from "./limits.js";
+import { computeLimits, borderPrintabilityWarning, filletCeiling } from "./limits.js";
 import { validateState } from "./validate.js";
 import { csgLoadError, csgReady, needsCsg } from "./solid/csg.js";
 
@@ -88,11 +88,13 @@ export function limitsForState(state) {
  */
 function limitsFor(skeleton, state) {
   const limits = computeLimits(skeleton, state);
-  if ((state.subdiv ?? 0) > 0) {
+  if ((state.subdiv ?? 0) > 0 && state.openings !== false) {
+    // Only the Fillet ceiling is wanted of the pre-subdivision solid: its
+    // wall and rounding limits are not, and take far longer to work out.
     const unit = hullSkeletonForBase(state.base, { ...state, subdiv: 0, soften: 0 });
-    const preSub = computeLimits(scaleSkeleton(unit, state.circumdiameterMm / 2), state);
-    if (limits.filletMmMax != null && preSub.filletMmMax != null) {
-      limits.filletMmMax = Math.max(limits.filletMmMax, preSub.filletMmMax);
+    const preSub = filletCeiling(scaleSkeleton(unit, state.circumdiameterMm / 2), state);
+    if (limits.filletMmMax != null && preSub != null) {
+      limits.filletMmMax = Math.max(limits.filletMmMax, preSub);
     }
   }
   return limits;

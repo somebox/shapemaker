@@ -1,7 +1,8 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { compile } from "../src/compile.js";
-import { filletRMax, filletPolygon, insetScale } from "../src/geom/poly2.js";
+import { compile, compileShape, limitsForState } from "../src/compile.js";
+import { faceFrames, projectToFrame } from "../src/faceframe.js";
+import { collapseMicroEdges, filletRMax, filletPolygon, insetScale } from "../src/geom/poly2.js";
 import { borderPrintabilityWarning, PRINTABLE_BORDER_MM } from "../src/limits.js";
 import { clearPipelineCache } from "../src/pipeline.js";
 import { SPIKE_T_MAX } from "../src/schema.js";
@@ -90,6 +91,27 @@ describe("metrics.limits", () => {
     assert.ok(
       once.metrics.limits.filletMmMax >= plain.metrics.limits.filletMmMax * 0.9,
     );
+  });
+
+  it("leaves faces too thin for an opening out of the Fillet ceiling", () => {
+    // The face with the least room binds the Fillet slider. On this shape
+    // that was a truncation face 0.1 mm across, which stays closed.
+    const state = {
+      base: "rhombictriaconta", seed: 3932, jitter: 8, jitterMode: "both", truncate: 15,
+      points: 12, wallMm: 2.4, wallMode: "scaled", borderFraction: 0.6,
+    };
+    const { skeleton } = compileShape(state);
+    const frames = faceFrames(skeleton);
+    const P = skeleton.positions;
+    let every = Infinity, opened = Infinity;
+    skeleton.faces.forEach((ring, fi) => {
+      const corners = ring.map((v) => projectToFrame(frames[fi], P[v * 3], P[v * 3 + 1], P[v * 3 + 2]));
+      const room = filletRMax(collapseMicroEdges(insetScale(corners, state.borderFraction))) * 0.999;
+      every = Math.min(every, room);
+      if (2 * (1 - state.borderFraction) * frames[fi].edgeDistMin >= 0.2) opened = Math.min(opened, room);
+    });
+    assert.ok(every < 0.5 * opened, `${every} against ${opened}`);
+    assert.equal(limitsForState(state).filletMmMax, opened);
   });
 
   it("roundingMmMax matches applied macro-edge budget (zero dead slider zone)", () => {
