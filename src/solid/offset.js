@@ -172,22 +172,25 @@ export const ENUMERATE_MAX_PLANES = 10;
  * the optimum sits on at most three active planes. Up to
  * {@link ENUMERATE_MAX_PLANES} planes, each candidate active set is solved
  * exactly and the best feasible one wins; above it, an active-set descent
- * finds the same optimum in time linear in the planes.
+ * finds the same optimum in time linear in the planes ({@link fitMany}).
  * @param {number[][]} normals  inward unit normals
  * @param {{ enumerateMax?: number }} [opts]  tests compare the two methods
  * @returns {number[]}
  */
 export function fitCorner(normals, { enumerateMax = ENUMERATE_MAX_PLANES } = {}) {
   if (normals.length === 1) return [...normals[0]];
+  if (normals.length > enumerateMax) return fitMany(normals);
   // Normals spanning less than 3D (a crease) leave a free direction; a
   // tiny ridge on |δ|² then picks the shortest move.
-  return fitWithRidge(normals, 0, enumerateMax) ??
-    fitWithRidge(normals, 1e-9, enumerateMax) ?? [0, 0, 0];
+  return fitWithRidge(normals, 0) ?? fitWithRidge(normals, 1e-9) ?? [0, 0, 0];
 }
 
-function fitWithRidge(normals, RIDGE, enumerateMax) {
-  const k = normals.length;
-  const H = [[RIDGE, 0, 0], [0, RIDGE, 0], [0, 0, RIDGE]];
+const dot3 = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const clears = (normals, d) => normals.every((a) => dot3(a, d) >= 1 - 1e-9);
+
+/** H = Σ a aᵀ + ridge·I and g = Σ a: the plain fit solves H δ = g. */
+function normalEquations(normals, ridge = 0) {
+  const H = [[ridge, 0, 0], [0, ridge, 0], [0, 0, ridge]];
   const g = [0, 0, 0];
   for (const a of normals) {
     for (let i = 0; i < 3; i++) {
@@ -195,31 +198,119 @@ function fitWithRidge(normals, RIDGE, enumerateMax) {
       for (let j = 0; j < 3; j++) H[i][j] += a[i] * a[j];
     }
   }
-  const cost = (d) => {
-    let c = RIDGE * (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
-    for (const a of normals) {
-      const r = a[0] * d[0] + a[1] * d[1] + a[2] * d[2] - 1;
-      c += r * r;
-    }
-    return c;
-  };
-  const feasible = (d) =>
-    normals.every((a) => a[0] * d[0] + a[1] * d[1] + a[2] * d[2] >= 1 - 1e-9);
+  return { H, g };
+}
 
+function fitWithRidge(normals, RIDGE) {
+  const { H, g } = normalEquations(normals, RIDGE);
   const free = solveLinear(H.map((row, i) => [...row, g[i]]));
-  if (free && feasible(free)) return free;
-  // A singular plain fit (normals all but coplanar) also enumerates:
-  // descent's working-set solves share the singularity, while sets of three
-  // planes stay solvable, and the ridge pass would bias a fit that sits
-  // millions of walls deep. Corners like this never came up in 830 designs.
-  if (k > enumerateMax && free) {
-    const fit = descend(normals, H, g, free);
-    // null: no point clears every plane, so the plain fit, as enumeration
-    // returns below. undefined: the search for a start failed numerically,
-    // so enumerate (slow but exact) rather than guess.
-    if (fit !== undefined) return fit ?? free;
-  }
+  if (free && clears(normals, free)) return free;
+  // Normals spanning more than a hemisphere admit no feasible point; the
+  // plain fit is the least-bad answer and the wall limit will reject it.
+  return enumerate(normals, H, g, RIDGE) ?? free;
+}
 
+/**
+ * Axes along which the normals lean less than this fraction of the most
+ * are treated as free: the fit leaves them alone, as the ridge pass does
+ * for a crease. A fit along such an axis would sit ~1e10 walls deep.
+ */
+const RANK_TOL = 1e-10;
+
+/** Cubic enumeration stays quick (a few ms) up to this many planes. */
+const ENUMERATE_FALLBACK_MAX = 40;
+
+/**
+ * The fit for a corner of many planes, by descent in a frame where it is
+ * well conditioned. The frame is H's eigenbasis, each axis scaled by how
+ * much the normals lean on it, so the plain fit's matrix is close to the
+ * identity even when the normals lie all but in one plane (the fit then
+ * sits millions of walls deep, and solving in the original frame loses
+ * it). Axes no normal leans on are dropped and stay at zero, which is
+ * the shortest move along a crease. Neither case needs enumeration.
+ * @param {number[][]} normals  inward unit normals
+ * @returns {number[]}
+ */
+function fitMany(normals) {
+  const { H } = normalEquations(normals);
+  const axes = eigenvectors3(H);
+  const sigma = axes.map((v) => Math.sqrt(normals.reduce((s, a) => s + dot3(a, v) ** 2, 0)));
+  const top = Math.max(...sigma);
+  const keep = sigma.map((s) => s > RANK_TOL * top);
+  const B = normals.map((a) => axes.map((v, j) => (keep[j] ? dot3(a, v) / sigma[j] : 0)));
+  const { H: Hb, g: gb } = normalEquations(B);
+  // A dropped axis has no normal on it; a unit diagonal pins it at zero.
+  keep.forEach((kept, j) => { if (!kept) Hb[j][j] = 1; });
+  const toDelta = (y) => {
+    const d = [0, 0, 0];
+    axes.forEach((v, j) => {
+      if (!keep[j]) return;
+      for (let c = 0; c < 3; c++) d[c] += (y[j] / sigma[j]) * v[c];
+    });
+    return d;
+  };
+
+  const free = solveLinear(Hb.map((row, i) => [...row, gb[i]]));
+  if (free && clears(B, free)) return toDelta(free);
+  let fit = free ? descend(B, Hb, gb, free) : undefined;
+  if (fit === undefined && normals.length <= ENUMERATE_FALLBACK_MAX) {
+    // The search for a start failed numerically (never seen in testing):
+    // enumerate, exact, while that stays quick.
+    fit = enumerate(B, Hb, gb);
+  }
+  // null: no point clears every plane, so the plain fit, as enumeration
+  // returns for small corners.
+  const y = fit ?? free;
+  return y ? toDelta(y) : [0, 0, 0];
+}
+
+/**
+ * Eigenvectors of a symmetric 3×3 matrix by cyclic Jacobi rotations — an
+ * orthonormal basis that diagonalises it.
+ * @param {number[][]} M
+ * @returns {number[][]} three unit vectors
+ */
+function eigenvectors3(M) {
+  const A = M.map((row) => [...row]);
+  const V = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+  for (let sweep = 0; sweep < 32; sweep++) {
+    const off = A[0][1] ** 2 + A[0][2] ** 2 + A[1][2] ** 2;
+    const diag = A[0][0] ** 2 + A[1][1] ** 2 + A[2][2] ** 2;
+    if (!(off > 1e-40 * diag)) break;
+    for (const [p, q] of [[0, 1], [0, 2], [1, 2]]) {
+      if (A[p][q] === 0) continue;
+      const theta = (A[q][q] - A[p][p]) / (2 * A[p][q]);
+      const t = (theta >= 0 ? 1 : -1) / (Math.abs(theta) + Math.sqrt(theta * theta + 1));
+      const c = 1 / Math.sqrt(t * t + 1), s = t * c;
+      for (let r = 0; r < 3; r++) {
+        const arp = A[r][p], arq = A[r][q];
+        A[r][p] = c * arp - s * arq;
+        A[r][q] = s * arp + c * arq;
+      }
+      for (let r = 0; r < 3; r++) {
+        const apr = A[p][r], aqr = A[q][r];
+        A[p][r] = c * apr - s * aqr;
+        A[q][r] = s * apr + c * aqr;
+      }
+      for (let r = 0; r < 3; r++) {
+        const vrp = V[r][p], vrq = V[r][q];
+        V[r][p] = c * vrp - s * vrq;
+        V[r][q] = s * vrp + c * vrq;
+      }
+    }
+  }
+  return [0, 1, 2].map((j) => [V[0][j], V[1][j], V[2][j]]);
+}
+
+/**
+ * Best feasible fit over every active set of one to three planes — exact,
+ * and cubic in the planes.
+ * @returns {number[]|null} null when no set gives a feasible fit
+ */
+function enumerate(normals, H, g, ridge = 0) {
+  const k = normals.length;
+  const cost = (d) =>
+    normals.reduce((c, a) => c + (dot3(a, d) - 1) ** 2, ridge * dot3(d, d));
   let best = null, bestCost = Infinity;
   const tryActive = (S) => {
     // KKT: H δ + Σ μ_s a_s = g,  a_s · δ = 1.
@@ -241,7 +332,7 @@ function fitWithRidge(normals, RIDGE, enumerateMax) {
     const x = solveLinear(rows);
     if (!x) return;
     const d = [x[0], x[1], x[2]];
-    if (!feasible(d)) return;
+    if (!clears(normals, d)) return;
     const c = cost(d);
     if (c < bestCost) { bestCost = c; best = d; }
   };
@@ -252,9 +343,7 @@ function fitWithRidge(normals, RIDGE, enumerateMax) {
       for (let l = j + 1; l < k; l++) tryActive([i, j, l]);
     }
   }
-  // Normals spanning more than a hemisphere admit no feasible point; the
-  // plain fit is the least-bad answer and the wall limit will reject it.
-  return best ?? free;
+  return best;
 }
 
 /**

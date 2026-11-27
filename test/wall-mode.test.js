@@ -126,6 +126,50 @@ describe("fitCorner", () => {
     for (const a of N) assert.ok(dot(a, d) >= 1 - 1e-9);
     assert.ok(N.some((a) => Math.abs(dot(a, d) - 1) < 1e-9), "at least one plane sits at the wall");
   });
+
+  it("fits a crease of hundreds of planes quickly, moving none along it", () => {
+    // Every normal is perpendicular to y, so the plain fit is singular.
+    // This used to fall back to trying 4.5 million active sets (found in
+    // review); the scaled frame drops the free axis instead.
+    const N = Array.from({ length: 300 }, (_, i) => [Math.sin(i / 1000), 0, -Math.cos(i / 1000)]);
+    const t0 = performance.now();
+    const d = fitCorner(N);
+    const ms = performance.now() - t0;
+    assert.ok(ms < 250, `took ${ms.toFixed(0)} ms`);
+    for (const a of N) assert.ok(dot(a, d) >= 1 - 1e-9);
+    assert.equal(d[1], 0, "no move along the crease");
+    // Every tenth plane: few enough to check against enumeration.
+    const cost = (M, x) => M.reduce((s, a) => s + (dot(a, x) - 1) ** 2, 0);
+    const M = N.filter((_, i) => i % 10 === 0);
+    const fast = fitCorner(M), exact = fitCorner(M, { enumerateMax: Infinity });
+    assert.ok(cost(M, fast) <= cost(M, exact) * (1 + 1e-9) + 1e-12);
+  });
+
+  it("clears every plane on nearly flat corners at any orientation", () => {
+    // Rotated, a nearly flat corner no longer lines its free axis up with
+    // x, y or z, and enumeration itself misses some fits at these depths
+    // (up to 1e9 walls), so this checks clearance directly. Every corner
+    // here has a fit: all normals lean on the rotated −z. Float64 resolves
+    // a·d only to ~1e-12 of the fit's depth.
+    let seed = 2024;
+    const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32);
+    for (let trial = 0; trial < 300; trial++) {
+      const [qa, qb, qc, qd] = unit([rnd() - 0.5, rnd() - 0.5, rnd() - 0.5, rnd() - 0.5]);
+      const R = [
+        [qa * qa + qb * qb - qc * qc - qd * qd, 2 * (qb * qc - qa * qd), 2 * (qb * qd + qa * qc)],
+        [2 * (qb * qc + qa * qd), qa * qa - qb * qb + qc * qc - qd * qd, 2 * (qc * qd - qa * qb)],
+        [2 * (qb * qd - qa * qc), 2 * (qc * qd + qa * qb), qa * qa - qb * qb - qc * qc + qd * qd],
+      ];
+      const eps = 10 ** (-1 - rnd() * 7);
+      const N = Array.from({ length: 11 + Math.floor(rnd() * 25) }, () => {
+        const v = [2 * rnd() - 1, 2 * rnd() - 1, -eps * (0.1 + rnd())];
+        return unit(R.map((row) => dot(row, v)));
+      });
+      const d = fitCorner(N);
+      const depth = Math.max(1, Math.hypot(...d));
+      for (const a of N) assert.ok(dot(a, d) >= 1 - 1e-12 * depth, `trial ${trial}: a plane is inside the wall`);
+    }
+  });
 });
 
 describe("Even walls on smoothed dense globes", () => {

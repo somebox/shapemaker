@@ -289,8 +289,10 @@ displacement:
   wall. Each skeleton corner moves to the point where no incident face plane
   is closer than the wall and the excess is least (`fitCorner` in
   `solid/offset.js`; up to 10 planes it tries every active set, above
-  that it descends from a feasible point, so a pole where Smooth gathers
-  hundreds of planes still fits in linear time). That is exact where the
+  that it descends from a feasible point in a frame scaled so the fit is
+  well conditioned, dropping any axis no plane leans on, so a pole where
+  Smooth gathers hundreds of planes, or a crease of them, still fits in
+  linear time). That is exact where the
   offset planes meet in one
   point (every three-valent corner, every regular solid) and slightly thick
   where four or more planes meet without one: the icosidodecahedron keeps
