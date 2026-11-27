@@ -147,6 +147,29 @@ describe("fitCorner", () => {
     }
   });
 
+  it("finds a fit for a tight cone with a few planes barely leaning on it", () => {
+    // Hundreds of planes; most hug −z, a few lean on it by a hair. The
+    // scaled frame shrank this margin below the floor, so the start search
+    // gave up and the plain fit came back inside the wall (raised in
+    // review). The search now also runs on the unit normals.
+    let seed = 31337;
+    const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32);
+    let tried = 0;
+    for (let trial = 0; trial < 120; trial++) {
+      const eps = 10 ** (-6 - rnd() * 1.5);
+      let i = 0;
+      const N = Array.from({ length: 100 + Math.floor(rnd() * 300) }, () => unit((i++ % 10 === 0)
+        ? [2 * rnd() - 1, 2 * rnd() - 1, -eps * (0.1 + rnd())]
+        : [(rnd() - 0.5) * 0.2, (rnd() - 0.5) * 0.2, -1]));
+      if (!(Math.min(...N.map((a) => -a[2])) > 1e-8)) continue;   // −z clears them all
+      tried++;
+      const d = fitCorner(N);
+      const depth = Math.max(1, Math.hypot(...d));
+      for (const a of N) assert.ok(dot(a, d) >= 1 - 1e-12 * depth, `trial ${trial}: a plane is inside the wall`);
+    }
+    assert.ok(tried > 50, `only ${tried} corners had a fit`);
+  });
+
   it("clears a nearly opposite pair held together at the wall", () => {
     // Two planes facing almost opposite ways, both at the wall, made the
     // working-set solve singular to Gaussian elimination; dropping one then

@@ -263,9 +263,20 @@ function fitMany(normals) {
     const m = Math.min(...normals.map((a) => dot3(a, d)));
     return m < 1 && m > 0 ? d.map((x) => x / m) : d;
   };
+  // The hull search runs on the unit normals, where HULL_MARGIN means
+  // what it says. In the scaled frame a margin shrinks by up to the
+  // largest σ, and fits that exist were missed (a tight cone with a few
+  // planes leaning on it barely).
+  const hullStart = () => {
+    const hull = minNormPoint(normals);
+    const x = hull.x;
+    const m = Math.min(...normals.map((a) => dot3(a, x)));
+    if (!(m > HULL_MARGIN * Math.hypot(x[0], x[1], x[2]))) return { y: null, settled: hull.settled };
+    return { y: axes.map((v, j) => (keep[j] ? (dot3(v, x) / m) * sigma[j] : 0)), settled: true };
+  };
   const free = solveLinear(Hb.map((row, i) => [...row, gb[i]]));
   if (free && clears(B, free)) return clearing(free);
-  let fit = free ? descend(B, Hb, gb, free) : undefined;
+  let fit = free ? descend(B, Hb, gb, free, hullStart) : undefined;
   if (fit === undefined && normals.length <= ENUMERATE_FALLBACK_MAX) {
     // The search for a start failed numerically (never seen in testing):
     // enumerate, exact, while that stays quick.
@@ -370,10 +381,13 @@ function enumerate(normals, H, g, ridge = 0) {
  * @param {number[][]} H  Σ a aᵀ (+ ridge)
  * @param {number[]} g    Σ a
  * @param {number[]} free  the unconstrained fit, infeasible here
+ * @param {() => { y: number[]|null, settled: boolean }} hullStart  a point
+ *   clearing every plane when the cheap guesses miss, or null with whether
+ *   that is certain (settled) or a numerical failure
  * @returns {number[]|null|undefined} null when no direction clears every
  *   plane; undefined when finding a start failed numerically
  */
-function descend(normals, H, g, free) {
+function descend(normals, H, g, free, hullStart) {
   const k = normals.length;
   const dot = (a, d) => a[0] * d[0] + a[1] * d[1] + a[2] * d[2];
   const len = (v) => Math.hypot(v[0], v[1], v[2]);
@@ -389,10 +403,23 @@ function descend(normals, H, g, free) {
   // On a wide or nearly flat corner both can miss; the nearest point of
   // the normals' hull clears them whenever anything does.
   let d = pushOut(free) ?? pushOut(g);
+  let hull = null;
   if (!d) {
-    const hull = minNormPoint(normals);
+    // The hull here, in the scaled frame, handles nearly flat corners;
+    // the one in the original frame handles corners whose margin the
+    // scaling shrinks. Each finds starts the other misses.
+    hull = minNormPoint(normals);
     d = pushOut(hull.x);
-    if (!d) return hull.settled ? null : undefined;
+  }
+  if (!d) {
+    const start = hullStart();
+    if (!start.y) return hull?.settled && start.settled ? null : undefined;
+    d = start.y;
+    // The change of frame can leave it a hair inside a plane.
+    let m = Infinity;
+    for (const a of normals) m = Math.min(m, dot(a, d));
+    if (!(m > 0)) return undefined;
+    if (m < 1) d = d.map((x) => x / m);
   }
 
   let first = 0;
