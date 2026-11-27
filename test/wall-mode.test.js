@@ -147,6 +147,27 @@ describe("fitCorner", () => {
     }
   });
 
+  it("finds the same fit when planes nearly repeat", () => {
+    // Two planes a hair apart in the working set make its solve singular
+    // to float64; the descent stopped there, up to half again as thick
+    // (raised in review). It now drops the newer one and goes on.
+    let seed = 909;
+    const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32);
+    const cost = (N, d) => N.reduce((s, a) => s + (dot(a, d) - 1) ** 2, 0);
+    const jiggle = (a, s) => unit(a.map((x) => x + (rnd() - 0.5) * s));
+    for (let trial = 0; trial < 400; trial++) {
+      const s = 10 ** (-3 - rnd() * 12);
+      const base = Array.from({ length: 4 + Math.floor(rnd() * 5) }, () =>
+        unit([(rnd() - 0.5) * 1.5, (rnd() - 0.5) * 1.5, -1]));
+      const N = [...base, ...base.map((a) => jiggle(a, s)), ...base.slice(0, 3).map((a) => jiggle(a, s))];
+      const exact = fitCorner(N, { enumerateMax: Infinity });
+      if (!N.every((a) => dot(a, exact) >= 1 - 1e-9)) continue;
+      const fast = fitCorner(N);
+      for (const a of N) assert.ok(dot(a, fast) >= 1 - 1e-9, `trial ${trial}: a plane is inside the wall`);
+      assert.ok(cost(N, fast) <= cost(N, exact) * (1 + 1e-6) + 1e-12, `trial ${trial}: descent is thicker`);
+    }
+  });
+
   it("finds the same fit when planes repeat", () => {
     // A repeated plane once looked like it blocked a step by rounding; the
     // working set then held both copies, went singular, and the descent

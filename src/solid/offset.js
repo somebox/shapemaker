@@ -419,9 +419,19 @@ function descend(normals, H, g, free) {
     return solveLinear(rows);
   };
 
+  /** Planes that left W singular: they stay out, and fitMany's final
+   * scale-out keeps them clear. */
+  const skip = new Set();
   for (let iter = 0; iter < 8 * k + 50; iter++) {
     const x = solveOn();
-    if (!x) return d;
+    if (!x) {
+      // A plane nearly in the span of the others makes the solve on W
+      // singular (its multiplier splits from a twin's by 1/sin²). Drop the
+      // newest one and go on, rather than stop the descent short.
+      if (W.length < 2) return d;
+      skip.add(/** @type {number} */ (W.pop()));
+      continue;
+    }
     const p = [x[0] - d[0], x[1] - d[1], x[2] - d[2]];
     // Tolerances scale with the move: a nearly flat corner can sit
     // thousands of walls deep, where rounding alone exceeds 1e-12.
@@ -457,7 +467,7 @@ function descend(normals, H, g, free) {
     };
     let alpha = 1, block = -1;
     for (let i = 0; i < k; i++) {
-      if (W.includes(i)) continue;
+      if (W.includes(i) || skip.has(i)) continue;
       const ap = dot(normals[i], p);
       if (ap >= -1e-15 * pn || inSpan(normals[i])) continue;
       const t = Math.max(0, (1 - dot(normals[i], d)) / ap);
