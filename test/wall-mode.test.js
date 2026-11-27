@@ -3,7 +3,7 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { compile, compileShape, limitsForState } from "../src/compile.js";
+import { compile, compileShape, limitsForState, unfitWarning } from "../src/compile.js";
 import { faceFrames } from "../src/faceframe.js";
 import { encodeHash, decodeHash } from "../src/hashcodec.js";
 import { parseProject, serializeProjectV1 } from "../src/project-format.js";
@@ -197,6 +197,30 @@ describe("wallMode", () => {
     assert.ok(!plain.validation.warnings.some((w) => /stay closed/.test(w.message)));
   });
 
+  it("says why faces stay closed: too thin, or no room inside their rounded edges", () => {
+    const closed = (state) =>
+      compile(state).validation.warnings.find((w) => /stay closed/.test(w.message)).message;
+    const thin = {
+      base: "octahedron", jitter: 20, jitterMode: "surface", seed: 102, subdiv: 1, points: 12,
+      wallMm: 1.4, borderFraction: 0.2, filletMm: 0, wallMode: "even",
+    };
+    assert.equal(closed(thin), "8 of 70 faces are too thin for an opening and stay closed");
+    // Rounding closes 11 more: their rounded outline leaves no room. The
+    // eight thin ones are still counted as thin.
+    assert.equal(
+      closed({ ...thin, roundingMm: 1.5 }),
+      "19 of 70 faces stay closed: 8 too thin for an opening, " +
+        "11 with no room for one inside their rounded edges",
+    );
+    assert.equal(
+      closed({
+        base: "tetrahedron", seed: 4503, truncate: 15, subdiv: 1, roundingMm: 3, wallMm: 2.4,
+        borderFraction: 0.36, filletMm: 0, wallMode: "even",
+      }),
+      "24 of 64 faces have no room for an opening inside their rounded edges and stay closed",
+    );
+  });
+
   it("gives no border guidance when no opening was built", () => {
     // A 3 mm cube: all six openings would be under 0.2 mm and stay closed.
     // The guidance used to fall back on the 0.8 mm border asked for.
@@ -328,10 +352,13 @@ describe("wallMode", () => {
     assert.equal(fit.validation.ok, true);
     // The Wall slider stops at the same wall.
     assert.ok(Math.abs(fit.metrics.limits.wallMmMax - e.clampTo) < 1e-9);
-    // A wall above both limits is refused by the edge limit first. 90% of
-    // that one (2.39 mm) is past the face limit; the offer is the same.
+    // A wall above both limits runs into the edge limit first (2.65 mm).
+    // The message names the wall from which walls are refused and why,
+    // the same as at 2.4 mm, and the offer is the same.
+    assert.match(e.message, /a face turns inside out beyond 2\.29 mm/);
     const far = compile({ ...state, wallMm: 20 }).validation.errors[0];
-    assert.match(far.message, /fold over/);
+    assert.equal(far.message, e.message.replace("Wall 2.4 mm", "Wall 20 mm"));
+    assert.deepEqual(far.faceIds, e.faceIds);
     assert.ok(Math.abs(far.clampTo - e.clampTo) < 1e-9, `offered ${far.clampTo}`);
   });
 
@@ -351,6 +378,13 @@ describe("wallMode", () => {
     }
     // It is 90% of the first wall refused (found to 0.1%), no lower.
     assert.equal(compile({ ...state, wallMm: (max / 0.9) * 1.01 }).validation.ok, false);
+    // A refused wall is told that first refusal, not the limit it ran
+    // into: at 10.96 mm that was 5.85 mm, well under walls that build.
+    const e = compile({ ...state, wallMm: 10.96 }).validation.errors[0];
+    const quoted = Number(e.message.match(/beyond ([\d.]+) mm/)[1]);
+    assert.ok(Math.abs(quoted - max / 0.9) < 0.006, `${e.message} vs ${max / 0.9}`);
+    assert.ok(Math.abs(e.clampTo - max) < 1e-9);
+    assert.equal(compile({ ...state, wallMm: quoted * 0.99 }).validation.ok, true);
   });
 
   it("says so when the inside of a face could not be fitted", () => {
@@ -370,6 +404,22 @@ describe("wallMode", () => {
     assert.match(note.message, new RegExp(`^\\d+ of ${r.skeleton.faces.length} faces`));
     assert.match(note.message, /a thinner wall usually helps/);
     assert.ok(!compile({ roundingMm: 1.5, wallMode: "even" }).validation.warnings.some(fitted));
+  });
+
+  it("advises only what the state has on", () => {
+    const on = { depth: "hollow", wallMode: "even", roundingMm: 1.5, soften: 20 };
+    const note = (state) => unfitWarning(3, 40, { ...on, ...state });
+    const lead = "3 of 40 faces could not be fitted and may pass through their neighbours";
+    assert.equal(note({}).message, `${lead}; a thinner wall usually helps, less rounding sometimes`);
+    assert.equal(note({ roundingMm: 0 }).message, `${lead}; a thinner wall usually helps, less Smooth sometimes`);
+    // Neither Rounding nor Smooth on: a sliver face's inner opening can
+    // still fail to fit, and there is no Smooth to turn down.
+    assert.equal(note({ roundingMm: 0, soften: 0 }).message, `${lead}; a thinner wall usually helps`);
+    assert.equal(note({ roundingMm: 0, soften: 0 }).key, "wallMm");
+    assert.equal(note({ wallMode: "scaled" }).message, `${lead}; less rounding can help`);
+    assert.equal(note({ wallMode: "scaled", roundingMm: 0 }).key, "soften");
+    assert.equal(note({ depth: "solid", roundingMm: 0 }).message, `${lead}; less Smooth can help`);
+    assert.equal(note({ depth: "solid", roundingMm: 0, soften: 0 }).message, lead);
   });
 
   it("does not advise a thinner wall under Scaled walls", () => {

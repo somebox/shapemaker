@@ -319,8 +319,9 @@ displacement:
   wall past either limit is refused. Slivers move together only from some
   wall on, so the corner moves, and both limits with them, can change with
   the wall. The Wall slider stops at 90% of the first wall that would be
-  refused, each wall tried with the moves it is built with, and a refused
-  wall is offered that same wall.
+  refused, each wall tried with the moves it is built with. A refused wall
+  is told that first refusal and its cause, not the limit it ran into
+  itself, and is offered the slider's maximum.
 - **Scaled** shrinks the whole surface by `s = 1 − wall / inradius_min`
   about the origin. The face nearest the centre gets the set wall and faces
   farther out get thicker. This is the construction before Even existed, and
@@ -355,7 +356,9 @@ annulus construction. Spike does not change this: openings still require
 hollow, and each unmerged pyramid flank is one opening.
 
 A face with no room for its opening stays closed, reported as a warning
-with the count. That is a face whose opening would be under 0.2 mm across
+with the count, split by cause where both occur: too thin for an opening,
+or no room for one inside its rounded edges (less rounding opens those
+again). The first is a face whose opening would be under 0.2 mm across
 (twice the centroid's distance to its nearest edge, scaled by 1 − border;
 for an ellipse also its own minor axis, which can be shorter).
 Through sides are held to the same measure, and also to the opening they
@@ -553,7 +556,8 @@ wall usually helps: in a sweep, halving the wall lowered the count on 42
 of 51 such shapes, and halving Rounding on 17 of 47. A Scaled inner
 surface is a copy of the outer one, and a solid shape has none: there the
 outline itself is at fault, the wall changes nothing (0 of 7), and the
-warning belongs to Rounding (to Smooth, with Rounding off).
+warning belongs to Rounding (to Smooth, with Rounding off). It names
+neither when neither is on.
 
 A corner cap is a fan of rings swept from the cap's loop toward an apex
 along directions out of the corner sphere's centre X, so the apex must lie

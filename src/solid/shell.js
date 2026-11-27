@@ -20,7 +20,7 @@ import {
 } from "../geom/annulus.js";
 import { edgeList, inradiusRange } from "../skeleton.js";
 import {
-  cornerOffsets, evenWallCeiling, evenWallFit, meanValueWeights, offsetWallRange,
+  cornerOffsets, evenWallFit, evenWallLimits, meanValueWeights, offsetWallRange,
 } from "./offset.js";
 import { faceFrames } from "../faceframe.js";
 import { assertMeshInvariants, toMesh } from "../mesh.js";
@@ -260,20 +260,25 @@ export function buildShell(skeleton, opts) {
     const plain = cornerOffsets(skeleton, frames);
     const fit = evenWallFit(skeleton, frames, wallMm, plain);
     if (!fit.ok) {
-      // Offer the wall the Wall slider stops at, which is built and checked
-      // with its own offsets: 90% of this limit can still be refused by
-      // the other one, or by the offsets that wall is built with.
-      const top = evenWallCeiling(skeleton, frames, plain);
-      const clampTo = top < wallMm ? top : evenWallCeiling(skeleton, frames, plain, wallMm);
+      // Offer the wall the Wall slider stops at, and name the wall from
+      // which walls are refused, with its cause. The limit this wall ran
+      // into is neither: sliver faces move as one from some wall on, so
+      // the limits at 20 mm say little about where a wall first fails.
+      let limits = evenWallLimits(skeleton, frames, plain);
+      if (!(limits.ceiling < wallMm)) limits = evenWallLimits(skeleton, frames, plain, wallMm);
+      let first = evenWallFit(skeleton, frames, limits.refusedFrom, plain);
+      if (first.ok) first = evenWallFit(skeleton, frames, limits.refusedFrom * 1.002, plain);
+      if (first.ok) first = fit;
+      const beyond = `beyond ${limits.refusedFrom.toFixed(2)} mm on this shape`;
       throw validationError(
         "solid",
         "wallMm",
-        fit.cause === "face"
-          ? `Wall ${wallMm} mm is too thick — a face turns inside out beyond ` +
-            `${fit.limit.toFixed(2)} mm on this shape`
-          : `Wall ${wallMm} mm is too thick — inner edges fold over beyond ` +
-            `${fit.limit.toFixed(2)} mm on this shape`,
-        fit.cause === "face" ? { clampTo, faceIds: [fit.face] } : { clampTo },
+        first.cause === "face"
+          ? `Wall ${wallMm} mm is too thick — a face turns inside out ${beyond}`
+          : `Wall ${wallMm} mm is too thick — inner edges fold over ${beyond}`,
+        first.cause === "face"
+          ? { clampTo: limits.ceiling, faceIds: [first.face] }
+          : { clampTo: limits.ceiling },
       );
     }
     dHat = fit.dHat;
@@ -506,7 +511,9 @@ export function buildShell(skeleton, opts) {
   /**
    * A face's opening laid out on the outer surface: the boundary ring in
    * the face frame, its rays from the centroid, and the opening sampled
-   * along them. Nothing here depends on the inner shell.
+   * along them. Nothing here depends on the inner shell. A face that
+   * stays closed says why in `closed`: "narrow" (the opening would be
+   * under the floor) or "rounding" (the rounded outline leaves it no room).
    * @param {number} fi
    * @param {number[]} BOr  boundary ring (outer vert indices)
    */
@@ -544,16 +551,18 @@ export function buildShell(skeleton, opts) {
     }
     /** Which way the outer ring winds in the face frame. */
     const turn = area2 < 0 ? -1 : 1;
+    // Too narrow comes first: such a face stays closed whatever its
+    // rounding does. Through sides too: the cutter's own check further
+    // down samples the opening at a few angles and can read a narrow one
+    // a few percent wide.
+    if (2 * (1 - frac) * frame.edgeDistMin < OPENING_MIN_MM) {
+      return { B2x, B2y, ang, turn, closed: "narrow" };
+    }
     // The opening and its band are laid out along rays from the centroid,
     // so it must see every edge of the outline, not merely lie inside it:
     // an edge that runs backwards seen from there folds the band.
     if (stage2 && !fansFrom(Array.from(B2x, (x, k) => [x, B2y[k]]), FRAME_ORIGIN, turn)) {
-      return { B2x, B2y, ang, turn, closed: true };
-    }
-    // Through sides too: the cutter's own check further down samples the
-    // opening at a few angles and can read a narrow one a few percent wide.
-    if (2 * (1 - frac) * frame.edgeDistMin < OPENING_MIN_MM) {
-      return { B2x, B2y, ang, turn, closed: true };
+      return { B2x, B2y, ang, turn, closed: "rounding" };
     }
 
     // The authored opening derives from the ORIGINAL face corners — Smooth and
@@ -580,7 +589,7 @@ export function buildShell(skeleton, opts) {
     );
     // The floor above measures the inset polygon. An opening that says it
     // is narrower than that (an ellipse on a long face) is held to it too.
-    if (minWidth < OPENING_MIN_MM) return { B2x, B2y, ang, turn, closed: true };
+    if (minWidth < OPENING_MIN_MM) return { B2x, B2y, ang, turn, closed: "narrow" };
 
     // Sample the opening along the same rays as the boundary points: both
     // rings are convex and contain the centroid, so the rays are in strict
@@ -602,7 +611,7 @@ export function buildShell(skeleton, opts) {
     if (stage2 && !through) {
       for (let k = 0; k < m; k++) {
         if (!(rad[k] < Math.hypot(B2x[k], B2y[k]))) {
-          return { B2x, B2y, ang, turn, closed: true };
+          return { B2x, B2y, ang, turn, closed: "rounding" };
         }
       }
     }
@@ -780,6 +789,8 @@ export function buildShell(skeleton, opts) {
   let throughClosedFaces = 0;
   /** Faces with no room for their opening (Centre and Straight sides). */
   let closedFaces = 0;
+  /** Those of them the rounded outline, not a narrow opening, keeps closed. */
+  let closedByRounding = 0;
   let throughBreakOutFaces = 0;
   let innerPolys = null, outerPolys = null;
 
@@ -893,7 +904,10 @@ export function buildShell(skeleton, opts) {
     if (lay.closed) {
       closeFace();
       if (through) throughClosedFaces++;
-      else closedFaces++;
+      else {
+        closedFaces++;
+        if (lay.closed === "rounding") closedByRounding++;
+      }
       faceMetrics.push({
         faceIndex: fi,
         sides: ring.length,
@@ -1493,6 +1507,8 @@ export function buildShell(skeleton, opts) {
       throughClosedFaces: through ? throughClosedFaces : null,
       // Faces with no room for their opening (kept closed).
       closedFaces: openings && !through ? closedFaces : null,
+      // Those of them closed by their rounded outline, not a narrow opening.
+      closedByRoundingFaces: openings && !through ? closedByRounding : null,
       // Faces a repair could not fit; they may pass through their neighbours.
       unfitFaces: unfit.size,
       // Break out: holes that cut through a neighbour's outside, and loose

@@ -164,6 +164,31 @@ export function compileShape(partial = {}) {
 }
 
 /**
+ * The warning for faces no repair could fit, with advice that names only
+ * what the state has on. What helps depends on the wall. Under Even walls
+ * most of these are inner faces too small for their rounding, and a
+ * thinner wall leaves them larger. A Scaled inner surface is a copy of the
+ * outer one, and a solid shape has none: there the outline itself is at
+ * fault, which only the rounding (Smooth alone can do it) changes.
+ * Exported for tests.
+ * @param {number} n  faces that could not be fitted
+ * @param {number} faces  faces on the shape
+ * @param {{ depth: string, wallMode: string, roundingMm: number, soften: number }} state
+ */
+export function unfitWarning(n, faces, state) {
+  const evenWall = state.depth === "hollow" && state.wallMode === "even";
+  const less = state.roundingMm > 0 ? "less rounding" : state.soften > 0 ? "less Smooth" : null;
+  const advice = evenWall
+    ? `; a thinner wall usually helps${less ? `, ${less} sometimes` : ""}`
+    : less ? `; ${less} can help` : "";
+  return {
+    stage: "solid",
+    key: evenWall ? "wallMm" : state.soften > 0 && !(state.roundingMm > 0) ? "soften" : "roundingMm",
+    message: `${n} of ${faces} faces could not be fitted and may pass through their neighbours${advice}`,
+  };
+}
+
+/**
  * @param {Partial<typeof DEFAULT_STATE>} [partial]
  */
 export function compile(partial = {}) {
@@ -228,31 +253,25 @@ export function compile(partial = {}) {
       });
     }
     if (solid.info.closedFaces > 0) {
+      // Two causes, told apart: a face too thin for any opening, and a
+      // face whose rounded outline leaves its opening no room, which less
+      // rounding opens again.
+      const n = solid.info.closedFaces;
+      const rounded = solid.info.closedByRoundingFaces ?? 0;
+      const of = `${n} of ${skeleton.faces.length} faces`;
       validation.warnings.push({
         stage: "solid",
         key: "openings",
-        message:
-          `${solid.info.closedFaces} of ${skeleton.faces.length} faces are too ` +
-          `thin for an opening and stay closed`,
+        message: rounded === 0
+          ? `${of} are too thin for an opening and stay closed`
+          : rounded === n
+            ? `${of} have no room for an opening inside their rounded edges and stay closed`
+            : `${of} stay closed: ${n - rounded} too thin for an opening, ` +
+              `${rounded} with no room for one inside their rounded edges`,
       });
     }
     if (solid.info.unfitFaces > 0) {
-      const n = solid.info.unfitFaces;
-      // What helps depends on the wall. Under Even walls most of these
-      // are inner faces too small for their rounding, and a thinner wall
-      // leaves them larger. A Scaled inner surface is a copy of the outer
-      // one, and a solid shape has none: there the outline itself is at
-      // fault, which only the rounding (Smooth alone can do it) changes.
-      const evenWall = state.depth === "hollow" && state.wallMode === "even";
-      const less = state.roundingMm > 0 ? "less rounding" : "less Smooth";
-      validation.warnings.push({
-        stage: "solid",
-        key: evenWall ? "wallMm" : state.roundingMm > 0 ? "roundingMm" : "soften",
-        message:
-          `${n} of ${skeleton.faces.length} faces could not be fitted and may pass ` +
-          `through their neighbours; ` +
-          (evenWall ? `a thinner wall usually helps, ${less} sometimes` : `${less} can help`),
-      });
+      validation.warnings.push(unfitWarning(solid.info.unfitFaces, skeleton.faces.length, state));
     }
     if (solid.info.looseDropped > 0) {
       const v = solid.info.looseVolumeMm3 / 1000;

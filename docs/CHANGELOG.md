@@ -67,7 +67,8 @@ onward every release gets a full entry here, and breaking changes to the
     edge still pointed its own way, which is all the wall limit watched.
     Such a wall is now refused, with one that fits offered, and the Wall
     slider stops at that same wall, checked with the corner moves it is
-    built with. On about one shape in ten the slider ended too late,
+    built with. The message names the wall from which walls are refused.
+    On about one shape in ten the slider ended too late,
     typically by 11% and at worst by half; a plain rhombic
     enneacontahedron went to 35 mm, and a face of it flips at 32.
   - With Smooth, two rounded edges mitred where a smoothed edge bends kept
@@ -85,7 +86,8 @@ onward every release gets a full entry here, and breaking changes to the
   closed, and the border and fillet ranges leave closed faces out. A shape
   whose faces all stay closed gets no thin-border warning.
 - **Faces with no room for an opening stay closed**, with a warning that
-  counts them: openings under 0.2 mm across under every Sides setting
+  counts them and says why (too thin, or no room inside their rounded
+  edges): openings under 0.2 mm across under every Sides setting
   (Through had its own, looser measure; an ellipse is measured across its
   own narrowest), and
   with Rounding or Smooth, faces whose outline the rounding moves off their

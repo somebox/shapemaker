@@ -367,11 +367,21 @@ export function evenWallFit(
  * @returns {number} wall in mm
  */
 export function evenWallCeiling(skeleton, frames, plain = cornerOffsets(skeleton, frames), under = Infinity) {
+  return evenWallLimits(skeleton, frames, plain, under).ceiling;
+}
+
+/**
+ * {@link evenWallCeiling}, with the wall it is 90% of.
+ * @returns {{ refusedFrom: number, ceiling: number }}  the first wall the
+ *   builder refuses, and the thickest wall on offer
+ */
+export function evenWallLimits(skeleton, frames, plain = cornerOffsets(skeleton, frames), under = Infinity) {
   const edge = offsetWallLimit(skeleton, plain);
   const flip = offsetFaceLimit(skeleton, frames, plain);
   // From the plain edge limit on, every wall is refused.
   const end = Math.min(under, edge);
-  if (!Number.isFinite(end)) return end;
+  const from = (first) => ({ refusedFrom: first, ceiling: 0.9 * first });
+  if (!Number.isFinite(end)) return { refusedFrom: end, ceiling: end };
   // The search tries many walls; most share their offsets and limits.
   const seen = { fits: new Map(), edge: new Map([[plain, edge]]), flip: new Map([[plain, flip]]) };
   const probe = (w) => evenWallFit(skeleton, frames, w, plain, seen);
@@ -393,7 +403,7 @@ export function evenWallCeiling(skeleton, frames, plain = cornerOffsets(skeleton
   if (thinAt(last) === 0) {
     // The plain offsets stand all the way. A face that shrinks evenly
     // reaches both limits at the same wall; the edge figure stands there.
-    return 0.9 * Math.min(end, flip.limit < edge * (1 - 1e-9) ? flip.limit : edge);
+    return from(Math.min(end, flip.limit < edge * (1 - 1e-9) ? flip.limit : edge));
   }
   for (let round = 0; round < 4; round++) {
     // Where no face is thin yet, the plain offsets and their limits hold.
@@ -419,7 +429,7 @@ export function evenWallCeiling(skeleton, frames, plain = cornerOffsets(skeleton
     if (hi === Infinity) {
       // Nothing is refused short of `end`. (A later round ends at a wall
       // that was refused.)
-      if (round === 0) return 0.9 * end;
+      if (round === 0) return from(end);
       hi = last;
     }
     // Close in. The offsets at `lo` hold below their own limit, and that
@@ -439,11 +449,11 @@ export function evenWallCeiling(skeleton, frames, plain = cornerOffsets(skeleton
       else hi = mid;
     }
     const wall = 0.9 * first;
-    if (probe(wall).ok) return wall;
+    if (probe(wall).ok) return { refusedFrom: first, ceiling: wall };
     last = wall;
   }
   // No luck in four rounds: a wall the plain offsets hold at.
-  return 0.9 * Math.min(thickestWith(0, 0, last), end, flip.limit);
+  return from(Math.min(thickestWith(0, 0, last), end, flip.limit));
 }
 
 /** How many more slivers each step of the wall search takes on. */
