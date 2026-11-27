@@ -50,6 +50,260 @@ describe("fitCorner", () => {
     assert.ok(Math.abs(d[0]) < 1e-6);
     for (const a of N) assert.ok(Math.abs(dot(a, d) - 1) < 1e-6);
   });
+
+  it("finds the same fit by descent as by trying every active set", () => {
+    let seed = 7;
+    const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32);
+    const cost = (N, d) => N.reduce((s, a) => s + (dot(a, d) - 1) ** 2, 0);
+    for (let trial = 0; trial < 500; trial++) {
+      const k = 3 + Math.floor(rnd() * 9);
+      const spread = 0.2 + rnd() * 1.6;
+      const N = Array.from({ length: k }, () =>
+        unit([(rnd() - 0.5) * spread, (rnd() - 0.5) * spread, -1]));
+      const exact = fitCorner(N, { enumerateMax: Infinity });
+      const fast = fitCorner(N, { enumerateMax: 0 });
+      for (const a of N) assert.ok(dot(a, fast) >= 1 - 1e-9, `trial ${trial}: a plane is inside the wall`);
+      assert.ok(cost(N, fast) <= cost(N, exact) * (1 + 1e-9) + 1e-12, `trial ${trial}: descent is thicker`);
+    }
+  });
+
+  it("finds the same fit on wide and flat corners, and none where enumeration finds none", () => {
+    // Normals over most of a hemisphere, straddling its rim, or nearly in
+    // one plane (a fit thousands to millions of walls deep). The plain fit
+    // and the normals' sum can both miss every feasible point here, and the
+    // flat ones defeated a Gram-matrix hull search with absolute
+    // tolerances; descent then fell back to a fit inside the wall.
+    let seed = 7;
+    const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32);
+    const cost = (N, d) => N.reduce((s, a) => s + (dot(a, d) - 1) ** 2, 0);
+    const wide = () => () => unit([2 * rnd() - 1, 2 * rnd() - 1, -(0.001 + rnd() * 0.3)]);
+    const rim = () => () => unit([2 * rnd() - 1, 2 * rnd() - 1, 0.005 - rnd() * 0.02]);
+    const flatter = (lo, span) => () => {
+      const eps = 10 ** (-lo - rnd() * span);
+      return () => unit([2 * rnd() - 1, 2 * rnd() - 1, -eps * (0.1 + rnd())]);
+    };
+    for (const [name, makeGen, trials, count, fresh] of [
+      ["wide", wide, 300, () => 11 + Math.floor(rnd() * 10)],
+      ["rim", rim, 300, () => 11 + Math.floor(rnd() * 10)],
+      // Flat trial 314 (seed 7) and crease trial 26 (seed 31) are the cases
+      // found in review: a start inside the wall, and a singular plain fit
+      // that skipped enumeration for a fit 1.7% thicker.
+      ["flat", flatter(3, 3), 400, () => 11, 7],
+      ["crease", flatter(1, 6), 200, () => 11, 31],
+    ]) {
+      if (fresh) seed = fresh;
+      for (let trial = 0; trial < trials; trial++) {
+        const gen = makeGen();
+        const N = Array.from({ length: count() }, gen);
+        const exact = fitCorner(N, { enumerateMax: Infinity });
+        const fast = fitCorner(N, { enumerateMax: 0 });
+        const at = `${name} ${trial}`;
+        if (N.every((a) => dot(a, exact) >= 1 - 1e-9)) {
+          for (const a of N) assert.ok(dot(a, fast) >= 1 - 1e-9, `${at}: a plane is inside the wall`);
+          assert.ok(cost(N, fast) <= cost(N, exact) * (1 + 1e-9) + 1e-12, `${at}: descent is thicker`);
+        } else {
+          const gap = Math.hypot(...exact.map((x, i) => x - fast[i]));
+          assert.ok(gap <= 1e-6 * Math.hypot(...exact), `${at}: a different fallback`);
+        }
+      }
+    }
+  });
+
+  it("fits a corner of hundreds of planes quickly", () => {
+    // Smooth on a dense globe gathers a pole into one corner like this.
+    // Trying every set of three took 2.5 s here (minutes over a whole
+    // globe); descent takes well under a millisecond. The bound leaves
+    // room for slow machines and still fails the cubic search.
+    const N = Array.from({ length: 300 }, (_, i) => {
+      const t = (i / 300) * 2 * Math.PI;
+      const r = 0.05 + 0.4 * (((i * 7919) % 300) / 300);
+      return unit([r * Math.cos(t), r * Math.sin(t), -1]);
+    });
+    const t0 = performance.now();
+    const d = fitCorner(N);
+    const ms = performance.now() - t0;
+    assert.ok(ms < 250, `took ${ms.toFixed(0)} ms`);
+    for (const a of N) assert.ok(dot(a, d) >= 1 - 1e-9);
+    assert.ok(N.some((a) => Math.abs(dot(a, d) - 1) < 1e-9), "at least one plane sits at the wall");
+  });
+
+  it("never fits inside a wall when planes nearly oppose", () => {
+    // Two planes facing almost opposite ways put the fit tens of thousands
+    // of walls deep, where rounding in the scaled frame left it ~1e-7 of a
+    // wall inside the nearest plane (raised in review). It is now scaled
+    // out to clear them all.
+    let seed = 4242;
+    const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32);
+    const cost = (N, d) => N.reduce((s, a) => s + (dot(a, d) - 1) ** 2, 0);
+    for (let trial = 0; trial < 300; trial++) {
+      const e = 10 ** (-1 - rnd() * 4);
+      const N = [unit([1, 0, -e]), unit([-1, (rnd() - 0.5) * e, -e])];
+      for (let i = 0; i < 9 + rnd() * 20; i++) N.push(unit([(rnd() - 0.5) * 2, (rnd() - 0.5) * 2, -e - rnd()]));
+      const exact = fitCorner(N, { enumerateMax: Infinity });
+      if (!N.every((a) => dot(a, exact) >= 1 - 1e-9)) continue;
+      const fast = fitCorner(N);
+      for (const a of N) assert.ok(dot(a, fast) >= 1 - 1e-9, `trial ${trial}: a plane is inside the wall`);
+      assert.ok(cost(N, fast) <= cost(N, exact) * (1 + 1e-6) + 1e-12, `trial ${trial}: thicker than enumeration`);
+    }
+  });
+
+  it("never skips a nearly opposite plane as if it were in the working set's span", () => {
+    // Planes 1e-9 off the span were skipped as if exactly in it; on a fit
+    // 3e8 walls deep that small angle moves a plane by a third of a wall per
+    // step, so a nearly opposite one could be stepped through (clearance −1,
+    // raised in review). Only exact repeats facing the same way are skipped.
+    for (const [e, ring] of [[3e-9, 298], [3e-8, 298], [3e-9, 50]]) {
+      const N = [unit([1, 0, -e]), unit([-1, 0, -e]), ...Array.from({ length: ring }, (_, i) => {
+        const t = (2 * Math.PI * i) / ring;
+        return unit([0.2 * Math.cos(t), 0.2 * Math.sin(t), -1]);
+      })];
+      const d = fitCorner(N);
+      const depth = Math.max(1, Math.hypot(...d));
+      for (const a of N) assert.ok(dot(a, d) >= 1 - 1e-12 * depth, `e = ${e}, ${ring}: a plane is inside the wall`);
+      assert.ok(depth > 0.9 / e, `e = ${e}, ${ring}: the fit is only ${depth.toExponential(2)} deep`);
+    }
+  });
+
+  it("finds a fit for a tight cone with a few planes barely leaning on it", () => {
+    // Hundreds of planes; most hug −z, a few lean on it by a hair. The
+    // scaled frame shrank this margin below the floor, so the start search
+    // gave up and the plain fit came back inside the wall (raised in
+    // review). The search now also runs on the unit normals.
+    let seed = 31337;
+    const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32);
+    let tried = 0;
+    for (let trial = 0; trial < 120; trial++) {
+      const eps = 10 ** (-6 - rnd() * 1.5);
+      let i = 0;
+      const N = Array.from({ length: 100 + Math.floor(rnd() * 300) }, () => unit((i++ % 10 === 0)
+        ? [2 * rnd() - 1, 2 * rnd() - 1, -eps * (0.1 + rnd())]
+        : [(rnd() - 0.5) * 0.2, (rnd() - 0.5) * 0.2, -1]));
+      if (!(Math.min(...N.map((a) => -a[2])) > 1e-8)) continue;   // −z clears them all
+      tried++;
+      const d = fitCorner(N);
+      const depth = Math.max(1, Math.hypot(...d));
+      for (const a of N) assert.ok(dot(a, d) >= 1 - 1e-12 * depth, `trial ${trial}: a plane is inside the wall`);
+    }
+    assert.ok(tried > 50, `only ${tried} corners had a fit`);
+  });
+
+  it("clears a nearly opposite pair held together at the wall", () => {
+    // Two planes facing almost opposite ways, both at the wall, made the
+    // working-set solve singular to Gaussian elimination; dropping one then
+    // left the fit on the wrong side of it (clearance −1, raised in
+    // review). The null-space solve holds both.
+    const cost = (N, d) => N.reduce((s, a) => s + (dot(a, d) - 1) ** 2, 0);
+    for (const e of [1e-3, 3e-5, 3e-7, 1e-8]) {
+      const N = [unit([1, 0, -e]), unit([-1, 0, -e]), ...Array.from({ length: 9 }, (_, i) => {
+        const t = (2 * Math.PI * i) / 9;
+        return unit([0.2 * Math.cos(t), 0.2 * Math.sin(t), -1]);
+      })];
+      const fast = fitCorner(N);
+      const depth = Math.max(1, Math.hypot(...fast));
+      for (const a of N) assert.ok(dot(a, fast) >= 1 - 1e-12 * depth, `e = ${e}: a plane is inside the wall`);
+      const exact = fitCorner(N, { enumerateMax: Infinity });
+      if (N.every((a) => dot(a, exact) >= 1 - 1e-9)) {
+        assert.ok(cost(N, fast) <= cost(N, exact) * (1 + 1e-6), `e = ${e}: thicker than enumeration`);
+      }
+    }
+  });
+
+  it("finds the same fit when planes nearly repeat", () => {
+    // Two planes a hair apart in the working set make its solve singular
+    // to float64; the descent stopped there, up to half again as thick
+    // (raised in review). It now drops the newer one and goes on.
+    let seed = 909;
+    const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32);
+    const cost = (N, d) => N.reduce((s, a) => s + (dot(a, d) - 1) ** 2, 0);
+    const jiggle = (a, s) => unit(a.map((x) => x + (rnd() - 0.5) * s));
+    for (let trial = 0; trial < 400; trial++) {
+      const s = 10 ** (-3 - rnd() * 12);
+      const base = Array.from({ length: 4 + Math.floor(rnd() * 5) }, () =>
+        unit([(rnd() - 0.5) * 1.5, (rnd() - 0.5) * 1.5, -1]));
+      const N = [...base, ...base.map((a) => jiggle(a, s)), ...base.slice(0, 3).map((a) => jiggle(a, s))];
+      const exact = fitCorner(N, { enumerateMax: Infinity });
+      if (!N.every((a) => dot(a, exact) >= 1 - 1e-9)) continue;
+      const fast = fitCorner(N);
+      for (const a of N) assert.ok(dot(a, fast) >= 1 - 1e-9, `trial ${trial}: a plane is inside the wall`);
+      assert.ok(cost(N, fast) <= cost(N, exact) * (1 + 1e-6) + 1e-12, `trial ${trial}: descent is thicker`);
+    }
+  });
+
+  it("finds the same fit when planes repeat", () => {
+    // A repeated plane once looked like it blocked a step by rounding; the
+    // working set then held both copies, went singular, and the descent
+    // stopped up to twice as thick as it needed (found in review).
+    let seed = 77;
+    const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32);
+    const cost = (N, d) => N.reduce((s, a) => s + (dot(a, d) - 1) ** 2, 0);
+    for (let trial = 0; trial < 300; trial++) {
+      const base = Array.from({ length: 4 + Math.floor(rnd() * 4) }, () =>
+        unit([(rnd() - 0.5) * 1.5, (rnd() - 0.5) * 1.5, -1]));
+      const N = [...base, ...base, ...base.slice(0, 2)];
+      const exact = fitCorner(N, { enumerateMax: Infinity });
+      const fast = fitCorner(N, { enumerateMax: 0 });
+      for (const a of N) assert.ok(dot(a, fast) >= 1 - 1e-9, `trial ${trial}: a plane is inside the wall`);
+      assert.ok(cost(N, fast) <= cost(N, exact) * (1 + 1e-9) + 1e-12, `trial ${trial}: descent is thicker`);
+    }
+  });
+
+  it("fits a crease of hundreds of planes quickly, moving none along it", () => {
+    // Every normal is perpendicular to y, so the plain fit is singular.
+    // This used to fall back to trying 4.5 million active sets (found in
+    // review); the scaled frame drops the free axis instead.
+    const N = Array.from({ length: 300 }, (_, i) => [Math.sin(i / 1000), 0, -Math.cos(i / 1000)]);
+    const t0 = performance.now();
+    const d = fitCorner(N);
+    const ms = performance.now() - t0;
+    assert.ok(ms < 250, `took ${ms.toFixed(0)} ms`);
+    for (const a of N) assert.ok(dot(a, d) >= 1 - 1e-9);
+    assert.equal(d[1], 0, "no move along the crease");
+    // Every tenth plane: few enough to check against enumeration.
+    const cost = (M, x) => M.reduce((s, a) => s + (dot(a, x) - 1) ** 2, 0);
+    const M = N.filter((_, i) => i % 10 === 0);
+    const fast = fitCorner(M), exact = fitCorner(M, { enumerateMax: Infinity });
+    assert.ok(cost(M, fast) <= cost(M, exact) * (1 + 1e-9) + 1e-12);
+  });
+
+  it("clears every plane on nearly flat corners at any orientation", () => {
+    // Rotated, a nearly flat corner no longer lines its free axis up with
+    // x, y or z, and enumeration itself misses some fits at these depths
+    // (up to 1e9 walls), so this checks clearance directly. Every corner
+    // here has a fit: all normals lean on the rotated −z. Float64 resolves
+    // a·d only to ~1e-12 of the fit's depth.
+    let seed = 2024;
+    const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32);
+    for (let trial = 0; trial < 300; trial++) {
+      const [qa, qb, qc, qd] = unit([rnd() - 0.5, rnd() - 0.5, rnd() - 0.5, rnd() - 0.5]);
+      const R = [
+        [qa * qa + qb * qb - qc * qc - qd * qd, 2 * (qb * qc - qa * qd), 2 * (qb * qd + qa * qc)],
+        [2 * (qb * qc + qa * qd), qa * qa - qb * qb + qc * qc - qd * qd, 2 * (qc * qd - qa * qb)],
+        [2 * (qb * qd - qa * qc), 2 * (qc * qd + qa * qb), qa * qa - qb * qb - qc * qc + qd * qd],
+      ];
+      const eps = 10 ** (-1 - rnd() * 7);
+      const N = Array.from({ length: 11 + Math.floor(rnd() * 25) }, () => {
+        const v = [2 * rnd() - 1, 2 * rnd() - 1, -eps * (0.1 + rnd())];
+        return unit(R.map((row) => dot(row, v)));
+      });
+      const d = fitCorner(N);
+      const depth = Math.max(1, Math.hypot(...d));
+      for (const a of N) assert.ok(dot(a, d) >= 1 - 1e-12 * depth, `trial ${trial}: a plane is inside the wall`);
+    }
+  });
+});
+
+describe("Even walls on smoothed dense globes", () => {
+  it("build in seconds, not minutes", () => {
+    // Under 1 s here; before descent this ran for minutes with the app
+    // frozen. A test timeout can't interrupt synchronous work, so the
+    // bound is checked after the build.
+    const t0 = performance.now();
+    const r = compile({ ...DEFAULT_STATE, base: "globe", points: 36, subdiv: 1, soften: 30, wallMode: "even" });
+    const ms = performance.now() - t0;
+    assert.ok(ms < 20000, `took ${ms.toFixed(0)} ms`);
+    assert.ok(r.validation.ok, r.validation.errors?.[0]?.message);
+    assert.ok(r.mesh.indices.length > 0);
+  });
 });
 
 describe("meanValueWeights", () => {

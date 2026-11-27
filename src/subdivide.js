@@ -269,23 +269,33 @@ function projectOntoInset(p, planes, R) {
   const active = planes.filter(
     ({ n, d }) => n[0] * p[0] + n[1] * p[1] + n[2] * p[2] > d - 2 * R - 1e-9,
   );
-  const q = [p[0], p[1], p[2]];
-  /** Dykstra correction per constraint. */
-  const corr = active.map(() => [0, 0, 0]);
+  // Scalars and one flat array: this loop runs for every vertex of a
+  // smoothed mesh, often dozens of passes over dozens of planes, and
+  // allocating per step made it most of a dense build's time.
+  let qx = p[0], qy = p[1], qz = p[2];
+  /** Dykstra correction per constraint, xyz. */
+  const corr = new Float64Array(active.length * 3);
   for (let iter = 0; iter < 120; iter++) {
     let moved = 0;
     for (let c = 0; c < active.length; c++) {
       const { n, d } = active[c];
-      const y = [q[0] + corr[c][0], q[1] + corr[c][1], q[2] + corr[c][2]];
-      const excess = n[0] * y[0] + n[1] * y[1] + n[2] * y[2] - (d - R);
-      const nx = excess > 0 ? [y[0] - n[0] * excess, y[1] - n[1] * excess, y[2] - n[2] * excess] : y;
-      corr[c] = [y[0] - nx[0], y[1] - nx[1], y[2] - nx[2]];
-      moved = Math.max(moved, Math.abs(nx[0] - q[0]), Math.abs(nx[1] - q[1]), Math.abs(nx[2] - q[2]));
-      q[0] = nx[0]; q[1] = nx[1]; q[2] = nx[2];
+      const yx = qx + corr[c * 3], yy = qy + corr[c * 3 + 1], yz = qz + corr[c * 3 + 2];
+      const excess = n[0] * yx + n[1] * yy + n[2] * yz - (d - R);
+      let nx = yx, ny = yy, nz = yz;
+      if (excess > 0) {
+        nx = yx - n[0] * excess;
+        ny = yy - n[1] * excess;
+        nz = yz - n[2] * excess;
+      }
+      corr[c * 3] = yx - nx;
+      corr[c * 3 + 1] = yy - ny;
+      corr[c * 3 + 2] = yz - nz;
+      moved = Math.max(moved, Math.abs(nx - qx), Math.abs(ny - qy), Math.abs(nz - qz));
+      qx = nx; qy = ny; qz = nz;
     }
     if (moved < 1e-12) break;
   }
-  return q;
+  return [qx, qy, qz];
 }
 
 /**

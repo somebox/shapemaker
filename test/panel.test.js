@@ -32,6 +32,15 @@ describe("what each tab holds", () => {
     assert.deepEqual(buildKeys.sort(), [...PRINT_KEYS].sort());
   });
 
+  it("puts Subdivide and Split with the openings they multiply, and keeps Smooth in Shape", () => {
+    assert.equal(tabOfKey("subdiv"), "openings");
+    assert.equal(tabOfKey("subdivStyle"), "openings");
+    assert.equal(tabOfKey("soften"), "shape");
+    const openings = CONTROL_DEFS.filter((d) => d.group === "openings").map((d) => d.key);
+    assert.deepEqual(openings.slice(-2), ["subdiv", "subdivStyle"], "after Fillet");
+    assert.equal(CONTROL_DEFS.find((d) => d.key === "subdivStyle").label, "Split");
+  });
+
   it("names the tab behind errors no control carries", () => {
     assert.equal(tabOfKey("borderMm"), "openings");
     assert.equal(tabOfKey("base"), "shape");
@@ -183,6 +192,60 @@ describe("field widths", () => {
 });
 
 describe("panel controls", () => {
+  it("explain Dual on its label's line and on hover", () => {
+    const { panelEl } = mount();
+    const dual = panelEl.querySelector('.control[data-key="dual"]');
+    assert.equal(dual.querySelector(".control-note").textContent, "faces ↔ corners");
+    assert.match(dual.title, /cube becomes an octahedron/);
+  });
+
+  it("open help from a ? button that keyboard and touch reach", () => {
+    const { panelEl } = mount();
+    const dual = panelEl.querySelector('.control[data-key="dual"]');
+    const toggle = dual.querySelector(".control-help-toggle");
+    const help = panelEl.querySelector(`#${toggle.getAttribute("aria-controls")}`);
+    assert.equal(toggle.tagName, "BUTTON");
+    assert.equal(toggle.getAttribute("aria-label"), "About Dual");
+    assert.equal(help.hidden, true);
+    toggle.click();
+    assert.equal(help.hidden, false);
+    assert.equal(toggle.getAttribute("aria-expanded"), "true");
+    assert.equal(dual.dataset.helpOpen, "1", "takes the full row");
+    assert.match(help.textContent, /cube becomes an octahedron/);
+    toggle.click();
+    assert.equal(help.hidden, true);
+    assert.equal(toggle.getAttribute("aria-expanded"), "false");
+  });
+
+  it("keep the ? live on a greyed-out choice", () => {
+    const { panelEl, ui } = mount();
+    ui.setResult({ state: state({ subdiv: 0 }) });
+    const split = panelEl.querySelector('.control[data-key="subdivStyle"]');
+    assert.equal(split.dataset.inert, "1");
+    assert.ok(split.querySelector('[data-seg-value="grid"]').disabled, "the choices are off");
+    const toggle = split.querySelector(".control-help-toggle");
+    assert.equal(toggle.disabled, false);
+    toggle.click();
+    const help = panelEl.querySelector(`#${toggle.getAttribute("aria-controls")}`);
+    assert.equal(help.hidden, false);
+    assert.match(help.textContent, /corner quads/);
+    toggle.click();
+    assert.equal(help.hidden, true, "and it closes again");
+  });
+
+  it("describe each choice to its button, keeping the hover titles", () => {
+    const { panelEl } = mount();
+    const text = (id) => panelEl.querySelector(`#${id}`).textContent;
+    const describedBy = (btn) => btn.getAttribute("aria-describedby").split(" ").map(text).join(" | ");
+    const dualOn = panelEl.querySelector('[data-seg-key="dual"][data-seg-value="true"]');
+    assert.match(describedBy(dualOn), /cube becomes an octahedron/);
+    const grid = panelEl.querySelector('[data-seg-key="subdivStyle"][data-seg-value="grid"]');
+    assert.equal(grid.title, "Cut polygons into corner quads (triangles split in four)");
+    assert.equal(describedBy(grid), "Grid: Cut polygons into corner quads (triangles split in four)");
+    const split = panelEl.querySelector('.control[data-key="subdivStyle"]');
+    assert.ok(split.querySelector(".control-help-toggle"), "Split has a ? button too");
+  });
+
   it("send a segment click as a patch", () => {
     const patches = [];
     const { panelEl } = mount({ on: { onPatch: (p, o) => patches.push([p, o]) } });

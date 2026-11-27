@@ -28,14 +28,29 @@ onward every release gets a full entry here, and breaking changes to the
 - **Phones work.** The panel no longer covers the model: the model, status,
   rows and tabs stack, with the tabs under the thumb, and sideways the tabs are
   a rail. Touch targets are at least 44 px.
-
-- **Smooth (`soften`) is polygonal subdivision fairing and works directly on
-  every shape**: dragging Smooth when Subdivide is None auto-refines the mesh,
+- **Subdivide moves to Openings**, after Fillet, since it mostly sets how
+  many openings there are. Pattern goes with it and is now **Split**
+  (Radial or Grid). Smooth stays in Shape. Saved designs and links are
+  unaffected.
+- **Dual says what it does**: "faces ↔ corners" beside its label, and
+  examples behind a **?** button that keyboard and touch reach (and on
+  hover). Split's ? describes Radial and Grid. Screen readers hear the same
+  text as each button's description.
+- **Smooth is about 5× faster** on dense meshes, with identical results.
+- **Smooth (`soften`) works directly on every shape**: with Subdivide None
+  it rounds the shell's edges and corners and keeps every face and opening,
   and Smooth is unlocked under Grid and Spike (softening star spikes into
   rounded lobes and relaxing concave valleys into saddle transitions).
 
 ### Fixed
 
+- Smooth on a dense globe no longer freezes the app. Even inner walls tried
+  every set of three planes at each corner, and Smooth can gather a pole
+  into one corner of hundreds of planes: a Globe at density 36 with
+  Subdivide Once and Smooth 30 ran for minutes. Such corners now fit in a
+  few steps, each linear in the planes, and that design builds in under a
+  second. Ordinary corners
+  are fitted exactly as before.
 - **Rounding (`roundingMm`) uses full physical radii and accurate slider
   ceilings**: fixed the ball-radius vs. tangency-width clamp (~3× wider fillets
   on obtuse solids), removed the redundant 20% edge-length pre-cap, derived

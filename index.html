@@ -536,7 +536,8 @@
     .tab-body > :not(.control),
     .cluster-body > :not(.control),
     .control[data-wide="1"],
-    .control.has-error { grid-column: 1 / -1; }
+    .control.has-error,
+    .control[data-help-open="1"] { grid-column: 1 / -1; }
     .tab-body[hidden] { display: none; }
 
     .identity {
@@ -634,10 +635,59 @@
 
     .control { display: flex; flex-direction: column; gap: 2px; }
     .control[data-hidden="1"] { display: none; }
-    .control[data-inert="1"] {
-      opacity: 0.38;
-      pointer-events: none;
+    .control[data-inert="1"] { pointer-events: none; }
+    /* Dim the label and choices, not the ? (still live) or its help, so both
+       keep full contrast. */
+    .control[data-inert="1"] > :not(.control-row--seg):not(.control-help),
+    .control[data-inert="1"] .control-row--seg > :not(.control-head),
+    .control[data-inert="1"] .control-head > :not(.control-help-toggle) { opacity: 0.38; }
+    .control[data-inert="1"] .control-help-toggle { pointer-events: auto; }
+    .control-head {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
     }
+    /* The label keeps the left; caption and ? sit at the right. */
+    .control-head > label { margin-right: auto; }
+    .control-note {
+      min-width: 0;
+      font-size: 0.7rem;
+      color: var(--text-dim);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    /* A 24 px target (WCAG 2.5.8) around a 1 rem ring; the label's line
+       grows to hold it, so it overlaps nothing. */
+    .control-help-toggle {
+      appearance: none;
+      flex: none;
+      width: 24px;
+      height: 24px;
+      padding: 0;
+      border: none;
+      border-radius: 50%;
+      background: radial-gradient(circle, transparent calc(0.5rem - 1px),
+        var(--line) calc(0.5rem - 1px), var(--line) 0.5rem, transparent 0.5rem);
+      color: var(--text-dim);
+      font: 600 0.6rem var(--font-mono);
+      line-height: 1;
+      cursor: pointer;
+    }
+    .control-help-toggle:hover,
+    .control-help-toggle[aria-expanded="true"] {
+      color: var(--accent);
+      background: radial-gradient(circle, transparent calc(0.5rem - 1px),
+        var(--accent) calc(0.5rem - 1px), var(--accent) 0.5rem, transparent 0.5rem);
+    }
+    .control-help-toggle:focus-visible {
+      outline: 2px solid var(--focus);
+      outline-offset: 2px;
+    }
+    .control-help[hidden] { display: none; }
+    .control-help { display: grid; gap: 2px; margin-top: 2px; }
+    .control-help p { margin: 0; }
 
     #panel[data-locked="1"] .tab-body:not([data-tab="files"]) {
       opacity: 0.38;
@@ -1260,6 +1310,15 @@
       input[type="range"],
       .section-hud input[type="range"] { height: 44px; }
       button.value-readout { min-height: 44px; margin-block: -10px; }
+      /* A finger's reach. The label's line grows to hold it, so the target
+         never overlaps the choices under it. */
+      .control[data-wide="1"] .control-row--seg {
+        grid-template-columns: minmax(4.5rem, max-content) minmax(0, 1fr);
+      }
+      /* Fields side by side line up at their inputs, under a taller label. */
+      .tab-body,
+      .cluster-body { align-items: end; }
+      .control-help-toggle { width: 44px; min-height: 44px; }
       button.value-readout:hover { background: transparent; border-color: transparent; }
       .control-row input[type="number"] { min-height: 44px; }
       .panel-tab { min-height: 52px; }
