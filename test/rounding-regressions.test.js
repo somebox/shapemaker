@@ -126,6 +126,9 @@ describe("Stage-2 rounding does not fold through itself", () => {
       it(`${JSON.stringify(c)} (${wallMode})`, () => {
         const r = compile({ ...c, wallMode });
         assert.equal(r.validation.ok, true, r.validation.errors[0]?.message);
+        // `mesh.positions` is the float32 copy an STL holds, not the
+        // builder's doubles (`positions64`): some of these crossed only
+        // once rounded, and this is the scan that sees it.
         assert.deepEqual(selfIntersections(r.mesh, 5), []);
       });
     }

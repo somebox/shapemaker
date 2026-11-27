@@ -56,7 +56,8 @@ onward every release gets a full entry here, and breaking changes to the
     with Rounding off. It is now laid out along the inner outline.
   - A thick Even wall could turn a sliver face inside out on the inner
     surface. Its corners now move together, as the ends of a very short
-    edge already did, where one move clears every face around it.
+    edge already did, where one move clears every face around it and the
+    corners moved touch no more than 48 faces.
   - A rounded edge ending against a sharp one on a straight boundary
     stepped the face outline and crossed the opening rim. Both now take the
     narrower width.
@@ -67,7 +68,7 @@ onward every release gets a full entry here, and breaking changes to the
     Such a wall is now refused, with one that fits offered, and the Wall
     slider stops at that same wall, checked with the corner moves it is
     built with. On about one shape in ten the slider ended too late,
-    typically by 12% and at worst by half; a plain rhombic
+    typically by 11% and at worst by half; a plain rhombic
     enneacontahedron went to 35 mm, and a face of it flips at 32.
   - With Smooth, two rounded edges mitred where a smoothed edge bends kept
     the unmitred position on the inner surface once the rounding there was
@@ -81,7 +82,8 @@ onward every release gets a full entry here, and breaking changes to the
   a thinner wall or less rounding helps (on a solid shape, less rounding).
   Before, nothing said so.
 - The smallest-opening figure no longer reads 0 mm because one face stays
-  closed, and the border and fillet ranges leave closed faces out.
+  closed, and the border and fillet ranges leave closed faces out. A shape
+  whose faces all stay closed gets no thin-border warning.
 - **Faces with no room for an opening stay closed**, with a warning that
   counts them: openings under 0.2 mm across (Through already did this), and
   with Rounding or Smooth, faces whose outline the rounding moves off their

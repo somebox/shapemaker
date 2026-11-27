@@ -3,14 +3,14 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { compile, limitsForState } from "../src/compile.js";
+import { compile, compileShape, limitsForState } from "../src/compile.js";
 import { faceFrames } from "../src/faceframe.js";
 import { encodeHash, decodeHash } from "../src/hashcodec.js";
 import { parseProject, serializeProjectV1 } from "../src/project-format.js";
 import { DEFAULT_STATE, CONTROL_DEFS } from "../src/schema.js";
 import {
-  cornerOffsets, cornerOffsetsForWall, fitCorner, meanValueWeights, offsetFaceLimit,
-  offsetWallLimit, offsetWallRange, thinnedFaces,
+  cornerOffsets, cornerOffsetsForWall, evenWallCeiling, evenWallFit, fitCorner,
+  meanValueWeights, offsetFaceLimit, offsetWallLimit, offsetWallRange, thinnedFaces,
 } from "../src/solid/offset.js";
 import { bandFaults, buildShell, fanPoint } from "../src/solid/shell.js";
 import { selfIntersections } from "./self-intersect.js";
@@ -197,6 +197,21 @@ describe("wallMode", () => {
     assert.ok(!plain.validation.warnings.some((w) => /stay closed/.test(w.message)));
   });
 
+  it("gives no border guidance when no opening was built", () => {
+    // A 3 mm cube: all six openings would be under 0.2 mm and stay closed.
+    // The guidance used to fall back on the 0.8 mm border asked for.
+    const r = compile({ base: "cube", circumdiameterMm: 3, wallMm: 0.4, borderFraction: 0.9 });
+    assert.equal(r.validation.ok, true);
+    assert.equal(r.metrics.openingMinDiameterMm, 0);
+    assert.deepEqual(r.metrics.borderMm, { min: null, max: null });
+    assert.ok(r.validation.warnings.some((w) => /^6 of 6 faces .* stay closed/.test(w.message)));
+    assert.ok(!r.validation.warnings.some((w) => /Thinnest borders/.test(w.message)));
+    // With openings built, a thin border is still called out.
+    const open = compile({ base: "cube", circumdiameterMm: 30, wallMm: 0.4, borderFraction: 0.1 });
+    assert.ok(open.metrics.openingMinDiameterMm > 0);
+    assert.ok(open.validation.warnings.some((w) => /Thinnest borders/.test(w.message)));
+  });
+
   it("moves a sliver face the wall would turn inside out as one piece", () => {
     // A 10 mm × 0.2 mm hexagon on a truncated globe: the planes either side
     // close over it within a fraction of the 2.4 mm wall, and its inner
@@ -246,6 +261,42 @@ describe("wallMode", () => {
       assert.ok(buildShell(skeleton, { ...opts, wallMm: e.validation.clampTo }).info.wall.min > 0);
       return true;
     });
+  });
+
+  it("stops the Wall slider at 90% of the first refusal when a sliver cannot move as one", () => {
+    // The planed triangle, moved 0.03 mm from the front face, flips at
+    // 26.64 mm, just short of the edge limit (27.00 mm). 90% of the edge
+    // limit builds, but leaves under 9% to the first refusal.
+    const skeleton = planedBox();
+    skeleton.positions.set([29.97, 0, 31], 9 * 3);
+    const frames = faceFrames(skeleton);
+    const plain = cornerOffsets(skeleton, frames);
+    const edge = offsetWallLimit(skeleton, plain);
+    const flip = offsetFaceLimit(skeleton, frames, plain);
+    assert.equal(flip.face, 7);
+    assert.ok(flip.limit < edge && flip.limit > 0.95 * edge, `${flip.limit} vs ${edge}`);
+    const top = evenWallCeiling(skeleton, frames, plain);
+    assert.ok(Math.abs(top - 0.9 * flip.limit) < 1e-6 * top, `${top} vs ${0.9 * flip.limit}`);
+    assert.equal(evenWallFit(skeleton, frames, top, plain).ok, true);
+    assert.equal(evenWallFit(skeleton, frames, flip.limit * (1 - 1e-6), plain).ok, true);
+    assert.equal(evenWallFit(skeleton, frames, flip.limit, plain).cause, "face");
+  });
+
+  it("does not move as one a cluster of corners that touches too many planes", () => {
+    // On a subdivided shape slivers chain through the fan centres. Just
+    // under the edge limit four of them go thin, and their corners touch
+    // 50 planes; three passes on it was 72 faces and 294 planes. Fitting
+    // that took seconds, and no single move clears a patch that size.
+    const { skeleton } = compileShape({
+      base: "rhombicenneaconta", seed: 2056, truncate: 40, points: 12, subdiv: 1, soften: 50,
+    });
+    const frames = faceFrames(skeleton);
+    const plain = cornerOffsets(skeleton, frames);
+    const wall = 0.999 * offsetWallLimit(skeleton, plain);
+    assert.equal(thinnedFaces(skeleton, frames, plain, wall).length, 4);
+    assert.equal(cornerOffsetsForWall(skeleton, frames, wall, plain), plain);
+    // The slivers keep their corners' own moves, which hold to the limit.
+    assert.equal(evenWallFit(skeleton, frames, wall, plain).ok, true);
   });
 
   it("puts the face limit at the edge limit where a face shrinks evenly", () => {

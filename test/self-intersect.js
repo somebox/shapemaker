@@ -6,8 +6,10 @@ const LEAF = 8;
 
 /**
  * Pairs of triangles that share no vertex and where an edge of one passes
- * through the interior of the other.
- * @param {{ positions: Float64Array|number[], indices: Uint32Array|number[] }} mesh
+ * through the interior of the other. A compiled mesh passed as it is gets
+ * its `positions` scanned: the float32 copy an STL holds. For the builder's
+ * own doubles pass `{ positions: mesh.positions64, indices: mesh.indices }`.
+ * @param {{ positions: Float32Array|Float64Array|number[], indices: Uint32Array|number[] }} mesh
  * @param {number} [limit=Infinity]  stop after this many pairs
  * @returns {[number, number][]}
  */

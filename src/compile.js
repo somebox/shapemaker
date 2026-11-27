@@ -209,7 +209,12 @@ export function compile(partial = {}) {
     const limits = limitsFor(skeleton, state);
     // State-derived, so shared links / presets / project opens see it too —
     // not only the edit that clamped a border.
-    const guidance = borderPrintabilityWarning(state, limits, solid.info.borderMm);
+    // With every face closed no border was built, and there is none to
+    // call thin: the guidance would fall back on the widths asked for.
+    const noneOpened = solid.info.openingMinDiameterMm === 0;
+    const guidance = noneOpened
+      ? null
+      : borderPrintabilityWarning(state, limits, solid.info.borderMm);
     if (guidance) validation.warnings.push(guidance);
     const axisWarning = straightAxisWarning(solid.info, skeleton.faces.length, state.wallMm);
     if (axisWarning) validation.warnings.push(axisWarning);

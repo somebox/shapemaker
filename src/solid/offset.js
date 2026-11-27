@@ -30,10 +30,20 @@ export function cornerOffsets(skeleton, frames, asOne = []) {
 const RIGID_WALL_KEPT = 0.999;
 
 /**
+ * Most face planes a cluster of corners moved as one may touch. A sliver
+ * and the corners it shares touch a dozen or two. Slivers that chain
+ * across a subdivided face can gather hundreds, a patch of the surface no
+ * single move clears, and the fit's cost grows with the cube of the count:
+ * 10 ms at this many, seconds at 300.
+ */
+const AS_ONE_PLANES_MAX = 48;
+
+/**
  * {@link cornerOffsets}, and the `asOne` faces that have no single move: a
  * sliver that runs from one face to another facing it (a strip planed off
  * the whole length of an edge) is asked for opposite moves by its two ends,
- * and the nearest fit leaves no wall at them.
+ * and the nearest fit leaves no wall at them. Faces whose cluster touches
+ * more than {@link AS_ONE_PLANES_MAX} planes count among them, unfitted.
  * @param {Float64Array} [plain]  the offsets without `asOne`, if at hand:
  *   corners no as-one face reaches keep them, and are not fitted again
  * @returns {{ dHat: Float64Array, misfits: number[] }}
@@ -80,9 +90,12 @@ function fitOffsets(skeleton, frames, asOne, plain = null) {
   /** Those of them some plane ends up closer to than the wall. */
   const short = new Set();
   for (const [v, list] of inward) {
-    if (plain && !merged.has(v)) {
-      // Same corners and planes as without the as-one faces: same fit.
+    const tooMany = merged.has(v) && list.length > AS_ONE_PLANES_MAX;
+    if (plain && (tooMany || !merged.has(v))) {
+      // Same corners and planes as without the as-one faces: same fit. (A
+      // cluster with too many planes is reported, and fitted without them.)
       out[v * 3] = plain[v * 3]; out[v * 3 + 1] = plain[v * 3 + 1]; out[v * 3 + 2] = plain[v * 3 + 2];
+      if (tooMany) short.add(v);
       continue;
     }
     const d = fitCorner(list);
@@ -340,12 +353,13 @@ export function evenWallFit(
 }
 
 /**
- * The thickest Even wall on offer: 90% of the wall at which the builder
- * first refuses ({@link evenWallFit}). For most shapes that is the edge or
- * face limit of the plain offsets. Where sliver faces move as one above
- * some wall, the offsets, and so the limits, change with the wall, and the
- * first refusal is searched for from below, a few more slivers at a time:
- * far above it dozens of faces can move as one, and fitting those is slow.
+ * The thickest Even wall on offer: 90% of the first wall the builder
+ * refuses ({@link evenWallFit}). With no sliver face in play that is the
+ * edge or face limit of the plain offsets. Where sliver faces go thin
+ * below it, they move as one from some wall on, or flip where they cannot,
+ * and the offsets and both limits change with the wall. The first refusal
+ * is then searched for from below, a few more slivers at a time: far
+ * above it dozens of faces can move as one, and fitting those is slow.
  * @param {{ positions: Float64Array, faces: number[][] }} skeleton
  * @param {object[]} frames
  * @param {Float64Array} [plain]  `cornerOffsets(skeleton, frames)`, if at hand
@@ -354,14 +368,13 @@ export function evenWallFit(
  */
 export function evenWallCeiling(skeleton, frames, plain = cornerOffsets(skeleton, frames), under = Infinity) {
   const edge = offsetWallLimit(skeleton, plain);
-  const flip = offsetFaceLimit(skeleton, frames, plain, { skipNarrow: true }).limit;
-  // A face that shrinks evenly reaches both limits at the same wall; the
-  // edge figure stands there.
-  const top = Math.min(under, flip < edge * (1 - 1e-9) ? flip : edge);
-  if (!Number.isFinite(top)) return top;
+  const flip = offsetFaceLimit(skeleton, frames, plain);
+  // From the plain edge limit on, every wall is refused.
+  const end = Math.min(under, edge);
+  if (!Number.isFinite(end)) return end;
   // The search tries many walls; most share their offsets and limits.
-  const seen = { fits: new Map(), edge: new Map([[plain, edge]]), flip: new Map() };
-  const holds = (w) => evenWallFit(skeleton, frames, w, plain, seen).ok;
+  const seen = { fits: new Map(), edge: new Map([[plain, edge]]), flip: new Map([[plain, flip]]) };
+  const probe = (w) => evenWallFit(skeleton, frames, w, plain, seen);
   /** Slivers the plain offsets leave thin at a wall: more as it grows. */
   const thinAt = (w) => thinnedFaces(skeleton, frames, plain, w).length;
   /** The thickest wall from `lo` to `hi` with at most `count` of them. */
@@ -375,35 +388,62 @@ export function evenWallCeiling(skeleton, frames, plain = cornerOffsets(skeleton
     return lo;
   };
 
-  let wall = 0.9 * top;
-  // Few or no slivers in play: one check settles it for most shapes.
-  if (thinAt(wall) <= CEILING_SLIVER_STEP && holds(wall)) return wall;
+  /** The last wall the search looks at: just short of `end`. */
+  let last = end * (1 - 1e-12);
+  if (thinAt(last) === 0) {
+    // The plain offsets stand all the way. A face that shrinks evenly
+    // reaches both limits at the same wall; the edge figure stands there.
+    return 0.9 * Math.min(end, flip.limit < edge * (1 - 1e-9) ? flip.limit : edge);
+  }
   for (let round = 0; round < 4; round++) {
-    // Where no face is thin yet, the plain offsets and their limits stand.
-    let lo = Math.min(
-      thickestWith(0, 0, wall), 0.999 * edge,
-      0.999 * offsetFaceLimit(skeleton, frames, plain).limit,
-    );
-    let hi = wall;
-    for (let count = CEILING_SLIVER_STEP; lo < wall; count += CEILING_SLIVER_STEP) {
-      const w = thickestWith(count, lo, wall);
+    // Where no face is thin yet, the plain offsets and their limits hold.
+    let lo = Math.min(thickestWith(0, 0, last), 0.999 * Math.min(end, flip.limit));
+    let hi = Infinity;
+    for (let count = CEILING_SLIVER_STEP; lo < last; count += CEILING_SLIVER_STEP) {
+      const w = thickestWith(count, lo, last);
       if (!(w > lo)) continue;
-      if (!holds(w)) {
-        hi = w;
-        break;
+      const tried = probe(w);
+      if (tried.ok) {
+        lo = w;
+        continue;
       }
-      if (w === wall) return wall;
-      lo = w;
+      hi = w;
+      // The limit that refused is often the first refusal itself.
+      const near = tried.limit * (1 - 1e-9);
+      if (near > lo && near < hi) {
+        if (probe(near).ok) lo = near;
+        else hi = near;
+      }
+      break;
     }
-    for (let step = 0; step < 10 && hi - lo > 1e-3 * hi; step++) {
-      const mid = 0.5 * (lo + hi);
-      if (holds(mid)) lo = mid;
+    if (hi === Infinity) {
+      // Nothing is refused short of `end`. (A later round ends at a wall
+      // that was refused.)
+      if (round === 0) return 0.9 * end;
+      hi = last;
+    }
+    // Close in. The offsets at `lo` hold below their own limit, and that
+    // limit is the first refusal once it lies in the gap that is left.
+    let first = lo;
+    for (let step = 0; step < 14; step++) {
+      const held = probe(lo).limit;
+      if (held <= hi) {
+        first = held;
+        if (held - lo <= 1e-3 * hi) break;
+      } else {
+        first = lo;
+        if (hi - lo <= 1e-3 * hi) break;
+      }
+      const mid = 0.5 * (lo + Math.min(hi, held));
+      if (probe(mid).ok) lo = mid;
       else hi = mid;
     }
-    wall = 0.9 * lo;
-    if (holds(wall)) return wall;
+    const wall = 0.9 * first;
+    if (probe(wall).ok) return wall;
+    last = wall;
   }
-  return wall;
+  // No luck in four rounds: a wall the plain offsets hold at.
+  return 0.9 * Math.min(thickestWith(0, 0, last), end, flip.limit);
 }
 
 /** How many more slivers each step of the wall search takes on. */

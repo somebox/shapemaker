@@ -306,7 +306,10 @@ displacement:
   thicker wall. That needs one move that clears every face around the
   sliver. A sliver that runs from one face to another facing it (a strip
   planed off the whole length of an edge) has none, and keeps its corners'
-  own moves. Wider faces are left alone: moving one as a piece would
+  own moves. So do slivers whose corners, taken together, touch more than
+  48 face planes: on a subdivided face they chain through the fan centre
+  into a patch no single move clears, and one that takes seconds to fit.
+  Wider faces are left alone: moving one as a piece would
   drag its neighbours' corners far from their own planes. A wider face can
   turn inside out as well, each edge still pointing its own way: a rhombus
   closing along its short diagonal, or a triangle Truncate leaves between
@@ -366,7 +369,8 @@ opening. These happen on needle faces (Subdivide or Truncate on a distorted
 shape leaves triangles tens of millimetres long and a fraction wide),
 where a corner's trim can exceed the face's width. The border and fillet
 ranges reported for the shape leave closed faces out, as the smallest
-opening does. A closed face is fanned
+opening does, and with every face closed there is no thin-border guidance.
+A closed face is fanned
 from its centroid, or from the mean point of its outline where the
 centroid cannot see all of the outline: seen from the fan point, every
 edge must run the way the outline does. Being inside the outline is not
