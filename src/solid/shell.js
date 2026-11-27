@@ -595,6 +595,8 @@ export function buildShell(skeleton, opts) {
     // Sample the opening along the same rays as the boundary points: both
     // rings are convex and contain the centroid, so the rays are in strict
     // angular order and consecutive rays bound exactly one quad.
+    /** The inset polygon itself, whatever the opening style. */
+    const bareInset = () => insetFillet.generate(corner2d, frac, 0, 1).opening;
     /** The same opening without its fillet, sampled. */
     const unfilleted = () => {
       ({ opening, radiusUsed } = openingGenerator.generate(corner2d, frac, 0, 1));
@@ -620,6 +622,16 @@ export function buildShell(skeleton, opts) {
     if (!through && radiusUsed > 0 && 2 * rimClearance(rad, ang) < OPENING_MIN_MM) {
       rad = unfilleted();
     }
+    // An ellipse is built from its samples too, joined by straight
+    // segments. Where the rays are few across a sliver (a long edge with
+    // points at its ends only), a segment cuts straight across the ellipse
+    // and the opening comes out a fraction of its width. Such a face takes
+    // the bare inset instead, whose straight edges are built exactly.
+    if (!through && 2 * rimClearance(rad, ang) < OPENING_MIN_MM) {
+      opening = bareInset();
+      radiusUsed = 0;
+      rad = radialSample(opening, ang);
+    }
     // ... or reach past the outline the rounding leaves it.
     if (stage2 && !through) {
       for (let k = 0; k < m; k++) {
@@ -627,6 +639,12 @@ export function buildShell(skeleton, opts) {
           return { B2x, B2y, ang, turn, closed: "rounding" };
         }
       }
+    }
+    // The floor, last, on the rim that is built: the measures further up
+    // are of the exact outline, and even the bare inset's samples can cut
+    // across a corner the rays miss.
+    if (!through && 2 * rimClearance(rad, ang) < OPENING_MIN_MM) {
+      return { B2x, B2y, ang, turn, closed: "narrow" };
     }
     let minR = Infinity;
     /** @type {number[][]} virtual outer-lip corners (not always pushed) */
@@ -641,9 +659,7 @@ export function buildShell(skeleton, opts) {
         cz + ox * uz + oy * wz,
       ]);
     }
-    /** The opening without its fillet, for Through's own check of its cutter. */
-    const plain = () => openingGenerator.generate(corner2d, frac, 0, 1).opening;
-    return { B2x, B2y, ang, turn, opening, radiusUsed, rad, minR, ooPts, plain };
+    return { B2x, B2y, ang, turn, opening, radiusUsed, rad, minR, ooPts, bareInset };
   };
   /** Layouts the inner-fit pass already made, for the face loop to reuse. */
   const layouts = new Array(faces.length);
@@ -970,10 +986,11 @@ export function buildShell(skeleton, opts) {
       const angT = new Float64Array(M);
       for (let k = 0; k < M; k++) angT[k] = a0 + ((k + 0.5) * 2 * Math.PI) / M;
       let radT = radialSample(opening, angT);
-      // The cutter is the rim Through emits: a fillet that brings it
-      // within half the floor of the centroid goes, as in `layoutFace`.
-      if (radiusUsed > 0 && 2 * rimClearance(radT, angT) < OPENING_MIN_MM) {
-        opening = lay.plain();
+      // The cutter is the rim Through emits: where a fillet or a thinly
+      // sampled ellipse brings it within half the floor of the centroid,
+      // the face takes the bare inset, as in `layoutFace`.
+      if (2 * rimClearance(radT, angT) < OPENING_MIN_MM) {
+        opening = lay.bareInset();
         radiusUsed = 0;
         radT = radialSample(opening, angT);
       }
@@ -985,8 +1002,9 @@ export function buildShell(skeleton, opts) {
       minR = Math.min(...radT);
       // Microscopic faces (heavy Truncate leaves ~0.1 mm squares) stay
       // closed: a cutter that small cannot print and only leaves contacts
-      // the boolean resolves into zero-area triangles.
-      if (2 * minR < OPENING_MIN_MM) {
+      // the boolean resolves into zero-area triangles. Measured on the
+      // cutter's edges, as the other Sides settings measure their rim.
+      if (2 * rimClearance(radT, angT) < OPENING_MIN_MM) {
         throughClosedFaces++;
         faceMetrics.push({
           faceIndex: fi,

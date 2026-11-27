@@ -91,6 +91,10 @@ onward every release gets a full entry here, and breaking changes to the
   lopsided and sometimes under 0.2 mm across. Such a face keeps its
   unfilleted opening, as it already did where the fillet put the centre
   outside.
+- At a coarse mesh setting, an ellipse opening on a sliver face could be
+  built from so few points that it came out a fraction of its width, under
+  0.2 mm across. Such a face takes the plain inset opening, or stays
+  closed where that does not fit.
 - **Faces with no room for an opening stay closed**, with a warning that
   counts them and says why (too thin, or no room inside their rounded
   edges): openings under 0.2 mm across under every Sides setting

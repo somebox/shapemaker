@@ -6,7 +6,7 @@ import { inscribedMomentEllipse, ellipseMinorAxis, ellipsePolyline } from "../sr
 import { faceFrames, projectToFrame } from "../src/faceframe.js";
 import { loadCsg } from "../src/solid/csg.js";
 import { radialSample } from "../src/geom/annulus.js";
-import { insetEllipse, insetFillet, OPENING_GENERATORS } from "../src/solid/shell.js";
+import { insetEllipse, insetFillet, OPENING_GENERATORS, rimClearance } from "../src/solid/shell.js";
 import { compile } from "../src/compile.js";
 import { clearPipelineCache } from "../src/pipeline.js";
 import { assertMeshInvariants } from "../src/mesh.js";
@@ -227,6 +227,38 @@ describe("why an ellipse face stays closed", () => {
       note.message,
       "16 of 120 faces stay closed: 12 too thin for an opening, " +
         "4 with no room for one inside their rounded edges",
+    );
+  });
+});
+
+describe("an ellipse as it is built", () => {
+  it("is not built from samples that cut across it", () => {
+    // An ellipse 5 mm by 0.5 mm, sampled only towards the ends of its long
+    // axis, as on a sliver whose long edges have points at their ends
+    // alone. Every sample is far out; the segments joining them pass the
+    // centre at a third of the ellipse's half-width.
+    const e = { l11: 1, l21: 0, l22: 0.1, k: 2.5 };
+    assert.ok(Math.abs(ellipseMinorAxis(e, 1) - 0.5) < 1e-12);
+    const ang = [2, 178, 182, 358].map((deg) => (deg * Math.PI) / 180);
+    const rad = radialSample(ellipsePolyline(e, 1, 256), ang);
+    assert.ok(Math.min(...rad) > 2, `nearest sample ${Math.min(...rad)}`);
+    assert.ok(2 * rimClearance(rad, ang) < 0.2, `built ${2 * rimClearance(rad, ang)} across`);
+
+    // On a shape at a coarse mesh setting: thirteen ellipses 0.25 to
+    // 0.95 mm wide were built under 0.2 mm across. One takes the bare
+    // inset; for twelve that reaches past the outline Smooth leaves them,
+    // and they stay closed, counted with that cause.
+    const r = compile({
+      base: "octahedron", seed: 2953, jitter: 20, jitterMode: "both", truncate: 15, subdiv: 1,
+      soften: 20, roundingMm: 1.5, wallMm: 1.4, wallMode: "scaled", borderFraction: 0.6,
+      filletMm: 4.5, edgeDiv: 4, openingStyle: "ellipse",
+    });
+    assert.equal(r.validation.ok, true);
+    const note = r.validation.warnings.find((w) => /stay closed/.test(w.message));
+    assert.equal(
+      note.message,
+      "45 of 192 faces stay closed: 16 too thin for an opening, " +
+        "29 with no room for one inside their rounded edges",
     );
   });
 });
