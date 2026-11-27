@@ -238,17 +238,20 @@ export function compile(partial = {}) {
     }
     if (solid.info.unfitFaces > 0) {
       const n = solid.info.unfitFaces;
-      // The count covers outlines on the outer surface too, and a solid
-      // shape has no inside and no wall to thin. Smooth alone can do it.
-      const hollow = state.depth === "hollow";
-      const rounded = state.roundingMm > 0;
+      // What helps depends on the wall. Under Even walls most of these
+      // are inner faces too small for their rounding, and a thinner wall
+      // leaves them larger. A Scaled inner surface is a copy of the outer
+      // one, and a solid shape has none: there the outline itself is at
+      // fault, which only the rounding (Smooth alone can do it) changes.
+      const evenWall = state.depth === "hollow" && state.wallMode === "even";
+      const less = state.roundingMm > 0 ? "less rounding" : "less Smooth";
       validation.warnings.push({
         stage: "solid",
-        key: hollow ? "wallMm" : rounded ? "roundingMm" : "soften",
+        key: evenWall ? "wallMm" : state.roundingMm > 0 ? "roundingMm" : "soften",
         message:
           `${n} of ${skeleton.faces.length} faces could not be fitted and may pass ` +
-          `through their neighbours; ${hollow ? "a thinner wall or " : ""}` +
-          `${rounded ? "less rounding" : "less Smooth"} helps`,
+          `through their neighbours; ` +
+          (evenWall ? `a thinner wall usually helps, ${less} sometimes` : `${less} can help`),
       });
     }
     if (solid.info.looseDropped > 0) {

@@ -550,7 +550,9 @@ export function buildShell(skeleton, opts) {
     if (stage2 && !fansFrom(Array.from(B2x, (x, k) => [x, B2y[k]]), FRAME_ORIGIN, turn)) {
       return { B2x, B2y, ang, turn, closed: true };
     }
-    if (!through && 2 * (1 - frac) * frame.edgeDistMin < OPENING_MIN_MM) {
+    // Through sides too: the cutter's own check further down samples the
+    // opening at a few angles and can read a narrow one a few percent wide.
+    if (2 * (1 - frac) * frame.edgeDistMin < OPENING_MIN_MM) {
       return { B2x, B2y, ang, turn, closed: true };
     }
 
@@ -578,7 +580,7 @@ export function buildShell(skeleton, opts) {
     );
     // The floor above measures the inset polygon. An opening that says it
     // is narrower than that (an ellipse on a long face) is held to it too.
-    if (!through && minWidth < OPENING_MIN_MM) return { B2x, B2y, ang, turn, closed: true };
+    if (minWidth < OPENING_MIN_MM) return { B2x, B2y, ang, turn, closed: true };
 
     // Sample the opening along the same rays as the boundary points: both
     // rings are convex and contain the centroid, so the rays are in strict

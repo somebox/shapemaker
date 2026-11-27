@@ -358,7 +358,9 @@ A face with no room for its opening stays closed, reported as a warning
 with the count. That is a face whose opening would be under 0.2 mm across
 (twice the centroid's distance to its nearest edge, scaled by 1 − border;
 for an ellipse also its own minor axis, which can be shorter).
-Through has the same 0.2 mm floor, measured on the opening it cuts.
+Through sides are held to the same measure, and also to the opening they
+cut, sampled at a few angles (which alone can read a narrow opening a few
+percent wide).
 Nothing that narrow prints, and the two walls of a slot microns wide, each
 leaning its own way under Even walls, cross. With Rounding or Smooth it is
 also a face whose centroid cannot see all of its outline: the strips have
@@ -545,9 +547,13 @@ an inner opening neither layout holds, a closed face no point can be
 fanned from (a needle face's inner outline can keep a spur a few microns
 long at its tip). They are built as they are and counted, and a warning
 gives the count and says they may pass through their neighbours. The count
-covers both surfaces. On a solid shape, which has no inner surface and no
-wall to thin, the warning belongs to Rounding (to Smooth, with Rounding
-off).
+covers both surfaces, and the advice depends on the wall. Under Even walls
+most of these are inner faces too small for their rounding, and a thinner
+wall usually helps: in a sweep, halving the wall lowered the count on 42
+of 51 such shapes, and halving Rounding on 17 of 47. A Scaled inner
+surface is a copy of the outer one, and a solid shape has none: there the
+outline itself is at fault, the wall changes nothing (0 of 7), and the
+warning belongs to Rounding (to Smooth, with Rounding off).
 
 A corner cap is a fan of rings swept from the cap's loop toward an apex
 along directions out of the corner sphere's centre X, so the apex must lie

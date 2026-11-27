@@ -4,6 +4,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { inscribedMomentEllipse, ellipseMinorAxis, ellipsePolyline } from "../src/geom/ellipse.js";
 import { faceFrames, projectToFrame } from "../src/faceframe.js";
+import { loadCsg } from "../src/solid/csg.js";
 import { radialSample } from "../src/geom/annulus.js";
 import { insetEllipse, insetFillet, OPENING_GENERATORS } from "../src/solid/shell.js";
 import { compile } from "../src/compile.js";
@@ -163,31 +164,39 @@ describe("ellipse width and the opening floor", () => {
     assert.equal(insetFillet.generate(quad, 0.3, 0).minWidth, undefined);
   });
 
-  it("keeps a face closed when its ellipse is under 0.2 mm across", () => {
+  it("keeps a face closed when its ellipse is under 0.2 mm across", async () => {
     // The floor was measured on the inset polygon alone. On two long faces
     // of this shape the polygon passes it and the ellipse inside does not.
-    const state = {
-      base: "rhombictriaconta", seed: 4840, jitter: 8, jitterMode: "radial", truncate: 15,
-      points: 12, wallMm: 1.4, wallMode: "scaled", borderFraction: 0.2, edgeDiv: 4,
-      openingStyle: "ellipse",
-    };
-    const r = compile(state);
-    assert.equal(r.validation.ok, true);
-    const frames = faceFrames(r.skeleton);
-    const P = r.skeleton.positions;
-    const narrow = [], byEllipseOnly = [];
-    r.skeleton.faces.forEach((ring, fi) => {
-      const flat = ring.flatMap((v) => projectToFrame(frames[fi], P[v * 3], P[v * 3 + 1], P[v * 3 + 2]));
-      const polygon = 2 * (1 - state.borderFraction) * frames[fi].edgeDistMin;
-      const ellipse = insetEllipse.generate(flat, state.borderFraction, 0).minWidth;
-      if (polygon < 0.2 || ellipse < 0.2) narrow.push(fi);
-      if (polygon >= 0.2 && ellipse < 0.2) byEllipseOnly.push(fi);
-    });
-    assert.equal(byEllipseOnly.length, 2);
-    const closed = r.metrics.faceMetrics
-      .filter((f) => f.openingMinDiameterMm === 0).map((f) => f.faceIndex);
-    assert.deepEqual(closed, narrow);
-    assert.ok(r.validation.warnings.some((w) => w.message.startsWith(`${narrow.length} of `)));
+    // Through sides measured the cutter at a few angles instead, and at
+    // this mesh density read one of the two (0.196 mm wide) as 0.202 mm.
+    await loadCsg();
+    for (const openingAxis of ["center", "through"]) {
+      const state = {
+        base: "rhombictriaconta", seed: 4840, jitter: 8, jitterMode: "radial", truncate: 15,
+        points: 12, wallMm: 1.4, wallMode: "scaled", borderFraction: 0.2, edgeDiv: 4,
+        openingStyle: "ellipse", openingAxis,
+      };
+      const r = compile(state);
+      assert.equal(r.validation.ok, true, r.validation.errors[0]?.message);
+      const frames = faceFrames(r.skeleton);
+      const P = r.skeleton.positions;
+      const narrow = [], byEllipseOnly = [];
+      r.skeleton.faces.forEach((ring, fi) => {
+        const flat = ring.flatMap((v) => projectToFrame(frames[fi], P[v * 3], P[v * 3 + 1], P[v * 3 + 2]));
+        const polygon = 2 * (1 - state.borderFraction) * frames[fi].edgeDistMin;
+        const ellipse = insetEllipse.generate(flat, state.borderFraction, 0).minWidth;
+        if (polygon < 0.2 || ellipse < 0.2) narrow.push(fi);
+        if (polygon >= 0.2 && ellipse < 0.2) byEllipseOnly.push(fi);
+      });
+      assert.equal(byEllipseOnly.length, 2);
+      const closed = r.metrics.faceMetrics
+        .filter((f) => f.openingMinDiameterMm === 0).map((f) => f.faceIndex);
+      assert.deepEqual(closed, narrow, openingAxis);
+      assert.ok(
+        r.validation.warnings.some((w) => w.message.startsWith(`${narrow.length} of `)),
+        openingAxis,
+      );
+    }
   });
 });
 

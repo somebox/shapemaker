@@ -78,15 +78,16 @@ onward every release gets a full entry here, and breaking changes to the
   - Edges that meet at a bend of more than 5° no longer share one rounding
     width as if they were one straight run.
 - **A warning says when a face could not be fitted**, with the count.
-  Those faces are built as they are and may pass through their neighbours;
-  a thinner wall or less rounding helps (on a solid shape, less rounding).
-  Before, nothing said so.
+  Those faces are built as they are and may pass through their neighbours.
+  Under Even walls a thinner wall usually helps; under Scaled walls and on
+  solid shapes only less rounding can. Before, nothing said so.
 - The smallest-opening figure no longer reads 0 mm because one face stays
   closed, and the border and fillet ranges leave closed faces out. A shape
   whose faces all stay closed gets no thin-border warning.
 - **Faces with no room for an opening stay closed**, with a warning that
-  counts them: openings under 0.2 mm across (Through already did this; an
-  ellipse is measured across its own narrowest), and
+  counts them: openings under 0.2 mm across under every Sides setting
+  (Through had its own, looser measure; an ellipse is measured across its
+  own narrowest), and
   with Rounding or Smooth, faces whose outline the rounding moves off their
   centre, dents so that the centre no longer sees all of it, or moves in
   past their opening. Their walls crossed before.

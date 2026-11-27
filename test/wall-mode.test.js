@@ -368,7 +368,24 @@ describe("wallMode", () => {
     assert.ok(note, "warns about the faces");
     assert.equal(note.key, "wallMm");
     assert.match(note.message, new RegExp(`^\\d+ of ${r.skeleton.faces.length} faces`));
+    assert.match(note.message, /a thinner wall usually helps/);
     assert.ok(!compile({ roundingMm: 1.5, wallMode: "even" }).validation.warnings.some(fitted));
+  });
+
+  it("does not advise a thinner wall under Scaled walls", () => {
+    // A Scaled inner surface is a copy of the outer one: the outlines are
+    // at fault, and the wall does not change them.
+    const state = {
+      base: "octahedron", seed: 2419, jitter: 8, jitterMode: "surface", truncate: 40,
+      subdiv: 1, soften: 80, roundingMm: 0.5, openings: false, wallMm: 2.4, wallMode: "scaled",
+    };
+    const fitted = (r) => r.validation.warnings.find((w) => /could not be fitted/.test(w.message));
+    const note = fitted(compile(state));
+    assert.ok(note, "warns about the faces");
+    assert.equal(note.key, "roundingMm");
+    assert.doesNotMatch(note.message, /wall/);
+    assert.match(note.message, /^19 of 192 faces/);
+    assert.match(fitted(compile({ ...state, wallMm: 1.2 })).message, /^19 of 192 faces/);
   });
 
   it("points a solid shape's unfitted faces at Rounding, not at the wall", () => {
