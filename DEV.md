@@ -5,7 +5,7 @@ behavior: [`docs/SPEC.md`](docs/SPEC.md).
 
 ## Requirements
 
-- **Node.js** 20+ (`node --test`, headless STL export; CI covers 20/22/24)
+- **Node.js** 20.10+ (`node --test --test-concurrency`, headless STL export; CI covers 20/22/24)
 - **Python 3.10+** for the prototype (fixture generation and mesh acceptance)
 - A local HTTP server (ES modules do not load from `file://`)
 
@@ -42,9 +42,21 @@ python3 scripts/dev-server.py 8000
 | Unit + parity | `npm test` | No |
 | Acceptance | `bash scripts/acceptance.sh` | Yes (`.venv`) |
 
+`npm test` runs four test files at a time, so a run leaves the rest of the
+machine free: about 9 s on a 30-core Mac, with 35 s of processor time.
+`TEST_JOBS` sets another number:
+
+```bash
+TEST_JOBS=8 npm test   # faster: about 6 s
+TEST_JOBS=2 npm test   # lighter: about 13 s
+TEST_JOBS=1 npm test   # one file at a time: about 23 s
+node --test test/*.test.js   # Node's own default, one file per core: about 5 s
+```
+
 Acceptance exports STLs through the same `compile()` the browser uses, then
 requires each to be watertight, winding-consistent, degeneracy-free,
 positive-volume, and free of self-intersections (see `prototype/README.md`).
+It runs one export and one check at a time: about 2.5 minutes on one core.
 
 `hollow_closed.stl` is expected to report **two bodies**: a hollow closed shell
 is one material volume bounded by two disconnected watertight surfaces.
@@ -170,7 +182,7 @@ src/
   viewer.js         only module that imports Three.js
 prototype/          Python reference (meshcheck, original generator)
 test/               node --test + fixtures; mini-dom.js runs the real panel
-scripts/            shapemaker.mjs (CLI), export-stl.mjs, acceptance.sh, build-examples.mjs (+ lib/)
+scripts/            shapemaker.mjs (CLI), export-stl.mjs, acceptance.sh, build-examples.mjs, test.mjs (npm test) (+ lib/)
 docs/               spec, roadmap, production design, examples/, research/
 ```
 
