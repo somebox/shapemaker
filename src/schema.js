@@ -392,8 +392,8 @@ export const CONTROL_DEFS = [
     label: "Split",
     type: "segments",
     options: [
-      { value: "radial", label: "Radial", title: "Fan each face from its centre into triangles" },
-      { value: "grid", label: "Grid", title: "Cut each face into corner quads" },
+      { value: "radial", label: "Radial", title: "Fan polygons from the centre into triangles (triangles split in four)" },
+      { value: "grid", label: "Grid", title: "Cut polygons into corner quads (triangles split in four)" },
     ],
     inertWhen: (s) => !(s.subdiv > 0),
   },

@@ -239,8 +239,8 @@ describe("panel controls", () => {
     const dualOn = panelEl.querySelector('[data-seg-key="dual"][data-seg-value="true"]');
     assert.match(describedBy(dualOn), /cube becomes an octahedron/);
     const grid = panelEl.querySelector('[data-seg-key="subdivStyle"][data-seg-value="grid"]');
-    assert.equal(grid.title, "Cut each face into corner quads");
-    assert.equal(describedBy(grid), "Grid: Cut each face into corner quads");
+    assert.equal(grid.title, "Cut polygons into corner quads (triangles split in four)");
+    assert.equal(describedBy(grid), "Grid: Cut polygons into corner quads (triangles split in four)");
     const split = panelEl.querySelector('.control[data-key="subdivStyle"]');
     assert.ok(split.querySelector(".control-help-toggle"), "Split has a ? button too");
   });

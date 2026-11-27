@@ -47,8 +47,9 @@ onward every release gets a full entry here, and breaking changes to the
 - Smooth on a dense globe no longer freezes the app. Even inner walls tried
   every set of three planes at each corner, and Smooth can gather a pole
   into one corner of hundreds of planes: a Globe at density 36 with
-  Subdivide Once and Smooth 30 ran for minutes. Such corners now fit in
-  linear time, and that design builds in under a second. Ordinary corners
+  Subdivide Once and Smooth 30 ran for minutes. Such corners now fit in a
+  few steps, each linear in the planes, and that design builds in under a
+  second. Ordinary corners
   are fitted exactly as before.
 - **Rounding (`roundingMm`) uses full physical radii and accurate slider
   ceilings**: fixed the ball-radius vs. tangency-width clamp (~3× wider fillets

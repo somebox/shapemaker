@@ -172,7 +172,11 @@ export const ENUMERATE_MAX_PLANES = 10;
  * the optimum sits on at most three active planes. Up to
  * {@link ENUMERATE_MAX_PLANES} planes, each candidate active set is solved
  * exactly and the best feasible one wins; above it, an active-set descent
- * finds the same optimum in time linear in the planes ({@link fitMany}).
+ * ({@link fitMany}) finds the same optimum, to rounding, in a few steps
+ * each linear in the planes: about 4 on average and at most 25 on dense
+ * smoothed globes, 3 on a corner of 3,000 planes. Every step stays
+ * feasible, and the run stops after 8k + 50 steps (never reached in
+ * testing), so at worst a fit is slightly thick, never too thin.
  * @param {number[][]} normals  inward unit normals
  * @param {{ enumerateMax?: number }} [opts]  tests compare the two methods
  * @returns {number[]}
