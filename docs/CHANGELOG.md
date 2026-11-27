@@ -33,7 +33,9 @@ onward every release gets a full entry here, and breaking changes to the
   (Radial or Grid). Smooth stays in Shape. Saved designs and links are
   unaffected.
 - **Dual says what it does**: "faces ↔ corners" beside its label, and
-  examples on hover.
+  examples behind a **?** button that keyboard and touch reach (and on
+  hover). Split's ? describes Radial and Grid. Screen readers hear the same
+  text as each button's description.
 - **Smooth is about 5× faster** on dense meshes, with identical results.
 - **Smooth (`soften`) is polygonal subdivision fairing and works directly on
   every shape**: dragging Smooth when Subdivide is None auto-refines the mesh,

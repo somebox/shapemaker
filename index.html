@@ -640,18 +640,46 @@
     }
     .control-head {
       display: flex;
-      align-items: baseline;
-      justify-content: space-between;
+      align-items: center;
       gap: 6px;
       min-width: 0;
     }
+    /* The label keeps the left; caption and ? sit at the right. */
+    .control-head > label { margin-right: auto; }
     .control-note {
+      min-width: 0;
       font-size: 0.7rem;
       color: var(--text-dim);
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
     }
+    .control-help-toggle {
+      appearance: none;
+      flex: none;
+      width: 1rem;
+      height: 1rem;
+      padding: 0;
+      border: 1px solid var(--line);
+      border-radius: 50%;
+      background: transparent;
+      color: var(--text-dim);
+      font: 600 0.6rem var(--font-mono);
+      line-height: 1;
+      cursor: pointer;
+    }
+    .control-help-toggle:hover,
+    .control-help-toggle[aria-expanded="true"] {
+      color: var(--accent);
+      border-color: var(--accent);
+    }
+    .control-help-toggle:focus-visible {
+      outline: 2px solid var(--focus);
+      outline-offset: 2px;
+    }
+    .control-help[hidden] { display: none; }
+    .control-help { display: grid; gap: 2px; margin-top: 2px; }
+    .control-help p { margin: 0; }
 
     #panel[data-locked="1"] .tab-body:not([data-tab="files"]) {
       opacity: 0.38;
@@ -1274,6 +1302,22 @@
       input[type="range"],
       .section-hud input[type="range"] { height: 44px; }
       button.value-readout { min-height: 44px; margin-block: -10px; }
+      /* A finger's reach, without making the label's line taller. */
+      .control-help-toggle {
+        width: 44px;
+        min-height: 44px;
+        margin-block: -14px;
+        border-color: transparent;
+        /* The same small ring, drawn inside the larger target. */
+        background: radial-gradient(circle, transparent calc(0.5rem - 1px),
+          var(--line) calc(0.5rem - 1px), var(--line) 0.5rem, transparent 0.5rem);
+      }
+      .control-help-toggle:hover,
+      .control-help-toggle[aria-expanded="true"] {
+        border-color: transparent;
+        background: radial-gradient(circle, transparent calc(0.5rem - 1px),
+          var(--accent) calc(0.5rem - 1px), var(--accent) 0.5rem, transparent 0.5rem);
+      }
       button.value-readout:hover { background: transparent; border-color: transparent; }
       .control-row input[type="number"] { min-height: 44px; }
       .panel-tab { min-height: 52px; }

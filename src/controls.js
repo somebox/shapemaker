@@ -306,10 +306,30 @@ export function buildControl(def, inputs, ranges, errNodes, limitLabels) {
   if (def.type === "segments") {
     const row = el("div", { className: "control-row control-row--seg" });
     const label = el("label", { textContent: def.label });
-    if (def.note) {
+    // Help and option descriptions also sit behind a ? button, which keyboard
+    // and touch reach, and describe the buttons to a screen reader.
+    const helpId = `help-${def.key}`;
+    const described = (def.options || []).filter((o) => o.title);
+    const hasHelp = !!def.help || described.length > 0;
+    /** @type {HTMLElement|null} */
+    let help = null;
+    if (def.note || hasHelp) {
       // A short caption on the label's line, so it costs no extra row.
       const head = el("div", { className: "control-head" });
-      head.append(label, el("span", { className: "control-note", textContent: def.note }));
+      head.append(label);
+      if (def.note) head.append(el("span", { className: "control-note", textContent: def.note }));
+      if (hasHelp) {
+        const toggle = el("button", { type: "button", className: "control-help-toggle", textContent: "?" });
+        toggle.setAttribute("aria-label", `About ${def.label}`);
+        toggle.setAttribute("aria-expanded", "false");
+        toggle.setAttribute("aria-controls", helpId);
+        toggle.addEventListener("click", () => {
+          if (!help) return;
+          help.hidden = !help.hidden;
+          toggle.setAttribute("aria-expanded", String(!help.hidden));
+        });
+        head.append(toggle);
+      }
       row.appendChild(head);
     } else {
       row.appendChild(label);
@@ -323,6 +343,11 @@ export function buildControl(def, inputs, ranges, errNodes, limitLabels) {
         textContent: opt.label,
       });
       if (opt.title) btn.title = opt.title;
+      // A hidden element still describes a button that names it directly.
+      const ids = [];
+      if (def.help) ids.push(`${helpId}-text`);
+      if (opt.title) ids.push(`${helpId}-${opt.value}`);
+      if (ids.length) btn.setAttribute("aria-describedby", ids.join(" "));
       btn.setAttribute("data-seg-key", def.key);
       btn.setAttribute("data-seg-value", opt.value);
       btn.setAttribute("aria-pressed", "false");
@@ -334,6 +359,14 @@ export function buildControl(def, inputs, ranges, errNodes, limitLabels) {
       segs.appendChild(tag);
     }
     row.appendChild(segs);
+    if (hasHelp) {
+      help = el("div", { className: "control-help hint", id: helpId, hidden: true });
+      if (def.help) help.append(el("p", { id: `${helpId}-text`, textContent: def.help }));
+      for (const opt of described) {
+        help.append(el("p", { id: `${helpId}-${opt.value}`, textContent: `${opt.label}: ${opt.title}` }));
+      }
+      root.appendChild(help);
+    }
   } else if (def.type === "seed") {
     const row = el("div", { className: "control-row control-row--seed" });
     const lab = el("label", { textContent: def.label });

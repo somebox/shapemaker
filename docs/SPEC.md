@@ -679,7 +679,10 @@ captioned with its current value so the design reads at a glance:
 
 - **Shape:** base (start chooser, including named star presets), random
   density/seed, jitter, dual, truncate, spike, smooth, uniform scale. Dual
-  carries a short caption (faces ↔ corners).
+  carries a short caption (faces ↔ corners). A choice with help (Dual,
+  Split) has a ? button beside its label that shows it, for keyboard and
+  touch; the text also describes each button (`aria-describedby`) and
+  shows on hover.
 - **Openings:** open or closed faces, outline, border, fillet, and
   subdivide with its split (Radial or Grid), which mostly set how many
   openings there are. Subdivide stays live with closed faces.

@@ -199,6 +199,36 @@ describe("panel controls", () => {
     assert.match(dual.title, /cube becomes an octahedron/);
   });
 
+  it("open help from a ? button that keyboard and touch reach", () => {
+    const { panelEl } = mount();
+    const dual = panelEl.querySelector('.control[data-key="dual"]');
+    const toggle = dual.querySelector(".control-help-toggle");
+    const help = panelEl.querySelector(`#${toggle.getAttribute("aria-controls")}`);
+    assert.equal(toggle.tagName, "BUTTON");
+    assert.equal(toggle.getAttribute("aria-label"), "About Dual");
+    assert.equal(help.hidden, true);
+    toggle.click();
+    assert.equal(help.hidden, false);
+    assert.equal(toggle.getAttribute("aria-expanded"), "true");
+    assert.match(help.textContent, /cube becomes an octahedron/);
+    toggle.click();
+    assert.equal(help.hidden, true);
+    assert.equal(toggle.getAttribute("aria-expanded"), "false");
+  });
+
+  it("describe each choice to its button, keeping the hover titles", () => {
+    const { panelEl } = mount();
+    const text = (id) => panelEl.querySelector(`#${id}`).textContent;
+    const describedBy = (btn) => btn.getAttribute("aria-describedby").split(" ").map(text).join(" | ");
+    const dualOn = panelEl.querySelector('[data-seg-key="dual"][data-seg-value="true"]');
+    assert.match(describedBy(dualOn), /cube becomes an octahedron/);
+    const grid = panelEl.querySelector('[data-seg-key="subdivStyle"][data-seg-value="grid"]');
+    assert.equal(grid.title, "Cut each face into corner quads");
+    assert.equal(describedBy(grid), "Grid: Cut each face into corner quads");
+    const split = panelEl.querySelector('.control[data-key="subdivStyle"]');
+    assert.ok(split.querySelector(".control-help-toggle"), "Split has a ? button too");
+  });
+
   it("send a segment click as a patch", () => {
     const patches = [];
     const { panelEl } = mount({ on: { onPatch: (p, o) => patches.push([p, o]) } });
