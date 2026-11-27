@@ -636,8 +636,11 @@
     .control { display: flex; flex-direction: column; gap: 2px; }
     .control[data-hidden="1"] { display: none; }
     .control[data-inert="1"] { pointer-events: none; }
-    /* Dim the field but not its help, and keep the ? that opens it live. */
-    .control[data-inert="1"] > :not(.control-help) { opacity: 0.38; }
+    /* Dim the label and choices, not the ? (still live) or its help, so both
+       keep full contrast. */
+    .control[data-inert="1"] > :not(.control-row--seg):not(.control-help),
+    .control[data-inert="1"] .control-row--seg > :not(.control-head),
+    .control[data-inert="1"] .control-head > :not(.control-help-toggle) { opacity: 0.38; }
     .control[data-inert="1"] .control-help-toggle { pointer-events: auto; }
     .control-head {
       display: flex;
