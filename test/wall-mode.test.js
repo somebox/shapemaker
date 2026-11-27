@@ -127,6 +127,24 @@ describe("fitCorner", () => {
     assert.ok(N.some((a) => Math.abs(dot(a, d) - 1) < 1e-9), "at least one plane sits at the wall");
   });
 
+  it("finds the same fit when planes repeat", () => {
+    // A repeated plane once looked like it blocked a step by rounding; the
+    // working set then held both copies, went singular, and the descent
+    // stopped up to twice as thick as it needed (found in review).
+    let seed = 77;
+    const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32);
+    const cost = (N, d) => N.reduce((s, a) => s + (dot(a, d) - 1) ** 2, 0);
+    for (let trial = 0; trial < 300; trial++) {
+      const base = Array.from({ length: 4 + Math.floor(rnd() * 4) }, () =>
+        unit([(rnd() - 0.5) * 1.5, (rnd() - 0.5) * 1.5, -1]));
+      const N = [...base, ...base, ...base.slice(0, 2)];
+      const exact = fitCorner(N, { enumerateMax: Infinity });
+      const fast = fitCorner(N, { enumerateMax: 0 });
+      for (const a of N) assert.ok(dot(a, fast) >= 1 - 1e-9, `trial ${trial}: a plane is inside the wall`);
+      assert.ok(cost(N, fast) <= cost(N, exact) * (1 + 1e-9) + 1e-12, `trial ${trial}: descent is thicker`);
+    }
+  });
+
   it("fits a crease of hundreds of planes quickly, moving none along it", () => {
     // Every normal is perpendicular to y, so the plain fit is singular.
     // This used to fall back to trying 4.5 million active sets (found in

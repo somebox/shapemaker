@@ -425,11 +425,28 @@ function descend(normals, H, g, free) {
       W.splice(worst, 1);
       continue;
     }
+    // A plane whose normal lies in the span of W's (a duplicate, say)
+    // keeps its distance along any step that holds W, so it never blocks;
+    // rounding can make it look as if it does, and adding it would leave W
+    // singular and stop the descent short.
+    const cross = (a, b) =>
+      [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+    const spanNormal = W.length === 2 ? cross(normals[W[0]], normals[W[1]]) : null;
+    const inSpan = (c) => {
+      if (W.length >= 3) return true;
+      const cc = dot(c, c);
+      if (W.length === 1) {
+        const w = normals[W[0]], x = cross(w, c);
+        return dot(x, x) <= 1e-18 * dot(w, w) * cc;
+      }
+      const s = dot(spanNormal, c);
+      return s * s <= 1e-18 * dot(spanNormal, spanNormal) * cc;
+    };
     let alpha = 1, block = -1;
     for (let i = 0; i < k; i++) {
       if (W.includes(i)) continue;
       const ap = dot(normals[i], p);
-      if (ap >= -1e-15 * pn) continue;
+      if (ap >= -1e-15 * pn || inSpan(normals[i])) continue;
       const t = Math.max(0, (1 - dot(normals[i], d)) / ap);
       if (t < alpha) { alpha = t; block = i; }
     }
