@@ -233,12 +233,17 @@ export function compile(partial = {}) {
     }
     if (solid.info.unfitFaces > 0) {
       const n = solid.info.unfitFaces;
+      // The count covers outlines on the outer surface too, and a solid
+      // shape has no inside and no wall to thin. Smooth alone can do it.
+      const hollow = state.depth === "hollow";
+      const rounded = state.roundingMm > 0;
       validation.warnings.push({
         stage: "solid",
-        key: "wallMm",
+        key: hollow ? "wallMm" : rounded ? "roundingMm" : "soften",
         message:
-          `${n} of ${skeleton.faces.length} faces could not be fitted on the inside ` +
-          `and may pass through their neighbours; a thinner wall or less rounding helps`,
+          `${n} of ${skeleton.faces.length} faces could not be fitted and may pass ` +
+          `through their neighbours; ${hollow ? "a thinner wall or " : ""}` +
+          `${rounded ? "less rounding" : "less Smooth"} helps`,
       });
     }
     if (solid.info.looseDropped > 0) {

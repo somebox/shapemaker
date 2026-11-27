@@ -23,6 +23,22 @@ import { edgeList } from "../skeleton.js";
  * @returns {Float64Array} xyz per skeleton vertex
  */
 export function cornerOffsets(skeleton, frames, asOne = []) {
+  return fitOffsets(skeleton, frames, asOne).dHat;
+}
+
+/** Share of the wall a corner cluster must keep from every plane it touches. */
+const RIGID_WALL_KEPT = 0.999;
+
+/**
+ * {@link cornerOffsets}, and the `asOne` faces that have no single move: a
+ * sliver that runs from one face to another facing it (a strip planed off
+ * the whole length of an edge) is asked for opposite moves by its two ends,
+ * and the nearest fit leaves no wall at them.
+ * @param {Float64Array} [plain]  the offsets without `asOne`, if at hand:
+ *   corners no as-one face reaches keep them, and are not fitted again
+ * @returns {{ dHat: Float64Array, misfits: number[] }}
+ */
+function fitOffsets(skeleton, frames, asOne, plain = null) {
   const P = skeleton.positions;
   const n = P.length / 3;
   // Corners joined by a very short edge (Distort's vertex splits, the tiny
@@ -59,16 +75,28 @@ export function cornerOffsets(skeleton, frames, asOne = []) {
     }
   }
   const out = new Float64Array(n * 3);
+  /** Clusters an as-one face is part of. */
+  const merged = new Set(asOne.map((f) => find(skeleton.faces[f][0])));
+  /** Those of them some plane ends up closer to than the wall. */
+  const short = new Set();
   for (const [v, list] of inward) {
+    if (plain && !merged.has(v)) {
+      // Same corners and planes as without the as-one faces: same fit.
+      out[v * 3] = plain[v * 3]; out[v * 3 + 1] = plain[v * 3 + 1]; out[v * 3 + 2] = plain[v * 3 + 2];
+      continue;
+    }
     const d = fitCorner(list);
     out[v * 3] = d[0]; out[v * 3 + 1] = d[1]; out[v * 3 + 2] = d[2];
+    if (merged.has(v) &&
+      list.some((a) => a[0] * d[0] + a[1] * d[1] + a[2] * d[2] < RIGID_WALL_KEPT)) short.add(v);
   }
   for (let v = 0; v < n; v++) {
     const r = find(v);
     if (r === v) continue;
     out[v * 3] = out[r * 3]; out[v * 3 + 1] = out[r * 3 + 1]; out[v * 3 + 2] = out[r * 3 + 2];
   }
-  return out;
+  const misfits = asOne.filter((f) => short.has(find(skeleton.faces[f][0])));
+  return { dHat: out, misfits };
 }
 
 /** A face must keep this share of its width on the inner surface. */
@@ -83,22 +111,51 @@ const FACE_WIDTH_KEPT = 0.1;
  * the wall would leave a narrow face less than a tenth of its width, the
  * face's corners move as one instead, as the ends of a very short edge do:
  * the inner face keeps its outer shape and the wall beside it is a little
- * thicker than asked.
+ * thicker than asked. A face with no such move (see {@link fitOffsets})
+ * keeps its corners' own moves, and {@link offsetFaceLimit} refuses the
+ * wall that turns it inside out.
  * @param {{ positions: Float64Array, faces: number[][] }} skeleton
  * @param {{ origin: number[], u: number[], w: number[], normal: number[], edgeDist: number[] }[]} frames
  * @param {number} wallMm
  * @param {Float64Array} [plain]  `cornerOffsets(skeleton, frames)`, if at hand
+ * @param {Map<string, object>} [fits]  fits already made for this skeleton,
+ *   kept between calls that try many walls (see {@link evenWallCeiling})
  * @returns {Float64Array} xyz per skeleton vertex; `plain` itself when no
  *   face needs it
  */
-export function cornerOffsetsForWall(skeleton, frames, wallMm, plain = cornerOffsets(skeleton, frames)) {
+export function cornerOffsetsForWall(
+  skeleton, frames, wallMm, plain = cornerOffsets(skeleton, frames), fits = null,
+) {
+  // The same faces move as one over a range of walls: fit each set once.
+  const fitFor = (faces) => {
+    if (!fits) return fitOffsets(skeleton, frames, faces, plain);
+    const key = faces.join(",");
+    let fit = fits.get(key);
+    if (!fit) fits.set(key, (fit = fitOffsets(skeleton, frames, faces, plain)));
+    return fit;
+  };
   let dHat = plain;
   const asOne = [];
+  /** Thin faces with no single move; their corners keep their own. */
+  const loose = new Set();
   for (let pass = 0; pass < 4; pass++) {
-    const thin = thinnedFaces(skeleton, frames, dHat, wallMm).filter((f) => !asOne.includes(f));
+    const thin = thinnedFaces(skeleton, frames, dHat, wallMm)
+      .filter((f) => !asOne.includes(f) && !loose.has(f));
     if (thin.length === 0) break;
     asOne.push(...thin);
-    dHat = cornerOffsets(skeleton, frames, asOne);
+    for (;;) {
+      const fit = fitFor(asOne);
+      dHat = fit.dHat;
+      if (fit.misfits.length === 0) break;
+      for (const f of fit.misfits) {
+        loose.add(f);
+        asOne.splice(asOne.indexOf(f), 1);
+      }
+      if (asOne.length === 0) {
+        dHat = plain;
+        break;
+      }
+    }
   }
   return dHat;
 }
@@ -241,6 +298,116 @@ export function offsetFaceLimit(skeleton, frames, dHat, { skipNarrow = false } =
   }
   return { limit, face };
 }
+
+/**
+ * The offsets an Even-wall shell is built with at one wall, and whether
+ * that wall holds: no inner edge folds, before or after sliver faces move
+ * as one, and no face turns inside out.
+ * @param {{ positions: Float64Array, faces: number[][] }} skeleton
+ * @param {object[]} frames
+ * @param {number} wallMm
+ * @param {Float64Array} [plain]  `cornerOffsets(skeleton, frames)`, if at hand
+ * @param {{ fits: Map, edge: Map, flip: Map }} [seen]  what earlier calls
+ *   for this skeleton worked out (see {@link evenWallCeiling})
+ * @returns {{ ok: boolean, dHat: Float64Array, limit: number, cause: 'edge'|'face'|null, face: number }}
+ *   `limit` is the wall these offsets hold below; when the wall is refused,
+ *   `cause` says which limit refused it and `face` the face that flips
+ */
+export function evenWallFit(
+  skeleton, frames, wallMm, plain = cornerOffsets(skeleton, frames), seen = null,
+) {
+  const kept = (map, d, make) => {
+    if (!map) return make();
+    if (!map.has(d)) map.set(d, make());
+    return map.get(d);
+  };
+  const edgeOf = (d) => kept(seen?.edge, d, () => offsetWallLimit(skeleton, d));
+  let limit = edgeOf(plain);
+  if (wallMm >= limit) return { ok: false, dHat: plain, limit, cause: "edge", face: -1 };
+  // Sliver faces this wall would turn inside out move as one piece.
+  const dHat = cornerOffsetsForWall(skeleton, frames, wallMm, plain, seen?.fits);
+  if (dHat !== plain) {
+    limit = edgeOf(dHat);
+    if (wallMm >= limit) return { ok: false, dHat, limit, cause: "edge", face: -1 };
+  }
+  // A face that is not narrow can still turn inside out on the inner
+  // surface while its edges keep their direction. No rounding fits that.
+  const flip = kept(seen?.flip, dHat, () => offsetFaceLimit(skeleton, frames, dHat));
+  if (wallMm >= flip.limit) {
+    return { ok: false, dHat, limit: flip.limit, cause: "face", face: flip.face };
+  }
+  return { ok: true, dHat, limit: Math.min(limit, flip.limit), cause: null, face: -1 };
+}
+
+/**
+ * The thickest Even wall on offer: 90% of the wall at which the builder
+ * first refuses ({@link evenWallFit}). For most shapes that is the edge or
+ * face limit of the plain offsets. Where sliver faces move as one above
+ * some wall, the offsets, and so the limits, change with the wall, and the
+ * first refusal is searched for from below, a few more slivers at a time:
+ * far above it dozens of faces can move as one, and fitting those is slow.
+ * @param {{ positions: Float64Array, faces: number[][] }} skeleton
+ * @param {object[]} frames
+ * @param {Float64Array} [plain]  `cornerOffsets(skeleton, frames)`, if at hand
+ * @param {number} [under]  only walls below this one (a wall just refused)
+ * @returns {number} wall in mm
+ */
+export function evenWallCeiling(skeleton, frames, plain = cornerOffsets(skeleton, frames), under = Infinity) {
+  const edge = offsetWallLimit(skeleton, plain);
+  const flip = offsetFaceLimit(skeleton, frames, plain, { skipNarrow: true }).limit;
+  // A face that shrinks evenly reaches both limits at the same wall; the
+  // edge figure stands there.
+  const top = Math.min(under, flip < edge * (1 - 1e-9) ? flip : edge);
+  if (!Number.isFinite(top)) return top;
+  // The search tries many walls; most share their offsets and limits.
+  const seen = { fits: new Map(), edge: new Map([[plain, edge]]), flip: new Map() };
+  const holds = (w) => evenWallFit(skeleton, frames, w, plain, seen).ok;
+  /** Slivers the plain offsets leave thin at a wall: more as it grows. */
+  const thinAt = (w) => thinnedFaces(skeleton, frames, plain, w).length;
+  /** The thickest wall from `lo` to `hi` with at most `count` of them. */
+  const thickestWith = (count, lo, hi) => {
+    if (thinAt(hi) <= count) return hi;
+    for (let step = 0; step < 12; step++) {
+      const mid = 0.5 * (lo + hi);
+      if (thinAt(mid) <= count) lo = mid;
+      else hi = mid;
+    }
+    return lo;
+  };
+
+  let wall = 0.9 * top;
+  // Few or no slivers in play: one check settles it for most shapes.
+  if (thinAt(wall) <= CEILING_SLIVER_STEP && holds(wall)) return wall;
+  for (let round = 0; round < 4; round++) {
+    // Where no face is thin yet, the plain offsets and their limits stand.
+    let lo = Math.min(
+      thickestWith(0, 0, wall), 0.999 * edge,
+      0.999 * offsetFaceLimit(skeleton, frames, plain).limit,
+    );
+    let hi = wall;
+    for (let count = CEILING_SLIVER_STEP; lo < wall; count += CEILING_SLIVER_STEP) {
+      const w = thickestWith(count, lo, wall);
+      if (!(w > lo)) continue;
+      if (!holds(w)) {
+        hi = w;
+        break;
+      }
+      if (w === wall) return wall;
+      lo = w;
+    }
+    for (let step = 0; step < 10 && hi - lo > 1e-3 * hi; step++) {
+      const mid = 0.5 * (lo + hi);
+      if (holds(mid)) lo = mid;
+      else hi = mid;
+    }
+    wall = 0.9 * lo;
+    if (holds(wall)) return wall;
+  }
+  return wall;
+}
+
+/** How many more slivers each step of the wall search takes on. */
+const CEILING_SLIVER_STEP = 4;
 
 /** Smallest positive root of a·t² + b·t + c for c > 0, or Infinity. */
 function firstRoot(a, b, c) {

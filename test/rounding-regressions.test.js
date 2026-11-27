@@ -113,6 +113,11 @@ const CROSSING = [
   // kept its place from before the mitre.
   { base: "octahedron", wallMm: 4, roundingMm: 0.5, jitter: 8, jitterMode: "surface", borderFraction: 0.36, filletMm: 1.5, seed: 4760, subdiv: 1, soften: 20, wallModes: ["even"] },
   { base: "dodecahedron", wallMm: 1.4, roundingMm: 1.5, jitter: 20, jitterMode: "radial", truncate: 15, borderFraction: 0.2, filletMm: 4.5, seed: 4409, subdiv: 1, soften: 20, wallModes: ["even"] },
+  // Needle faces whose outline Smooth dents: the centroid lies inside the
+  // outline but an edge runs backwards seen from it, and the opening band,
+  // laid out along rays from the centroid, folded ("degenerate triangle").
+  // Those faces now stay closed.
+  { base: "cuboctahedron", wallMm: 1.4, roundingMm: 1.5, truncate: 15, borderFraction: 0.6, filletMm: 4.5, seed: 2600, edgeDiv: 4, subdiv: 1, openingAxis: "normal", soften: 50, wallModes: ["scaled"] },
 ];
 
 describe("Stage-2 rounding does not fold through itself", () => {

@@ -20,8 +20,7 @@ import {
 } from "../geom/annulus.js";
 import { edgeList, inradiusRange } from "../skeleton.js";
 import {
-  cornerOffsets, cornerOffsetsForWall, meanValueWeights, offsetFaceLimit, offsetWallLimit,
-  offsetWallRange,
+  cornerOffsets, evenWallCeiling, evenWallFit, meanValueWeights, offsetWallRange,
 } from "./offset.js";
 import { faceFrames } from "../faceframe.js";
 import { assertMeshInvariants, toMesh } from "../mesh.js";
@@ -253,38 +252,26 @@ export function buildShell(skeleton, opts) {
   const even = depth === "hollow" && wallMode === "even";
   let dHat = null;
   if (even) {
-    const checkWall = () => {
-      const limit = offsetWallLimit(skeleton, dHat);
-      if (wallMm >= limit) {
-        throw validationError(
-          "solid",
-          "wallMm",
-          `Wall ${wallMm} mm is too thick — inner edges fold over beyond ` +
-          `${limit.toFixed(2)} mm on this shape`,
-          { clampTo: limit * 0.9 },
-        );
-      }
-    };
-    dHat = cornerOffsets(skeleton, frames);
-    checkWall();
-    // Sliver faces this wall would turn inside out move as one piece.
-    const fitted = cornerOffsetsForWall(skeleton, frames, wallMm, dHat);
-    if (fitted !== dHat) {
-      dHat = fitted;
-      checkWall();
-    }
-    // A face that is not narrow can still turn inside out on the inner
-    // surface while its edges keep their direction. No rounding fits that.
-    const flip = offsetFaceLimit(skeleton, frames, dHat);
-    if (wallMm >= flip.limit) {
+    const plain = cornerOffsets(skeleton, frames);
+    const fit = evenWallFit(skeleton, frames, wallMm, plain);
+    if (!fit.ok) {
+      // Offer the wall the Wall slider stops at, which is built and checked
+      // with its own offsets: 90% of this limit can still be refused by
+      // the other one, or by the offsets that wall is built with.
+      const top = evenWallCeiling(skeleton, frames, plain);
+      const clampTo = top < wallMm ? top : evenWallCeiling(skeleton, frames, plain, wallMm);
       throw validationError(
         "solid",
         "wallMm",
-        `Wall ${wallMm} mm is too thick — a face turns inside out beyond ` +
-        `${flip.limit.toFixed(2)} mm on this shape`,
-        { clampTo: flip.limit * 0.9, faceIds: [flip.face] },
+        fit.cause === "face"
+          ? `Wall ${wallMm} mm is too thick — a face turns inside out beyond ` +
+            `${fit.limit.toFixed(2)} mm on this shape`
+          : `Wall ${wallMm} mm is too thick — inner edges fold over beyond ` +
+            `${fit.limit.toFixed(2)} mm on this shape`,
+        fit.cause === "face" ? { clampTo, faceIds: [fit.face] } : { clampTo },
       );
     }
+    dHat = fit.dHat;
   } else if (depth === "hollow" && wallMm >= inradius.min) {
     throw validationError(
       "solid",
@@ -542,8 +529,9 @@ export function buildShell(skeleton, opts) {
     // A face with no room for its opening stays closed. On a needle face
     // (Subdivide or Truncate on a distorted shape leaves triangles tens of
     // millimetres long and a fraction wide) the corner rounding can move
-    // the outline off the centroid the opening is laid out around; and an
-    // opening can be too narrow to be one.
+    // the outline off the centroid the opening is laid out around, or dent
+    // it so that the centroid no longer sees all of it; and an opening can
+    // be too narrow to be one.
     let area2 = 0;
     for (let k = 0; k < m; k++) {
       const k2 = (k + 1) % m;
@@ -551,7 +539,12 @@ export function buildShell(skeleton, opts) {
     }
     /** Which way the outer ring winds in the face frame. */
     const turn = area2 < 0 ? -1 : 1;
-    if (stage2 && !ringHolds(B2x, B2y, 0, 0)) return { B2x, B2y, ang, turn, closed: true };
+    // The opening and its band are laid out along rays from the centroid,
+    // so it must see every edge of the outline, not merely lie inside it:
+    // an edge that runs backwards seen from there folds the band.
+    if (stage2 && !fansFrom(Array.from(B2x, (x, k) => [x, B2y[k]]), FRAME_ORIGIN, turn)) {
+      return { B2x, B2y, ang, turn, closed: true };
+    }
     if (!through && 2 * (1 - frac) * frame.edgeDistMin < OPENING_MIN_MM) {
       return { B2x, B2y, ang, turn, closed: true };
     }
@@ -1442,6 +1435,9 @@ export function buildShell(skeleton, opts) {
   }
   const mesh = toMesh(positions, indices, triFaces);
   const inv = assertMeshInvariants(mesh);
+  // A face that stays closed keeps its own entry, but its border and fillet
+  // were not built: the ranges cover the faces that have an opening.
+  const opened = faceMetrics.filter((f) => f.openingMinDiameterMm > 0);
 
   return {
     mesh,
@@ -1451,8 +1447,8 @@ export function buildShell(skeleton, opts) {
       faceMetrics,
       // Aggregates across every face — meaningful on irregular hulls, where a
       // single representative value would be a lie.
-      borderMm: range(faceMetrics, (f) => [f.borderMinMm, f.borderMaxMm]),
-      filletMm: range(faceMetrics, (f) => [f.filletUsedMm, f.filletUsedMm]),
+      borderMm: range(opened, (f) => [f.borderMinMm, f.borderMaxMm]),
+      filletMm: range(opened, (f) => [f.filletUsedMm, f.filletUsedMm]),
       roundingMm: roundingActive && stage2
         ? {
             min: Math.min(
@@ -1542,13 +1538,18 @@ function scaleRange({ min, max }, k) {
  * @returns {number[]|null}
  */
 export function fanPoint(B, turn = 0) {
-  if (bandFaults(B, FRAME_ORIGIN, true, turn).length === 0) return FRAME_ORIGIN;
+  if (fansFrom(B, FRAME_ORIGIN, turn)) return FRAME_ORIGIN;
   let mx = 0, my = 0;
   for (let k = 0; k < B.length; k++) { mx += B[k][0]; my += B[k][1]; }
   const mean = [mx / B.length, my / B.length];
-  return bandFaults(B, mean, true, turn).length === 0 ? mean : null;
+  return fansFrom(B, mean, turn) ? mean : null;
 }
 const FRAME_ORIGIN = Object.freeze([0, 0]);
+
+/** Whether every edge of ring B, seen from point c, runs the way B does. */
+function fansFrom(B, c, turn = 0) {
+  return bandFaults(B, c, true, turn).length === 0;
+}
 
 /** Twice the signed area of a flat ring of [x, y] points. */
 function ringArea2(B) {
@@ -1558,16 +1559,6 @@ function ringArea2(B) {
     area2 += B[k][0] * B[k2][1] - B[k2][0] * B[k][1];
   }
   return area2;
-}
-
-/** Whether (x, y) lies inside the closed ring (even-odd rule). */
-function ringHolds(Bx, By, x, y) {
-  let inside = false;
-  for (let k = 0, j = Bx.length - 1; k < Bx.length; j = k++) {
-    if ((By[k] > y) !== (By[j] > y) &&
-      x < ((Bx[j] - Bx[k]) * (y - By[k])) / (By[j] - By[k]) + Bx[k]) inside = !inside;
-  }
-  return inside;
 }
 
 /**

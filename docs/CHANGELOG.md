@@ -56,7 +56,7 @@ onward every release gets a full entry here, and breaking changes to the
     with Rounding off. It is now laid out along the inner outline.
   - A thick Even wall could turn a sliver face inside out on the inner
     surface. Its corners now move together, as the ends of a very short
-    edge already did.
+    edge already did, where one move clears every face around it.
   - A rounded edge ending against a sharp one on a straight boundary
     stepped the face outline and crossed the opening rim. Both now take the
     narrower width.
@@ -65,8 +65,9 @@ onward every release gets a full entry here, and breaking changes to the
   - A wall could turn a face inside out on the inner surface while every
     edge still pointed its own way, which is all the wall limit watched.
     Such a wall is now refused, with one that fits offered, and the Wall
-    slider stops there. On about one shape in thirteen the slider ended too
-    late, typically by 6% and at worst by half; a plain rhombic
+    slider stops at that same wall, checked with the corner moves it is
+    built with. On about one shape in ten the slider ended too late,
+    typically by 12% and at worst by half; a plain rhombic
     enneacontahedron went to 35 mm, and a face of it flips at 32.
   - With Smooth, two rounded edges mitred where a smoothed edge bends kept
     the unmitred position on the inner surface once the rounding there was
@@ -75,23 +76,24 @@ onward every release gets a full entry here, and breaking changes to the
     inside and out. Being inside the outline was not enough.
   - Edges that meet at a bend of more than 5° no longer share one rounding
     width as if they were one straight run.
-- **A warning says when the inside of a face could not be fitted**, with
-  the count. Those faces are built as they are and may pass through their
-  neighbours; a thinner wall or less rounding helps. Before, nothing said
-  so.
+- **A warning says when a face could not be fitted**, with the count.
+  Those faces are built as they are and may pass through their neighbours;
+  a thinner wall or less rounding helps (on a solid shape, less rounding).
+  Before, nothing said so.
 - The smallest-opening figure no longer reads 0 mm because one face stays
-  closed.
+  closed, and the border and fillet ranges leave closed faces out.
 - **Faces with no room for an opening stay closed**, with a warning that
   counts them: openings under 0.2 mm across (Through already did this), and
-  with Rounding, faces whose outline the rounding moves off their centre or
-  in past their opening. Their walls crossed before.
+  with Rounding or Smooth, faces whose outline the rounding moves off their
+  centre, dents so that the centre no longer sees all of it, or moves in
+  past their opening. Their walls crossed before.
 
   In a sweep of 800 random states, 128 crossed in the exported STL before
   these changes and 15 do now. Fourteen of those crossed before. The other
   failed to build before, and now builds with one crossing. With Smooth on
-  (400 more states) 93 crossed before and 44 do now, and 18 still fail to
-  build (23 before). The new warning marks 22 of the 59 that still cross,
-  and 32 states in which the scan finds no crossing.
+  (400 more states) 93 crossed before and 45 do now, and 16 still fail to
+  build (23 before). The new warning marks 25 of the 60 that still cross,
+  and 33 states in which the scan finds no crossing.
 
 ## [0.16.1] — 2026-10-11
 

@@ -3,20 +3,38 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { compile } from "../src/compile.js";
+import { compile, limitsForState } from "../src/compile.js";
 import { faceFrames } from "../src/faceframe.js";
 import { encodeHash, decodeHash } from "../src/hashcodec.js";
 import { parseProject, serializeProjectV1 } from "../src/project-format.js";
 import { DEFAULT_STATE, CONTROL_DEFS } from "../src/schema.js";
 import {
   cornerOffsets, cornerOffsetsForWall, fitCorner, meanValueWeights, offsetFaceLimit,
-  offsetWallLimit, thinnedFaces,
+  offsetWallLimit, offsetWallRange, thinnedFaces,
 } from "../src/solid/offset.js";
-import { bandFaults, fanPoint } from "../src/solid/shell.js";
+import { bandFaults, buildShell, fanPoint } from "../src/solid/shell.js";
 import { selfIntersections } from "./self-intersect.js";
 
 const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 const unit = (v) => { const l = Math.hypot(...v); return v.map((x) => x / l); };
+
+/**
+ * A 60 mm box with a shallow gable roof and a thin triangle (face 7) planed
+ * off its front top edge from end to end. The triangle's base corners lie
+ * on the two end faces, whose planes face each other.
+ */
+function planedBox(h = 1) {
+  const pts = [
+    [-30, -30, -30], [30, -30, -30], [30, 30, -30], [-30, 30, -30],
+    [-30, -30, 30], [-30, 0, 30 + h], [-30, 30, 30],
+    [30, -30, 30], [30, 30, 30], [30 - h, 0, 30 + h],
+  ];
+  const faces = [
+    [0, 3, 2, 1], [0, 4, 5, 6, 3], [1, 2, 8, 7], [0, 1, 7, 4],
+    [3, 6, 8, 2], [4, 7, 9, 5], [5, 9, 8, 6], [7, 8, 9],
+  ];
+  return { positions: new Float64Array(pts.flat()), faces };
+}
 
 /** Per inner vertex: distance to the nearest outer face plane. */
 function innerWallDistances(result) {
@@ -158,6 +176,12 @@ describe("wallMode", () => {
     const closed = r.metrics.faceMetrics.filter((f) => f.openingMinDiameterMm === 0).length;
     assert.ok(closed > 0 && closed < r.skeleton.faces.length);
     assert.ok(r.metrics.openingMinDiameterMm > 0, "the smallest opening is an open face's");
+    // So are the border and fillet ranges: a closed face's were not built.
+    const all = r.metrics.faceMetrics;
+    const open = all.filter((f) => f.openingMinDiameterMm > 0);
+    assert.equal(r.metrics.borderMm.min, Math.min(...open.map((f) => f.borderMinMm)));
+    assert.ok(r.metrics.borderMm.min > Math.min(...all.map((f) => f.borderMinMm)));
+    assert.equal(r.metrics.filletMm.max, Math.max(...open.map((f) => f.filletUsedMm)));
     const note = r.validation.warnings.find((w) => /stay closed/.test(w.message));
     assert.ok(note, "warns about the closed faces");
     assert.ok(note.message.startsWith(`${closed} of ${r.skeleton.faces.length} faces`), note.message);
@@ -202,6 +226,28 @@ describe("wallMode", () => {
     assert.deepEqual(thinnedFaces(skeleton, frames, fitted, 2.4), []);
   });
 
+  it("leaves a sliver its own corners when no single move clears every face", () => {
+    // At 3 mm the planed triangle keeps under a tenth of its width. Moved
+    // as one it would have to clear both end faces at once; the nearest
+    // fit cleared neither, and the wall there was 0 mm.
+    const skeleton = planedBox();
+    const frames = faceFrames(skeleton);
+    const plain = cornerOffsets(skeleton, frames);
+    assert.deepEqual(thinnedFaces(skeleton, frames, plain, 3), [7]);
+    assert.equal(cornerOffsetsForWall(skeleton, frames, 3, plain), plain);
+    const opts = { wallMode: "even", openings: false };
+    const { info } = buildShell(skeleton, { ...opts, wallMm: 3 });
+    assert.ok(info.wall.min >= 3 - 1e-6, `thinnest wall ${info.wall.min}`);
+    assert.ok(offsetWallRange(skeleton, frames, plain).min >= 1 - 1e-6);
+    // The wall that turns the triangle inside out is refused instead.
+    assert.throws(() => buildShell(skeleton, { ...opts, wallMm: 5 }), (e) => {
+      assert.match(e.message, /turns inside out/);
+      assert.deepEqual(e.validation.faceIds, [7]);
+      assert.ok(buildShell(skeleton, { ...opts, wallMm: e.validation.clampTo }).info.wall.min > 0);
+      return true;
+    });
+  });
+
   it("puts the face limit at the edge limit where a face shrinks evenly", () => {
     const { skeleton } = compile({ base: "cube", wallMode: "even" });
     const frames = faceFrames(skeleton);
@@ -231,6 +277,29 @@ describe("wallMode", () => {
     assert.equal(fit.validation.ok, true);
     // The Wall slider stops at the same wall.
     assert.ok(Math.abs(fit.metrics.limits.wallMmMax - e.clampTo) < 1e-9);
+    // A wall above both limits is refused by the edge limit first. 90% of
+    // that one (2.39 mm) is past the face limit; the offer is the same.
+    const far = compile({ ...state, wallMm: 20 }).validation.errors[0];
+    assert.match(far.message, /fold over/);
+    assert.ok(Math.abs(far.clampTo - e.clampTo) < 1e-9, `offered ${far.clampTo}`);
+  });
+
+  it("stops the Wall slider at a wall that builds where slivers move as one", () => {
+    // The plain offsets hold to 12.2 mm. From about 8 mm the wall is
+    // built with other offsets (sliver faces move as one) and refused; at
+    // 90% of 12.2 mm an inner edge folds from 5.85 mm.
+    const state = {
+      base: "globe", seed: 360, truncate: 40, jitter: 20, jitterMode: "radial", points: 12,
+      wallMode: "even",
+    };
+    const max = limitsForState(state).wallMmMax;
+    assert.ok(max > 5.85 && max < 10.9, `stops at ${max}`);
+    for (const k of [1, 0.75, 0.5]) {
+      const r = compile({ ...state, wallMm: max * k });
+      assert.equal(r.validation.ok, true, r.validation.errors[0]?.message);
+    }
+    // It is 90% of the first wall refused (found to 0.1%), no lower.
+    assert.equal(compile({ ...state, wallMm: (max / 0.9) * 1.01 }).validation.ok, false);
   });
 
   it("says so when the inside of a face could not be fitted", () => {
@@ -249,6 +318,20 @@ describe("wallMode", () => {
     assert.equal(note.key, "wallMm");
     assert.match(note.message, new RegExp(`^\\d+ of ${r.skeleton.faces.length} faces`));
     assert.ok(!compile({ roundingMm: 1.5, wallMode: "even" }).validation.warnings.some(fitted));
+  });
+
+  it("points a solid shape's unfitted faces at Rounding, not at the wall", () => {
+    // Smooth dents two needle outlines so that no point fans them. A solid
+    // shape has no inner surface and no wall to thin.
+    const r = compile({
+      base: "random", seed: 1259, subdiv: 1, soften: 80, roundingMm: 1.5, edgeDiv: 4,
+      openings: false, depth: "solid",
+    });
+    assert.equal(r.validation.ok, true);
+    const note = r.validation.warnings.find((w) => /could not be fitted/.test(w.message));
+    assert.ok(note, "warns about the faces");
+    assert.equal(note.key, "roundingMm");
+    assert.doesNotMatch(note.message, /wall|inside/);
   });
 
   it("short Distort edges do not cap the Wall slider", () => {

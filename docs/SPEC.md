@@ -303,15 +303,21 @@ displacement:
   wall asked for would leave a face narrower than 5% of the smallest
   inradius less than a tenth of its width, that face's corners move
   together too, and its inner copy keeps the outer shape under a slightly
-  thicker wall. Wider faces are left alone: moving one as a piece would
+  thicker wall. That needs one move that clears every face around the
+  sliver. A sliver that runs from one face to another facing it (a strip
+  planed off the whole length of an edge) has none, and keeps its corners'
+  own moves. Wider faces are left alone: moving one as a piece would
   drag its neighbours' corners far from their own planes. A wider face can
   turn inside out as well, each edge still pointing its own way: a rhombus
   closing along its short diagonal, or a triangle Truncate leaves between
   steep neighbours. So the wall limit is also where a face would keep less
   than 1% of its area, seen along its own normal (a tenth of its size each
   way; a face that shrinks evenly reaches both limits at the same wall). A
-  wall past either limit is refused with one that fits, and the Wall slider
-  stops at 90% of the lower one.
+  wall past either limit is refused. Slivers move together only from some
+  wall on, so the corner moves, and both limits with them, can change with
+  the wall. The Wall slider stops at 90% of the first wall that would be
+  refused, each wall tried with the moves it is built with, and a refused
+  wall is offered that same wall.
 - **Scaled** shrinks the whole surface by `s = 1 − wall / inradius_min`
   about the origin. The face nearest the centre gets the set wall and faces
   farther out get thicker. This is the construction before Even existed, and
@@ -350,12 +356,17 @@ with the count. That is a face whose opening would be under 0.2 mm across
 (twice the centroid's distance to its nearest edge, scaled by 1 − border).
 Through has the same 0.2 mm floor, measured on the opening it cuts.
 Nothing that narrow prints, and the two walls of a slot microns wide, each
-leaning its own way under Even walls, cross. With Rounding it is also a
-face whose outline the strips have moved off its centroid, or (not under
-Through, which cuts its openings out of the closed shell) in past its
-opening. Both happen on needle faces (Subdivide or Truncate on a distorted
+leaning its own way under Even walls, cross. With Rounding or Smooth it is
+also a face whose centroid cannot see all of its outline: the strips have
+moved the outline off it, or dented it so that an edge runs backwards seen
+from there, and the opening and its band are laid out along rays from the
+centroid. And (not under Through, which cuts its openings out of the
+closed shell) a face whose outline the strips have moved in past its
+opening. These happen on needle faces (Subdivide or Truncate on a distorted
 shape leaves triangles tens of millimetres long and a fraction wide),
-where a corner's trim can exceed the face's width. A closed face is fanned
+where a corner's trim can exceed the face's width. The border and fillet
+ranges reported for the shape leave closed faces out, as the smallest
+opening does. A closed face is fanned
 from its centroid, or from the mean point of its outline where the
 centroid cannot see all of the outline: seen from the fan point, every
 edge must run the way the outline does. Being inside the outline is not
@@ -528,7 +539,10 @@ Some faces no repair fits: a band that still fails after the last halving,
 an inner opening neither layout holds, a closed face no point can be
 fanned from (a needle face's inner outline can keep a spur a few microns
 long at its tip). They are built as they are and counted, and a warning
-gives the count and says they may pass through their neighbours.
+gives the count and says they may pass through their neighbours. The count
+covers both surfaces. On a solid shape, which has no inner surface and no
+wall to thin, the warning belongs to Rounding (to Smooth, with Rounding
+off).
 
 A corner cap is a fan of rings swept from the cap's loop toward an apex
 along directions out of the corner sphere's centre X, so the apex must lie
