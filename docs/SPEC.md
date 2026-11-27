@@ -355,7 +355,10 @@ clamps it locally, and the applied range is reported. On a sliver face a
 fillet near the largest that fits pulls the opening off the face centroid
 the opening is laid out around. Where that would put the centroid outside
 the opening, or within 0.1 mm of its rim, the face keeps its unfilleted
-opening. Each face boundary is
+opening. The rim is measured as it is emitted, segment by segment between
+its samples (under Through sides, the cutter's): on a sliver the samples
+can all lie far out while a segment between two passes the centroid
+closely. Each face boundary is
 subdivided globally so adjacent faces share identical points. The opening is
 sampled on matching centroid rays, preserving the prototype's non-intersecting
 annulus construction. Spike does not change this: openings still require

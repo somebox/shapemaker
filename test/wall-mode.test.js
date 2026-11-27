@@ -14,7 +14,11 @@ import {
   cornerOffsets, cornerOffsetsForWall, evenWallCeiling, evenWallFit, fitCorner,
   meanValueWeights, offsetFaceLimit, offsetWallLimit, offsetWallRange, thinnedFaces,
 } from "../src/solid/offset.js";
-import { bandFaults, buildShell, fanPoint } from "../src/solid/shell.js";
+import { radialSample } from "../src/geom/annulus.js";
+import { edgeInteriorFractions } from "../src/geom/edgesub.js";
+import {
+  bandFaults, buildShell, fanPoint, filletSegmentsFor, insetFillet, rimClearance,
+} from "../src/solid/shell.js";
 import { selfIntersections } from "./self-intersect.js";
 
 const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
@@ -259,6 +263,48 @@ describe("wallMode", () => {
     assert.deepEqual(sharp.map((f) => f.faceIndex), [125]);
     assert.ok(sharp[0].openingMinDiameterMm > 2);
     assert.deepEqual(selfIntersections(r.mesh, 5), []);
+  });
+
+  it("measures a filleted opening's clearance on the rim as it is emitted", async () => {
+    // A 10 mm sliver, tapering from 0.4 to 0.2 mm, about its centroid. The
+    // rim is sampled along rays to the face's boundary points, and none of
+    // them leaves the centroid across the sliver: the nearest sample is
+    // 0.32 mm out while the segment between two of them passes at 0.09 mm.
+    const raw = [[-5, -0.2], [5, -0.1], [5, 0.1], [-5, 0.2]];
+    const face = raw.map(([x, y]) => [x + 5 / 9, y]);
+    const fractions = [0, ...edgeInteriorFractions(4)];
+    const ang = face.flatMap(([x, y], k) => {
+      const [qx, qy] = face[(k + 1) % face.length];
+      return fractions.map((t) => Math.atan2(y + (qy - y) * t, x + (qx - x) * t));
+    });
+    const rim = (filletMm) => {
+      const { opening } = insetFillet.generate(
+        new Float64Array(face.flat()), 0.2, filletMm, filletSegmentsFor(4),
+      );
+      return radialSample(opening, ang);
+    };
+    const filleted = rim(1.5);
+    assert.ok(Math.min(...filleted) > 0.3, `nearest sample ${Math.min(...filleted)}`);
+    assert.ok(rimClearance(filleted, ang) < 0.1, `clearance ${rimClearance(filleted, ang)}`);
+    assert.ok(rimClearance(rim(0), ang) > 0.12);
+
+    // On a shape: face 109 is such a face, and face 127 one whose nearest
+    // sample is already too near. Both keep their unfilleted opening, and
+    // Through sides, which measure their cutter, no longer close one.
+    await loadCsg();
+    const state = {
+      base: "random", seed: 4056, jitter: 8, jitterMode: "radial", truncate: 40, wallMm: 1.4,
+      roundingMm: 1.5, borderFraction: 0.2, filletMm: 1.5, edgeDiv: 4, wallMode: "even",
+    };
+    for (const openingAxis of ["center", "through"]) {
+      const r = compile({ ...state, openingAxis });
+      assert.equal(r.validation.ok, true, r.validation.errors[0]?.message);
+      const open = r.metrics.faceMetrics.filter((f) => f.openingMinDiameterMm > 0);
+      assert.equal(open.length, 128, openingAxis);
+      assert.deepEqual(
+        open.filter((f) => f.filletUsedMm === 0).map((f) => f.faceIndex), [109, 127], openingAxis,
+      );
+    }
   });
 
   it("gives no border guidance when no opening was built", () => {

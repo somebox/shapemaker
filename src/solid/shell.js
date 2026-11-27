@@ -616,10 +616,9 @@ export function buildShell(skeleton, opts) {
     // rim up to it: the opening is then off the point it is laid out
     // around, and can be narrower than the floor its unfilleted outline
     // passed. Within half the floor of the centroid, the fillet goes too.
-    if (radiusUsed > 0) {
-      let least = Infinity;
-      for (let k = 0; k < m; k++) least = Math.min(least, rad[k]);
-      if (2 * least < OPENING_MIN_MM) rad = unfilleted();
+    // (Through sides emit another rim, the cutter, and check that one.)
+    if (!through && radiusUsed > 0 && 2 * rimClearance(rad, ang) < OPENING_MIN_MM) {
+      rad = unfilleted();
     }
     // ... or reach past the outline the rounding leaves it.
     if (stage2 && !through) {
@@ -642,7 +641,9 @@ export function buildShell(skeleton, opts) {
         cz + ox * uz + oy * wz,
       ]);
     }
-    return { B2x, B2y, ang, turn, opening, radiusUsed, rad, minR, ooPts };
+    /** The opening without its fillet, for Through's own check of its cutter. */
+    const plain = () => openingGenerator.generate(corner2d, frac, 0, 1).opening;
+    return { B2x, B2y, ang, turn, opening, radiusUsed, rad, minR, ooPts, plain };
   };
   /** Layouts the inner-fit pass already made, for the face loop to reuse. */
   const layouts = new Array(faces.length);
@@ -954,8 +955,8 @@ export function buildShell(skeleton, opts) {
       });
       continue;
     }
-    const { B2x, B2y, ang, opening, radiusUsed, rad, ooPts } = lay;
-    let { minR } = lay;
+    const { B2x, B2y, ang, rad, ooPts } = lay;
+    let { minR, opening, radiusUsed } = lay;
 
     if (through) {
       closeFace();
@@ -968,7 +969,14 @@ export function buildShell(skeleton, opts) {
       const a0 = Math.atan2(B2y[0], B2x[0]);
       const angT = new Float64Array(M);
       for (let k = 0; k < M; k++) angT[k] = a0 + ((k + 0.5) * 2 * Math.PI) / M;
-      const radT = radialSample(opening, angT);
+      let radT = radialSample(opening, angT);
+      // The cutter is the rim Through emits: a fillet that brings it
+      // within half the floor of the centroid goes, as in `layoutFace`.
+      if (radiusUsed > 0 && 2 * rimClearance(radT, angT) < OPENING_MIN_MM) {
+        opening = lay.plain();
+        radiusUsed = 0;
+        radT = radialSample(opening, angT);
+      }
       const Px = new Float64Array(M), Py = new Float64Array(M);
       for (let k = 0; k < M; k++) {
         Px[k] = radT[k] * Math.cos(angT[k]);
@@ -1613,6 +1621,33 @@ const FRAME_ORIGIN = Object.freeze([0, 0]);
 /** Whether every edge of ring B, seen from point c, runs the way B does. */
 function fansFrom(B, c, turn = 0) {
   return bandFaults(B, c, true, turn).length === 0;
+}
+
+/**
+ * How near the rim of an opening comes to the centroid it is laid out
+ * around, as that rim is emitted: straight segments between its samples
+ * (radius `rad[k]` along angle `ang[k]`). The nearest sample alone is not
+ * it. On a sliver the samples can all lie far out along the face while
+ * the segment between two of them passes close by the centroid.
+ * Exported for tests.
+ * @param {Float64Array|number[]} rad
+ * @param {Float64Array|number[]} ang
+ * @returns {number}
+ */
+export function rimClearance(rad, ang) {
+  const m = rad.length;
+  let least = Infinity;
+  let ax = rad[m - 1] * Math.cos(ang[m - 1]), ay = rad[m - 1] * Math.sin(ang[m - 1]);
+  for (let k = 0; k < m; k++) {
+    const bx = rad[k] * Math.cos(ang[k]), by = rad[k] * Math.sin(ang[k]);
+    const ex = bx - ax, ey = by - ay;
+    const len2 = ex * ex + ey * ey;
+    const t = len2 > 0 ? Math.max(0, Math.min(1, -(ax * ex + ay * ey) / len2)) : 0;
+    least = Math.min(least, Math.hypot(ax + t * ex, ay + t * ey));
+    ax = bx;
+    ay = by;
+  }
+  return least;
 }
 
 /** Twice the signed area of a flat ring of [x, y] points. */
