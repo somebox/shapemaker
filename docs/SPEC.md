@@ -192,11 +192,12 @@ the operator the mesh is renormalized to unit circumradius so Size still
 means circumdiameter. Named stars (stella octangula, small stellated
 dodecahedron, small triambic icosahedron, great stellated dodecahedron,
 great dodecahedron dimple) are presets of a parent plus an exact `t`, not
-new `BASE_IDS`. Smooth is inert when spiked: the halfspace inset of a
-star is its convex hull. Rounding stays live but **ridge-only** — reflex
-valleys skip the rolling-ball strip (the blend centre would sit on the
-wrong side of the fold), so the points round and the gutters stay sharp.
-Jitter stays on the convex
+new `BASE_IDS`. Both Smooth and Rounding stay live under Spike: Smooth fairs
+the spiked form (turning sharp spikes into soft rounded lobes and relaxing
+concave inner valleys into saddle transitions), while Rounding is
+**ridge-only** — reflex valleys skip the rolling-ball strip (the blend centre
+would sit on the wrong side of the fold), so the points round and the gutters
+stay sharp. Jitter stays on the convex
 parent (before spike); surface jitter on a spiked mesh would flatten
 parent verts and apexes onto the unit sphere.
 **Subdivide** (0/1/2) is the next
@@ -205,19 +206,22 @@ mixed-face solids stay closed and level alone only adds resolution.
 **Split** picks the polygon split: *Radial* (default) fans 2k triangles
 per k-gon from the centroid (8 openings per cube side at level 1);
 *Grid* cuts k corner quads (4 per cube side at level 1, 16 at level 2).
-Triangles split 4:1 in both. Smooth requires Radial — its sphere clip
-would bend Grid's flat quads out of plane, so under Grid the Smooth
-control is inert and its value ignored. Smooth is also inert (value
-ignored) when Spike is on. **Smooth** (0–100%) is a true edge
-fillet: soften sets a rounding radius (that fraction of the parent
-inradius) and every subdivided vertex projects onto the rounded parent
-solid — the parent inset by the radius, Minkowski-expanded back by it.
-Edges and corners round proportionally from the first step (including
-inner-radius Catalan corners) while flat face interiors are exact fixed
-points — overall dimensions hold, only sharpness melts (most pronounced
-on cube and tetra). Above 50 a melt phase additionally clips the deeper
-flats of mixed-plane-distance solids spherically toward the inscribed
-ball, so 100 reaches the ball on every base.
+Triangles split 4:1 in both. **Smooth** (0–100%) is a localized form fillet
+that modifies the geometry of corners, edges, spike tips, and concave inner
+joints without inflating flat face interiors or multiplying openings when
+Subdivide is None:
+- When **Subdivide is None (`subdiv = 0`)**, Smooth runs directly in the
+  solidifier (`buildEdgeRounding` with `roundValleys: true`), replacing sharp
+  corners and spike tips with spherical dome caps, sharp ridges with
+  cylindrical fillet strips, and concave spike valleys with concave circular
+  fillet strips and harmonic saddle patches, while keeping each face's flat
+  interior in its original plane and leaving the face openings completely
+  unchanged in size and outline.
+- When **Subdivide is Once or Twice (`subdiv > 0`)**, `subdivideSkeleton`
+  projects subdivided vertices onto the rounded parent solid (each convex cell
+  inset by $R = s \cdot r_{\text{in}}$ and expanded by $R$, with Grid quads
+  split along their canonical $(F_f, V'_a)$ diagonal when `soften > 0`),
+  keeping flat face interiors in plane while rounding corners and edges inward.
 
 Operation order is fixed and load-bearing: **jitter → dual → truncate →
 spike → subdivide → smooth**.
@@ -449,13 +453,15 @@ the inner lip's outer ring would cut a corner of the inner face, its radius
 halves until it fits, or the rim stays sharp. An internal invariant failure during rounding
 does not emit a corrupt mesh — the last valid preview stays on screen.
 
-Clamping is **proportional per feature**: each edge clamps to its own two
-faces' local flat allowances (60% of the border band along that edge on open
-faces, 45% of the centroid–edge distance on closed ones) and each rim to its
+Clamping is **proportional per feature**: each edge clamps its tangency width
+$w = r \cot(\omega/2)$ to its own two faces' local flat allowances (60% of the
+border band along that edge on open faces, 80% of the centroid–edge distance on
+closed ones) and corner trim ($0.45 \cdot \text{len}$), and each rim to its
 face's remaining flat and wall — one small feature never caps the whole
 model. The applied range is reported as `metrics.roundingMm` {min,max}; the
-slider ceiling is the LARGEST useful value, not the tightest limit. Hollow
-depths mirror the rounding on the inner shell through the same inner
+slider ceiling (`limits.roundingMmMax`) is computed over the macro-edge graph
+and opening rims so the top of the slider equals the largest radius the model
+can apply. Hollow depths mirror the rounding on the inner shell through the same inner
 displacement as every other vertex; under Even walls each strip column
 moves with the two nearest vertices along its edge (its corners, or a
 subdivision vertex on the edge), weighted by its position between them
@@ -468,8 +474,10 @@ the lip to the boundary keeps its winding, or stays sharp.
 
 A corner cap is a fan of rings swept from the cap's loop toward an apex
 along directions out of the corner sphere's centre X, so the apex must lie
-inside the loop as seen from X. The line from X through the corner does on
-a symmetric corner; where strips of very different widths meet (Truncate,
+inside the loop as seen from X. On 4+-valent corners with uniform spoke radius,
+each ray's radius blends smoothly from its boundary distance $\|b - X\|$ to
+$r_{\min}$ so incident cylinders do not poke through the cap as star ridges.
+Where strips of very different widths meet (Truncate,
 Jitter, Dual) a strip arc can lie on that line or past it, and the apex
 aims at the loop's mean direction instead. If that is not inside either,
 or any fan triangle ends up facing X (the rings folded), the loop is
@@ -481,7 +489,8 @@ reflex corner into an ear lying back across a face. A face outline that
 steps out to a sharp strip end and straight back (a spur of a few microns
 where Jitter leaves two faces almost coplanar) drops the spur, whose two
 edges only pair with each other; left in, the rim lips on its rays cross.
-Arc segment count tracks the quality preset via edge subdivision.
+Arc segment count scales with both the quality preset (`edgeDiv`) and the
+subtended fillet arc length so wide roundovers stay smooth under flat shading.
 
 Mesh density is controlled by edge subdivision and fillet-arc sampling. A
 user-facing quality preset (Milestone 4) may raise or lower those counts;
@@ -668,9 +677,7 @@ captioned with its current value so the design reads at a glance:
 
 - **Shape:** base (start chooser, including named star presets), random
   density/seed, jitter, dual, truncate, spike, smooth, uniform scale. Dual
-  carries a short caption (faces ↔ corners). Smooth needs Subdivide with
-  the Radial split and no Spike; while it can't apply, a line under it
-  says why and names the tab that changes it.
+  carries a short caption (faces ↔ corners).
 - **Openings:** open or closed faces, outline, border, fillet, and
   subdivide with its split (Radial or Grid), which mostly set how many
   openings there are. Subdivide stays live with closed faces.

@@ -443,13 +443,6 @@ export function buildControl(def, inputs, ranges, errNodes, limitLabels) {
     root.appendChild(row);
   }
 
-  if (def.inertNote) {
-    // Why the control is greyed out, when the reason lives elsewhere.
-    const note = el("p", { className: "hint inert-note", hidden: true });
-    note.setAttribute("data-inert-note", def.key);
-    root.appendChild(note);
-  }
-
   const err = el("p", { className: "control-error", id: `err-${def.key}` });
   errNodes.set(def.key, err);
   const input = inputs.get(def.key);
@@ -536,12 +529,6 @@ export function applyStateToControls(state, inputs, ranges, controlRoots, defs) 
       root.querySelectorAll("input, select, button").forEach((node) => {
         /** @type {HTMLInputElement} */ (node).disabled = inert;
       });
-      const note = root.querySelector("[data-inert-note]");
-      if (note) {
-        const text = inert ? def.inertNote?.(state) ?? "" : "";
-        note.textContent = text;
-        note.hidden = !text;
-      }
     }
     if (def.key === "edgeLengthMm") continue;
     const v = state[def.key];

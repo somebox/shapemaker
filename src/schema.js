@@ -5,7 +5,7 @@
 
 import { BASES } from "./bases.js";
 
-/** @typedef {{ key: string, group: string, advanced?: boolean, label: string, type: string, unit?: string, min?: number, max?: number, step?: number, options?: {value:string,label:string,title?:string,disabled?:boolean}[], numeric?: boolean, boolean?: boolean, customTag?: boolean, hideWhen?: (s:object)=>boolean, inertWhen?: (s:object)=>boolean, inertNote?: (s:object)=>string|null, note?: string, help?: string, boundsForState?: (s:object)=>({min:number,max:number}|null) }} ControlDef */
+/** @typedef {{ key: string, group: string, advanced?: boolean, label: string, type: string, unit?: string, min?: number, max?: number, step?: number, options?: {value:string,label:string,title?:string,disabled?:boolean}[], numeric?: boolean, boolean?: boolean, customTag?: boolean, hideWhen?: (s:object)=>boolean, inertWhen?: (s:object)=>boolean, note?: string, help?: string, boundsForState?: (s:object)=>({min:number,max:number}|null) }} ControlDef */
 
 /** Canonical geometry keys in documented order. */
 export const STATE_KEYS = Object.freeze([
@@ -259,12 +259,9 @@ export const CONTROL_DEFS = [
     step: 0.01,
   },
   {
-    // Edge fillet by rounding clip: soften sets a radius (fraction of the
-    // inradius) and vertices project onto the rounded parent solid, so
-    // edges AND corners soften from the first step while flat interiors
-    // hold. 100 turns a cube into its inscribed ball. Needs Subdivide for
-    // resolution; most pronounced on cube and tetra. Subdivide and Split
-    // sit in Openings, so the inert note names the tab.
+    // Polygonal subdivision fairing: softens corners, ridges, and concave
+    // spike valleys into flowing surfaces; auto-refines when Subdivide is
+    // None so dragging Smooth works directly on any shape.
     key: "soften",
     group: "shape",
     label: "Smooth",
@@ -273,13 +270,6 @@ export const CONTROL_DEFS = [
     min: 0,
     max: 100,
     step: 1,
-    inertWhen: (s) => !(s.subdiv > 0) || s.subdivStyle === "grid" || s.spike > 0,
-    inertNote: (s) => {
-      if (s.spike > 0) return "Off while Spike is on";
-      if (!(s.subdiv > 0)) return "Needs Subdivide (Openings)";
-      if (s.subdivStyle === "grid") return "Needs Split: Radial (Openings)";
-      return null;
-    },
   },
   // `group` is the panel tab. Build holds what only a printed shell reads
   // (PRINT_KEYS); `advanced` folds a control into the collapsed Advanced
@@ -394,8 +384,8 @@ export const CONTROL_DEFS = [
     // Polygon split pattern: Radial fans 2k triangles per k-gon from the
     // centroid (8 openings per cube side at Once); Grid cuts k corner
     // quads (4 per cube side at Once, 16 at Twice). Triangles split 4:1
-    // either way. Smooth needs Radial — its sphere clip would bend the
-    // flat quads out of plane, so it is inert (and ignored) under Grid.
+    // either way. Under Smooth, Grid quads split along a diagonal so the
+    // bent faces stay planar.
     key: "subdivStyle",
     group: "openings",
     label: "Split",

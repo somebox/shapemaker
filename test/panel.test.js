@@ -192,22 +192,6 @@ describe("field widths", () => {
 });
 
 describe("panel controls", () => {
-  it("say why Smooth is off, naming the tab that turns it on", () => {
-    const { panelEl, ui } = mount();
-    const smooth = panelEl.querySelector('.control[data-key="soften"]');
-    const note = smooth.querySelector("[data-inert-note]");
-    const shows = (over) => {
-      ui.setResult({ state: state(over) });
-      return visible(note) ? note.textContent : null;
-    };
-    assert.equal(shows({ subdiv: 0 }), "Needs Subdivide (Openings)");
-    assert.equal(smooth.dataset.inert, "1");
-    assert.equal(shows({ subdiv: 1, subdivStyle: "grid" }), "Needs Split: Radial (Openings)");
-    assert.equal(shows({ subdiv: 1, spike: 0.8 }), "Off while Spike is on");
-    assert.equal(shows({ subdiv: 1 }), null);
-    assert.equal(smooth.dataset.inert, "0");
-  });
-
   it("explain Dual on its label's line and on hover", () => {
     const { panelEl } = mount();
     const dual = panelEl.querySelector('.control[data-key="dual"]');
