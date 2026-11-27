@@ -8,7 +8,11 @@ import { faceFrames } from "../src/faceframe.js";
 import { encodeHash, decodeHash } from "../src/hashcodec.js";
 import { parseProject, serializeProjectV1 } from "../src/project-format.js";
 import { DEFAULT_STATE, CONTROL_DEFS } from "../src/schema.js";
-import { fitCorner, meanValueWeights } from "../src/solid/offset.js";
+import {
+  cornerOffsets, cornerOffsetsForWall, fitCorner, meanValueWeights, offsetFaceLimit,
+  offsetWallLimit, thinnedFaces,
+} from "../src/solid/offset.js";
+import { bandFaults, fanPoint } from "../src/solid/shell.js";
 import { selfIntersections } from "./self-intersect.js";
 
 const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
@@ -153,6 +157,7 @@ describe("wallMode", () => {
     assert.deepEqual(selfIntersections(r.mesh, 5), []);
     const closed = r.metrics.faceMetrics.filter((f) => f.openingMinDiameterMm === 0).length;
     assert.ok(closed > 0 && closed < r.skeleton.faces.length);
+    assert.ok(r.metrics.openingMinDiameterMm > 0, "the smallest opening is an open face's");
     const note = r.validation.warnings.find((w) => /stay closed/.test(w.message));
     assert.ok(note, "warns about the closed faces");
     assert.ok(note.message.startsWith(`${closed} of ${r.skeleton.faces.length} faces`), note.message);
@@ -183,6 +188,69 @@ describe("wallMode", () => {
     assert.ok(r.metrics.wallMm.min >= 2.4 - 1e-5, "never thinner than the wall");
   });
 
+  it("finds the sliver faces a wall leaves too thin, and none once they move as one", () => {
+    const { skeleton } = compile({
+      base: "twistedglobe", jitter: 20, jitterMode: "radial", truncate: 40, seed: 2190,
+      wallMm: 2.4, borderFraction: 0.36, filletMm: 0, edgeDiv: 2, wallMode: "even",
+    });
+    const frames = faceFrames(skeleton);
+    const plain = cornerOffsets(skeleton, frames);
+    assert.deepEqual(thinnedFaces(skeleton, frames, plain, 0.01), []);
+    assert.ok(thinnedFaces(skeleton, frames, plain, 2.4).length > 0);
+    const fitted = cornerOffsetsForWall(skeleton, frames, 2.4, plain);
+    assert.notEqual(fitted, plain);
+    assert.deepEqual(thinnedFaces(skeleton, frames, fitted, 2.4), []);
+  });
+
+  it("puts the face limit at the edge limit where a face shrinks evenly", () => {
+    const { skeleton } = compile({ base: "cube", wallMode: "even" });
+    const frames = faceFrames(skeleton);
+    const dHat = cornerOffsets(skeleton, frames);
+    const edge = offsetWallLimit(skeleton, dHat);
+    const { limit, face } = offsetFaceLimit(skeleton, frames, dHat);
+    assert.ok(Math.abs(limit - edge) < 1e-9 * edge, `${limit} vs ${edge}`);
+    assert.ok(face >= 0);
+  });
+
+  it("rejects a wall that turns a face inside out, offering one that builds", () => {
+    // A 10 mm triangle Truncate leaves between steep neighbours: at 90% of
+    // the edge limit its inner copy has flipped while each edge still
+    // points its own way. No rounding fits a face like that.
+    const state = {
+      base: "random", seed: 1700, truncate: 15, points: 12, wallMm: 2.4, roundingMm: 1.5,
+      borderFraction: 0.6, filletMm: 0, openingStyle: "ellipse", edgeDiv: 4, wallMode: "even",
+    };
+    const r = compile(state);
+    assert.equal(r.validation.ok, false);
+    const e = r.validation.errors[0];
+    assert.equal(e.key, "wallMm");
+    assert.match(e.message, /turns inside out/);
+    assert.ok(e.clampTo < 2.4);
+    assert.equal(e.faceIds.length, 1);
+    const fit = compile({ ...state, wallMm: e.clampTo });
+    assert.equal(fit.validation.ok, true);
+    // The Wall slider stops at the same wall.
+    assert.ok(Math.abs(fit.metrics.limits.wallMmMax - e.clampTo) < 1e-9);
+  });
+
+  it("says so when the inside of a face could not be fitted", () => {
+    // Needle faces 17 mm long and 0.01 mm wide on a spiked, distorted
+    // shape: their inner outlines keep a spur at the tip that no amount of
+    // drawing the rounding in removes.
+    const r = compile({
+      base: "rhombicenneaconta", seed: 3482, jitter: 8, jitterMode: "surface", spike: 1,
+      points: 12, wallMm: 2.4, roundingMm: 3, borderFraction: 0.6, filletMm: 1.5,
+      openings: false, wallMode: "even",
+    });
+    assert.equal(r.validation.ok, true);
+    const fitted = (w) => /could not be fitted/.test(w.message);
+    const note = r.validation.warnings.find(fitted);
+    assert.ok(note, "warns about the faces");
+    assert.equal(note.key, "wallMm");
+    assert.match(note.message, new RegExp(`^\\d+ of ${r.skeleton.faces.length} faces`));
+    assert.ok(!compile({ roundingMm: 1.5, wallMode: "even" }).validation.warnings.some(fitted));
+  });
+
   it("short Distort edges do not cap the Wall slider", () => {
     const r = compile({ jitter: 12.5, wallMode: "even" });
     assert.ok(r.metrics.limits.wallMmMax > 2);
@@ -194,5 +262,66 @@ describe("wallMode", () => {
     const e = r.validation.errors[0];
     assert.equal(e.key, "wallMm");
     assert.ok(compile({ base: "cube", wallMm: e.clampTo, wallMode: "even" }).validation.ok);
+  });
+});
+
+/** A square of half-width r about (cx, 0), counter-clockwise. */
+const square = (r, cx = 0) => [[cx - r, -r], [cx + r, -r], [cx + r, r], [cx - r, r]];
+const mirrored = (ring) => ring.map(([x, y]) => [-x, y]);
+
+describe("bandFaults", () => {
+  it("passes a ring with its opening inside, whichever way both wind", () => {
+    assert.deepEqual(bandFaults(square(2), square(1)), []);
+    assert.deepEqual(bandFaults(mirrored(square(2)), mirrored(square(1))), []);
+  });
+
+  it("flags the quad whose triangle an opening point outside the ring turns over", () => {
+    const opening = square(1);
+    opening[1] = [3, -1];
+    assert.deepEqual(bandFaults(square(2), opening), [1]);
+  });
+
+  it("holds a ring to the winding it is given", () => {
+    // A ring that has turned over passes against itself, and fails all
+    // the way round against the winding its outer ring has.
+    const ring = mirrored(square(2)), opening = mirrored(square(1));
+    assert.deepEqual(bandFaults(ring, opening, false, 0), []);
+    assert.deepEqual(bandFaults(ring, opening, false, 1), [0, 1, 2, 3]);
+    assert.deepEqual(bandFaults(square(2), square(1), false, 1), []);
+  });
+
+  it("checks a fan from one point", () => {
+    assert.deepEqual(bandFaults(square(2), [0, 0], true), []);
+    assert.deepEqual(bandFaults(square(2), [5, 0], true), [1]);
+  });
+});
+
+describe("fanPoint", () => {
+  it("is the centroid when that sees the whole ring", () => {
+    assert.deepEqual(fanPoint(square(2)), [0, 0]);
+  });
+
+  it("is the ring's mean point when the ring has moved off the centroid", () => {
+    assert.deepEqual(fanPoint(square(1, 5)), [5, 0]);
+  });
+
+  it("does not take a centroid that is inside the ring but behind a corner", () => {
+    // A square with a thin tail reaching back over the centroid: the
+    // centroid is inside the tail and cannot see the square's near side.
+    const ring = [
+      [-1, -0.25], [3, -0.25], [3, -4], [11, -4], [11, 4], [3, 4], [3, 0.25], [-1, 0.25],
+    ];
+    assert.deepEqual(fanPoint(ring), [4, 0]);
+  });
+
+  it("is null when neither point sees the whole ring", () => {
+    // An L: the centroid sits in one arm and the mean point in the notch.
+    const ring = [[-1, -1], [9, -1], [9, 9], [7, 9], [7, 1], [-1, 1]];
+    assert.equal(fanPoint(ring), null);
+  });
+
+  it("refuses a ring that winds the wrong way", () => {
+    assert.equal(fanPoint(mirrored(square(2)), 1), null);
+    assert.deepEqual(fanPoint(mirrored(square(2)), -1), [0, 0]);
   });
 });

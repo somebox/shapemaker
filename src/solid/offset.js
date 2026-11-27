@@ -103,13 +103,23 @@ export function cornerOffsetsForWall(skeleton, frames, wallMm, plain = cornerOff
   return dHat;
 }
 
-/** Narrow faces whose inner copy keeps less than a tenth of their width somewhere. */
-function thinnedFaces(skeleton, frames, dHat, wallMm) {
-  const P = skeleton.positions;
+/**
+ * Width under which a face counts as narrow: the measure that makes an
+ * edge short (see `cornerOffsets`).
+ */
+function narrowBelow(frames) {
   let minInradius = Infinity;
   for (const fr of frames) minInradius = Math.min(minInradius, fr.inradius);
-  // Narrow by the measure that makes an edge short (see `cornerOffsets`).
-  const thinMm = 0.05 * minInradius;
+  return 0.05 * minInradius;
+}
+
+/**
+ * Narrow faces whose inner copy keeps less than a tenth of their width
+ * somewhere. Exported for tests.
+ */
+export function thinnedFaces(skeleton, frames, dHat, wallMm) {
+  const P = skeleton.positions;
+  const thinMm = narrowBelow(frames);
   const out = [];
   for (let f = 0; f < skeleton.faces.length; f++) {
     const ring = skeleton.faces[f];
@@ -173,6 +183,74 @@ export function offsetWallLimit(skeleton, dHat) {
     if (shrink > 0) limit = Math.min(limit, (0.9 * (ex * ex + ey * ey + ez * ez)) / shrink);
   }
   return limit;
+}
+
+/** A face must keep this share of its area on the inner surface. */
+const FACE_AREA_KEPT = 0.01;
+
+/**
+ * Largest wall before a face turns inside out on the inner surface. The
+ * edge limit keeps every inner edge pointing its own way, but a small face
+ * between steep neighbours (a triangle Truncate leaves) can still flip:
+ * each of its edges turns by less than a right angle while the ring they
+ * form reverses. Seen along its own normal, each face must keep 1% of its
+ * area: a tenth of its size each way, as each edge keeps a tenth of its
+ * length. (A face that shrinks evenly reaches both limits at the same
+ * wall.) That area is quadratic in the wall, so the limit is closed form.
+ * @param {{ positions: Float64Array, faces: number[][] }} skeleton
+ * @param {{ origin: number[], u: number[], w: number[], edgeDistMin: number, inradius: number }[]} frames
+ * @param {Float64Array} dHat
+ * @param {{ skipNarrow?: boolean }} [opts]  leave out the narrow faces that
+ *   {@link cornerOffsetsForWall} moves as one once the wall is known
+ * @returns {{ limit: number, face: number }} wall limit in mm (Infinity if
+ *   no face shrinks that far) and the face that sets it (-1 if none)
+ */
+export function offsetFaceLimit(skeleton, frames, dHat, { skipNarrow = false } = {}) {
+  const P = skeleton.positions;
+  const thinMm = skipNarrow ? narrowBelow(frames) : 0;
+  let limit = Infinity, face = -1;
+  for (let f = 0; f < skeleton.faces.length; f++) {
+    const ring = skeleton.faces[f];
+    const { origin, u, w, edgeDistMin } = frames[f];
+    if (skipNarrow && 2 * edgeDistMin < thinMm) continue;
+    const n = ring.length;
+    // Corners and their per-millimetre moves in the face plane.
+    const p = new Float64Array(n * 2), d = new Float64Array(n * 2);
+    for (let k = 0; k < n; k++) {
+      const v = ring[k];
+      const x = P[v * 3] - origin[0], y = P[v * 3 + 1] - origin[1], z = P[v * 3 + 2] - origin[2];
+      const ex = dHat[v * 3], ey = dHat[v * 3 + 1], ez = dHat[v * 3 + 2];
+      p[k * 2] = x * u[0] + y * u[1] + z * u[2];
+      p[k * 2 + 1] = x * w[0] + y * w[1] + z * w[2];
+      d[k * 2] = ex * u[0] + ey * u[1] + ez * u[2];
+      d[k * 2 + 1] = ex * w[0] + ey * w[1] + ez * w[2];
+    }
+    // Twice the signed area at wall t: a0 + a1 t + a2 t².
+    let a0 = 0, a1 = 0, a2 = 0;
+    for (let k = 0; k < n; k++) {
+      const j = (k + 1) % n;
+      a0 += p[k * 2] * p[j * 2 + 1] - p[j * 2] * p[k * 2 + 1];
+      a1 += p[k * 2] * d[j * 2 + 1] - d[j * 2] * p[k * 2 + 1]
+        + d[k * 2] * p[j * 2 + 1] - p[j * 2] * d[k * 2 + 1];
+      a2 += d[k * 2] * d[j * 2 + 1] - d[j * 2] * d[k * 2 + 1];
+    }
+    if (a0 < 0) { a0 = -a0; a1 = -a1; a2 = -a2; }
+    if (!(a0 > 0)) continue;
+    const t = firstRoot(a2, a1, (1 - FACE_AREA_KEPT) * a0);
+    if (t < limit) { limit = t; face = f; }
+  }
+  return { limit, face };
+}
+
+/** Smallest positive root of a·t² + b·t + c for c > 0, or Infinity. */
+function firstRoot(a, b, c) {
+  if (a === 0) return b < 0 ? -c / b : Infinity;
+  const disc = b * b - 4 * a * c;
+  if (disc < 0) return Infinity;
+  const q = -0.5 * (b + (b < 0 ? -1 : 1) * Math.sqrt(disc));
+  let t = Infinity;
+  for (const r of [q / a, q !== 0 ? c / q : Infinity]) if (r > 0 && r < t) t = r;
+  return t;
 }
 
 /**

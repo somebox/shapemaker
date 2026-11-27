@@ -8,7 +8,7 @@ import { inradiusRange } from "./skeleton.js";
 import { filletRMax, insetScale, collapseMicroEdges } from "./geom/poly2.js";
 import { edgeKey } from "./geom/edgesub.js";
 import { DEFAULT_STATE, SPIKE_T_MAX } from "./schema.js";
-import { cornerOffsets, offsetWallLimit } from "./solid/offset.js";
+import { cornerOffsets, offsetFaceLimit, offsetWallLimit } from "./solid/offset.js";
 import { buildMacroTopology } from "./solid/macro-topo.js";
 
 /** Practical FDM floor (≈ 6 lines at 0.4 mm nozzle). */
@@ -60,6 +60,18 @@ export function borderPrintabilityWarning(state, limits, appliedBorderMm = null)
   };
 }
 /**
+ * Even walls: the wall at which an inner edge folds or an inner face turns
+ * inside out, whichever comes first. A face that shrinks evenly reaches
+ * both at the same wall; the edge figure stands there.
+ */
+function evenWallLimit(skeleton, frames) {
+  const dHat = cornerOffsets(skeleton, frames);
+  const edge = offsetWallLimit(skeleton, dHat);
+  const flip = offsetFaceLimit(skeleton, frames, dHat, { skipNarrow: true }).limit;
+  return flip < edge * (1 - 1e-9) ? flip : edge;
+}
+
+/**
  * @param {{ positions: Float64Array, faces: number[][] }} skeleton
  * @param {{
  *   depth?: string,
@@ -80,7 +92,7 @@ export function computeLimits(skeleton, state) {
   const wallMmMax = depth !== "hollow"
     ? null
     : even
-      ? offsetWallLimit(skeleton, cornerOffsets(skeleton, frames)) * 0.9
+      ? evenWallLimit(skeleton, frames) * 0.9
       : inradius.min * 0.9;
 
   let borderMmMax = null;

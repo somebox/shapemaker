@@ -79,6 +79,12 @@ function vertexFans(faces, directed) {
  */
 const CAP_EDGE_ON = 0.01;
 
+/**
+ * Two macro edges meeting at a knee count as one straight boundary when
+ * they turn by less than five degrees (this is the cosine).
+ */
+const KNEE_STRAIGHT_COS = Math.cos((5 * Math.PI) / 180);
+
 const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
 const add = (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
 const mul = (a, s) => [a[0] * s, a[1] * s, a[2] * s];
@@ -105,6 +111,7 @@ const norm = (a) => {
  *   lengthwise: number[],
  *   pushVert: (x: number, y: number, z: number, host: number[][]) => number,
  *   getVert: (i: number) => number[],
+ *   getHost?: (i: number) => number[][]|undefined,
  * }} opts
  *   `host` lists the skeleton vertices a new vertex moves with on the inner
  *   shell, as [vertex, weight], optionally followed by the xyz place of
@@ -128,6 +135,7 @@ export function buildEdgeRounding(skeleton, frames, opts) {
     lengthwise,
     pushVert,
     getVert,
+    getHost,
   } = opts;
   const topo = buildMacroTopology(skeleton, frames);
   const {
@@ -263,8 +271,8 @@ export function buildEdgeRounding(skeleton, frames, opts) {
   // Straight knees. Without subdivision tags, two macro edges meet at a
   // vertex that touches only two macros where the face across was split
   // into nearly coplanar parts (Distort and Truncate leave such pairs),
-  // so both strips lie on one straight boundary. They keep one width, the
-  // narrower. A rounded strip ending against a sharp one steps the face
+  // so both strips lie on one straight boundary. Those that do (a knee
+  // can also be bent) keep one width, the narrower. A rounded strip ending against a sharp one steps the face
   // outline square in, and where that step runs backwards as seen from the
   // face centre, the opening's rays (and the rim lips on them) cross.
   if (!skeleton.macroFaceId) {
@@ -272,6 +280,7 @@ export function buildEdgeRounding(skeleton, frames, opts) {
       if (cornerVerts.has(v) || eids.length !== 2) continue;
       const [a, b] = eids.map((ti) => edges[edgeByTopo.get(topo.edges[ti].keys[0])]);
       if (!a || !b || a === b) continue;
+      if (Math.abs(dot(a.d, b.d)) < KNEE_STRAIGHT_COS) continue;
       const run = [...new Set([...(a.run ?? [a]), ...(b.run ?? [b])])];
       for (const e of run) e.run = run;
     }
@@ -503,6 +512,13 @@ export function buildEdgeRounding(skeleton, frames, opts) {
       pa[1] = (pa[1] + pb[1]) / 2;
       pa[2] = (pa[2] + pb[2]) / 2;
       eB.grid[jb][colB] = a[j];
+      // The shared point has moved, and with it its place relative to the
+      // knee vertex, which the inner-fit pass scales (see `hostAt`).
+      const pv = P(v);
+      for (const h of getHost?.(a[j]) ?? []) {
+        if (h[0] !== v || h.length < 5) continue;
+        h[2] = pa[0] - pv[0]; h[3] = pa[1] - pv[1]; h[4] = pa[2] - pv[2];
+      }
     }
   }
 

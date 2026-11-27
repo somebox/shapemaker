@@ -44,10 +44,10 @@ onward every release gets a full entry here, and breaking changes to the
   with fillet radius.
 - A failed rebuild now says so on the status line, even with the last good
   model on screen. The status used to keep showing the old dimensions.
-- **Shapes with tiny, sliver or needle faces no longer build a shell that
+- **Far fewer shapes with tiny, sliver or needle faces build a shell that
   passes through itself.** Truncate, Subdivide or Spike on a distorted or
   random shape leaves such faces, and most of the faults needed Rounding as
-  well. What changed:
+  well. Some still do (the counts are below). What changed:
   - Under Even walls the inner copy of the rounding kept its outer size on
     inner faces a fraction of that size, or tilted against them, so strips
     overlapped and reached past the openings. It now shrinks towards its
@@ -62,14 +62,36 @@ onward every release gets a full entry here, and breaking changes to the
     narrower width.
   - Corner caps a fraction of a millimetre across left fins that crossed
     once the STL rounded positions. Those caps are filled flat.
+  - A wall could turn a face inside out on the inner surface while every
+    edge still pointed its own way, which is all the wall limit watched.
+    Such a wall is now refused, with one that fits offered, and the Wall
+    slider stops there. On about one shape in thirteen the slider ended too
+    late, typically by 6% and at worst by half; a plain rhombic
+    enneacontahedron went to 35 mm, and a face of it flips at 32.
+  - With Smooth, two rounded edges mitred where a smoothed edge bends kept
+    the unmitred position on the inner surface once the rounding there was
+    drawn in, up to 0.5 mm off.
+  - A closed face is fanned from a point that sees its whole outline,
+    inside and out. Being inside the outline was not enough.
+  - Edges that meet at a bend of more than 5° no longer share one rounding
+    width as if they were one straight run.
+- **A warning says when the inside of a face could not be fitted**, with
+  the count. Those faces are built as they are and may pass through their
+  neighbours; a thinner wall or less rounding helps. Before, nothing said
+  so.
+- The smallest-opening figure no longer reads 0 mm because one face stays
+  closed.
 - **Faces with no room for an opening stay closed**, with a warning that
   counts them: openings under 0.2 mm across (Through already did this), and
   with Rounding, faces whose outline the rounding moves off their centre or
   in past their opening. Their walls crossed before.
 
   In a sweep of 800 random states, 128 crossed in the exported STL before
-  these two changes and 16 do now. Fifteen of those crossed before. The
-  other failed to build before, and now builds with one crossing.
+  these changes and 15 do now. Fourteen of those crossed before. The other
+  failed to build before, and now builds with one crossing. With Smooth on
+  (400 more states) 93 crossed before and 44 do now, and 18 still fail to
+  build (23 before). The new warning marks 22 of the 59 that still cross,
+  and 32 states in which the scan finds no crossing.
 
 ## [0.16.1] — 2026-10-11
 

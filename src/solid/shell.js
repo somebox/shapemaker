@@ -20,7 +20,8 @@ import {
 } from "../geom/annulus.js";
 import { edgeList, inradiusRange } from "../skeleton.js";
 import {
-  cornerOffsets, cornerOffsetsForWall, meanValueWeights, offsetWallLimit, offsetWallRange,
+  cornerOffsets, cornerOffsetsForWall, meanValueWeights, offsetFaceLimit, offsetWallLimit,
+  offsetWallRange,
 } from "./offset.js";
 import { faceFrames } from "../faceframe.js";
 import { assertMeshInvariants, toMesh } from "../mesh.js";
@@ -272,6 +273,18 @@ export function buildShell(skeleton, opts) {
       dHat = fitted;
       checkWall();
     }
+    // A face that is not narrow can still turn inside out on the inner
+    // surface while its edges keep their direction. No rounding fits that.
+    const flip = offsetFaceLimit(skeleton, frames, dHat);
+    if (wallMm >= flip.limit) {
+      throw validationError(
+        "solid",
+        "wallMm",
+        `Wall ${wallMm} mm is too thick — a face turns inside out beyond ` +
+        `${flip.limit.toFixed(2)} mm on this shape`,
+        { clampTo: flip.limit * 0.9, faceIds: [flip.face] },
+      );
+    }
   } else if (depth === "hollow" && wallMm >= inradius.min) {
     throw validationError(
       "solid",
@@ -423,6 +436,7 @@ export function buildShell(skeleton, opts) {
         return verts.length - 1;
       },
       getVert: (i) => verts[i],
+      getHost: (i) => hosts[i],
     });
   }
 
@@ -530,10 +544,16 @@ export function buildShell(skeleton, opts) {
     // millimetres long and a fraction wide) the corner rounding can move
     // the outline off the centroid the opening is laid out around; and an
     // opening can be too narrow to be one.
-    const mid = stage2 ? fanPoint(B2x, B2y) : null;
-    if (mid) return { B2x, B2y, ang, closed: true, mid };
+    let area2 = 0;
+    for (let k = 0; k < m; k++) {
+      const k2 = (k + 1) % m;
+      area2 += B2x[k] * B2y[k2] - B2x[k2] * B2y[k];
+    }
+    /** Which way the outer ring winds in the face frame. */
+    const turn = area2 < 0 ? -1 : 1;
+    if (stage2 && !ringHolds(B2x, B2y, 0, 0)) return { B2x, B2y, ang, turn, closed: true };
     if (!through && 2 * (1 - frac) * frame.edgeDistMin < OPENING_MIN_MM) {
-      return { B2x, B2y, ang, closed: true, mid: null };
+      return { B2x, B2y, ang, turn, closed: true };
     }
 
     // The authored opening derives from the ORIGINAL face corners — Smooth and
@@ -579,7 +599,7 @@ export function buildShell(skeleton, opts) {
     if (stage2 && !through) {
       for (let k = 0; k < m; k++) {
         if (!(rad[k] < Math.hypot(B2x[k], B2y[k]))) {
-          return { B2x, B2y, ang, closed: true, mid: null };
+          return { B2x, B2y, ang, turn, closed: true };
         }
       }
     }
@@ -596,26 +616,34 @@ export function buildShell(skeleton, opts) {
         cz + ox * uz + oy * wz,
       ]);
     }
-    return { B2x, B2y, ang, opening, radiusUsed, rad, minR, ooPts };
+    return { B2x, B2y, ang, turn, opening, radiusUsed, rad, minR, ooPts };
   };
   /** Layouts the inner-fit pass already made, for the face loop to reuse. */
   const layouts = new Array(faces.length);
 
-  /** Where a face that takes no opening is fanned from (see `fanPoint`). */
-  const fanPointOf = (fi, BOr) => {
-    if (!stage2) return null;
+  /** A point in a face's frame: x, y in its plane, z along its normal. */
+  const flatOf = (fi) => {
     const [cx, cy, cz] = frames[fi].origin;
     const [ux, uy, uz] = frames[fi].u;
     const [wx, wy, wz] = frames[fi].w;
-    const Bx = new Float64Array(BOr.length), By = new Float64Array(BOr.length);
-    for (let k = 0; k < BOr.length; k++) {
-      const p = verts[BOr[k]];
+    const [nx, ny, nz] = frames[fi].normal;
+    return (p) => {
       const dx = p[0] - cx, dy = p[1] - cy, dz = p[2] - cz;
-      Bx[k] = dx * ux + dy * uy + dz * uz;
-      By[k] = dx * wx + dy * wy + dz * wz;
-    }
-    return fanPoint(Bx, By);
+      return [
+        dx * ux + dy * uy + dz * uz,
+        dx * wx + dy * wy + dz * wz,
+        dx * nx + dy * ny + dz * nz,
+      ];
+    };
   };
+
+  /**
+   * Faces a repair could not fit: an inner band that still folds or stands
+   * off its face after the last halving, an inner opening neither layout
+   * holds, or a closed face no point can be fanned from. They are built as
+   * they are, counted and reported: they may pass through their neighbours.
+   */
+  const unfit = new Set();
 
   /**
    * Even walls, Centre: the opening carried to the inner face by the
@@ -655,15 +683,20 @@ export function buildShell(skeleton, opts) {
   // (what Truncate leaves of a vertex) can be a third of its outer size or
   // badly out of shape. Strips trimmed for the outer edge then overlap on
   // the inner one, and strips sized for the outer border reach past the
-  // inner opening. Each face's inner band is checked as it will be built.
-  // Where it folds, or its ring stands off a tilted inner face, the inner
-  // rounding at the corners that stretch moves with halves, towards the
-  // sharp inner corner a shape without Rounding has. The outer surface is
-  // not involved, and shapes whose inner faces all hold are untouched.
+  // inner opening. Each face's inner band is checked before it is built:
+  // against the opening as Centre lays it out (for Straight sides too,
+  // whose own layout comes later and differs a little), or against the
+  // fan of a face that stays closed. Where the band folds, or its ring
+  // stands off a tilted inner face, the inner rounding at the corners that
+  // stretch moves with halves, towards the sharp inner corner a shape
+  // without Rounding has. A last check follows the last halving; what
+  // still fails is reported. The outer surface is not involved, and shapes
+  // whose inner faces all hold are untouched.
   if (stage2 && even && !sharpInner) {
     const fit = new Float64Array(nCorners).fill(1);
-    for (let pass = 0; pass < INNER_FIT_HALVINGS; pass++) {
+    for (let pass = 0; ; pass++) {
       const tight = new Set();
+      const faulty = [];
       for (let fi = 0; fi < faces.length; fi++) {
         const ring = faces[fi];
         const BOr = stage2.faceRings.get(fi);
@@ -671,19 +704,15 @@ export function buildShell(skeleton, opts) {
         const [cx, cy, cz] = frames[fi].origin;
         const [ux, uy, uz] = frames[fi].u;
         const [wx, wy, wz] = frames[fi].w;
-        const [nx, ny, nz] = frames[fi].normal;
-        /** In the face frame: x, y in its plane, z along its normal. */
-        const flat = (p) => {
-          const dx = p[0] - cx, dy = p[1] - cy, dz = p[2] - cz;
-          return [
-            dx * ux + dy * uy + dz * uz,
-            dx * wx + dy * wy + dz * wz,
-            dx * nx + dy * ny + dz * nz,
-          ];
-        };
+        const flat = flatOf(fi);
         const B = BOr.map((v) => flat(verts[v + baseI]));
         const lay = openings ? (layouts[fi] ??= layoutFace(fi, BOr)) : null;
-        const [mx, my] = (lay ? lay.mid : fanPointOf(fi, BOr)) ?? [0, 0];
+        const open = lay && !lay.closed && !through;
+        // The inner ring must wind as the outer one does: a ring the
+        // strips have turned over would pass a test against itself.
+        const Bo = open ? null : BOr.map((v) => flat(verts[v]));
+        const turn = lay ? lay.turn : ringArea2(Bo) < 0 ? -1 : 1;
+        const [mx, my] = (open ? null : fanPoint(Bo, turn)) ?? FRAME_ORIGIN;
         const d0 = offsetOf(faceHost(ring, skelFlat(fi), mx, my));
         const c = flat([
           cx + mx * ux + my * wx + d0[0],
@@ -691,10 +720,10 @@ export function buildShell(skeleton, opts) {
           cz + mx * uz + my * wz + d0[2],
         ]);
         let faults;
-        if (lay && !lay.closed && !through) {
+        if (open) {
           lay.oiCentre ??= carryInner(ring, skelFlat(fi), lay);
           const O = lay.oiCentre.map(flat);
-          faults = bandFaults(B, O);
+          faults = bandFaults(B, O, false, turn);
           // The inner face's own slope along each ray is that of the
           // opening, which is carried by the corner weights; the band
           // should carry on at it.
@@ -708,15 +737,25 @@ export function buildShell(skeleton, opts) {
           }
         } else {
           // Closed (and Through, which cuts later): a fan from the middle.
-          faults = bandFaults(B, B.map(() => c), true);
+          faults = bandFaults(B, c, true, turn);
         }
+        if (faults.length) faulty.push(fi);
         for (const k of faults) {
           for (const v of [BOr[k], BOr[(k + 1) % m]]) {
             for (const [corner, wgt] of hosts[v]) if (wgt > 0) tight.add(corner);
           }
         }
       }
-      if (tight.size === 0) break;
+      // What is left after the last halving is built as it is, and reported.
+      // (A closed face is reported by `closeFace`, which may yet fan it
+      // from another point.)
+      if (tight.size === 0 || pass === INNER_FIT_HALVINGS) {
+        for (const fi of faulty) {
+          const lay = layouts[fi];
+          if (lay && !lay.closed && !through) unfit.add(fi);
+        }
+        break;
+      }
       for (const corner of tight) fit[corner] *= 0.5;
       innerFit = fit;
       for (let i = 0; i < nOuter; i++) verts[baseI + i] = innerCopy(i);
@@ -788,13 +827,20 @@ export function buildShell(skeleton, opts) {
     /** Skeleton corners in this face's frame, for Even-wall weights. */
     const skel2d = even ? skelFlat(fi) : null;
 
-    /** @param {number[]|null} [mid]  fan point in the face frame; the centroid if null */
-    const closeFace = (mid = null) => {
+    const closeFace = () => {
       // Fan from a dedicated face-centre vertex, never from a corner: two
       // faces sharing a corner would emit the same directed diagonal from it,
       // which is a manifold violation (caught by assertMeshInvariants).
+      // The vertex sits at the centroid, or at the outline's own mean point
+      // where the centroid cannot see all of the outline (the corner
+      // rounding can move a needle face's outline off it).
+      const flat = flatOf(fi);
+      const Bo = BOr.map((v) => flat(verts[v]));
+      const turn = ringArea2(Bo) < 0 ? -1 : 1;
+      const mid = fanPoint(Bo, turn);
+      if (!mid) unfit.add(fi);
       const [mx, my] = mid ?? [0, 0];
-      const at = mid
+      const at = mx !== 0 || my !== 0
         ? [cx + mx * ux + my * wx, cy + mx * uy + my * wy, cz + mx * uz + my * wz]
         : [cx, cy, cz];
       const cOuter = verts.length;
@@ -804,14 +850,30 @@ export function buildShell(skeleton, opts) {
         faceIds.push(fi);
       }
       if (depth === "hollow") {
-        const cInner = verts.length;
+        // The inner vertex is the outer one carried in with the face. On a
+        // needle face the inner outline can have moved off that point too;
+        // then its own mean point is used, if that one sees all of it.
+        const inner = sharpInner ? ring : BOr;
+        const Bi = inner.map((v) => flat(verts[v + baseI]));
+        let ci;
         if (even) {
           const d = offsetOf(faceHost(ring, skel2d, mx, my));
-          verts.push([at[0] + d[0], at[1] + d[1], at[2] + d[2]]);
+          ci = [at[0] + d[0], at[1] + d[1], at[2] + d[2]];
         } else {
-          verts.push([at[0] * s, at[1] * s, at[2] * s]);
+          ci = [at[0] * s, at[1] * s, at[2] * s];
         }
-        const inner = sharpInner ? ring : BOr;
+        if (bandFaults(Bi, flat(ci), true, turn).length) {
+          const mean = [0, 0, 0];
+          for (const v of inner) {
+            const p = verts[v + baseI];
+            mean[0] += p[0]; mean[1] += p[1]; mean[2] += p[2];
+          }
+          for (let a = 0; a < 3; a++) mean[a] /= inner.length;
+          if (bandFaults(Bi, flat(mean), true, turn).length === 0) ci = mean;
+          else unfit.add(fi);
+        }
+        const cInner = verts.length;
+        verts.push(ci);
         for (let k = 0; k < inner.length; k++) {
           triIdx.push(cInner, inner[(k + 1) % inner.length] + baseI, inner[k] + baseI);
           faceIds.push(fi);
@@ -819,14 +881,14 @@ export function buildShell(skeleton, opts) {
       }
     };
     if (!openings) {
-      closeFace(fanPointOf(fi, BOr));
+      closeFace();
       continue;
     }
 
     const lay = layouts[fi] ?? layoutFace(fi, BOr);
     layouts[fi] = undefined;
     if (lay.closed) {
-      closeFace(lay.mid);
+      closeFace();
       if (through) throughClosedFaces++;
       else closedFaces++;
       faceMetrics.push({
@@ -1105,9 +1167,10 @@ export function buildShell(skeleton, opts) {
         return [dx * ux + dy * uy + dz * uz, dx * wx + dy * wy + dz * wz];
       };
       const B = BOr.map((v) => proj(verts[v + baseI]));
-      if (bandFaults(B, oiPts.map(proj)).length) {
+      if (bandFaults(B, oiPts.map(proj), false, lay.turn).length) {
         const radial = alongInnerRays(fi, BOr, skel2d, lay);
-        if (bandFaults(B, radial.map(proj)).length === 0) oiPts = radial;
+        if (bandFaults(B, radial.map(proj), false, lay.turn).length === 0) oiPts = radial;
+        else unfit.add(fi);
       }
     }
 
@@ -1221,7 +1284,7 @@ export function buildShell(skeleton, opts) {
             const w = rFace * lips[k].cotI;
             return [o[0] + w * lips[k].ca, o[1] + w * lips[k].sa];
           });
-          if (bandFaults(B, F).length === 0) break;
+          if (bandFaults(B, F, false, lay.turn).length === 0) break;
         }
         if (tries === 4 || !(rFace > rEps)) rFace = 0;
       }
@@ -1405,9 +1468,7 @@ export function buildShell(skeleton, opts) {
             f.roundingUsedMm ?? 0,
             f.roundingUsedMm ?? 0,
           ]),
-      openingMinDiameterMm: faceMetrics.length
-        ? Math.min(...faceMetrics.map((f) => f.openingMinDiameterMm))
-        : null,
+      openingMinDiameterMm: faceMetrics.length ? smallestOpening(faceMetrics) : null,
       // Normal openings whose wall tilts somewhere (beside a tight inner
       // edge) or that keep Centre because no straight hole fits their inner
       // face; the worst tilt; and the thickest wall at which every opening
@@ -1426,6 +1487,8 @@ export function buildShell(skeleton, opts) {
       throughClosedFaces: through ? throughClosedFaces : null,
       // Faces with no room for their opening (kept closed).
       closedFaces: openings && !through ? closedFaces : null,
+      // Faces a repair could not fit; they may pass through their neighbours.
+      unfitFaces: unfit.size,
       // Break out: holes that cut through a neighbour's outside, and loose
       // pieces those cuts freed (dropped from the mesh).
       throughBreakOutFaces: through ? throughBreakOutFaces : null,
@@ -1455,25 +1518,46 @@ function range(items, pick) {
   return { min, max };
 }
 
+/** The smallest opening among the faces that have one; 0 if none has. */
+function smallestOpening(faceMetrics) {
+  let least = Infinity;
+  for (const f of faceMetrics) {
+    if (f.openingMinDiameterMm > 0 && f.openingMinDiameterMm < least) least = f.openingMinDiameterMm;
+  }
+  return least === Infinity ? 0 : least;
+}
+
 function scaleRange({ min, max }, k) {
   return { min: min * k, max: max * k };
 }
 
 /**
- * Where to fan a ring from when its face's centroid (the frame origin) is
- * not inside it: the ring's own mean point, in the face frame. Null when
- * the centroid is inside, or when the mean point is not either.
- * @param {Float64Array} Bx
- * @param {Float64Array} By
+ * Where a flat ring of [x, y] points in its face frame can be fanned from:
+ * the face's centroid (the frame origin) if every ring edge, seen from it,
+ * runs the way the ring does; else the ring's own mean point, by the same
+ * test; else null. Being inside the ring is not enough: a point inside can
+ * still sit behind a dent. Exported for tests.
+ * @param {number[][]} B
+ * @param {number} [turn]  which way the ring should wind (see `bandFaults`)
  * @returns {number[]|null}
  */
-function fanPoint(Bx, By) {
-  if (ringHolds(Bx, By, 0, 0)) return null;
+export function fanPoint(B, turn = 0) {
+  if (bandFaults(B, FRAME_ORIGIN, true, turn).length === 0) return FRAME_ORIGIN;
   let mx = 0, my = 0;
-  for (let k = 0; k < Bx.length; k++) { mx += Bx[k]; my += By[k]; }
-  mx /= Bx.length;
-  my /= Bx.length;
-  return ringHolds(Bx, By, mx, my) ? [mx, my] : null;
+  for (let k = 0; k < B.length; k++) { mx += B[k][0]; my += B[k][1]; }
+  const mean = [mx / B.length, my / B.length];
+  return bandFaults(B, mean, true, turn).length === 0 ? mean : null;
+}
+const FRAME_ORIGIN = Object.freeze([0, 0]);
+
+/** Twice the signed area of a flat ring of [x, y] points. */
+function ringArea2(B) {
+  let area2 = 0;
+  for (let k = 0, m = B.length; k < m; k++) {
+    const k2 = (k + 1) % m;
+    area2 += B[k][0] * B[k2][1] - B[k2][0] * B[k][1];
+  }
+  return area2;
 }
 
 /** Whether (x, y) lies inside the closed ring (even-odd rule). */
@@ -1490,20 +1574,21 @@ function ringHolds(Bx, By, x, y) {
  * Where the band between a face ring B and an opening ring F inside it
  * (flat [x, y] points, paired index for index) loses its winding: the
  * quads k → k + 1 with a triangle, split as the band is emitted, that does
- * not turn the way the ring does. With `fan`, F is one point repeated and
- * only the triangle from it to the ring edge counts.
+ * not turn the way the ring does. With `fan`, F is one point and only the
+ * triangle from it to the ring edge counts. `turn` says which way the ring
+ * should wind (the sign of its area; 0 takes it from B itself): an inner
+ * ring is held to its outer ring's winding, and one that has turned over
+ * is a fault all the way round. Exported for tests.
  * @param {number[][]} B
- * @param {number[][]} F
+ * @param {number[][]|number[]} F
  * @param {boolean} [fan]
+ * @param {number} [turn]
  * @returns {number[]}
  */
-function bandFaults(B, F, fan = false) {
+export function bandFaults(B, F, fan = false, turn = 0) {
   const m = B.length;
-  let area2 = 0;
-  for (let k = 0; k < m; k++) {
-    const k2 = (k + 1) % m;
-    area2 += B[k][0] * B[k2][1] - B[k2][0] * B[k][1];
-  }
+  const area2 = ringArea2(B);
+  if (turn !== 0 && !(area2 * turn > 0)) return B.map((_, k) => k);
   const want = area2 > 0 ? -1 : 1;
   const tol = 1e-12 * Math.abs(area2);
   const turns = (p, q, r) =>
@@ -1511,7 +1596,8 @@ function bandFaults(B, F, fan = false) {
   const faults = [];
   for (let k = 0; k < m; k++) {
     const k2 = (k + 1) % m;
-    if ((fan || turns(F[k], F[k2], B[k2])) && turns(F[k], B[k2], B[k])) continue;
+    const f = fan ? F : F[k];
+    if ((fan || turns(f, F[k2], B[k2])) && turns(f, B[k2], B[k])) continue;
     faults.push(k);
   }
   return faults;

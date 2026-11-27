@@ -231,6 +231,16 @@ export function compile(partial = {}) {
           `thin for an opening and stay closed`,
       });
     }
+    if (solid.info.unfitFaces > 0) {
+      const n = solid.info.unfitFaces;
+      validation.warnings.push({
+        stage: "solid",
+        key: "wallMm",
+        message:
+          `${n} of ${skeleton.faces.length} faces could not be fitted on the inside ` +
+          `and may pass through their neighbours; a thinner wall or less rounding helps`,
+      });
+    }
     if (solid.info.looseDropped > 0) {
       const v = solid.info.looseVolumeMm3 / 1000;
       const cm3 = v < 0.01 ? "< 0.01" : v.toFixed(2);

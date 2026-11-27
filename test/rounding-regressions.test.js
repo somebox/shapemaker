@@ -102,6 +102,17 @@ const CROSSING = [
   // A corner cap 0.09 mm deep on a truncated tetrahedron, its fan flat
   // against the one strip that runs untrimmed to the corner.
   { base: "tetrahedron", wallMm: 4, roundingMm: 0.5, jitter: 8, jitterMode: "radial", truncate: 40, borderFraction: 0.2, filletMm: 0, seed: 4138, wallModes: ["even"] },
+  // The same faults with Smooth on, from a sweep of random states with
+  // Smooth 20, 50 or 80: with Rounding and Truncate,
+  { base: "cube", wallMm: 1.4, roundingMm: 1.5, truncate: 15, borderFraction: 0.36, filletMm: 4.5, openingStyle: "ellipse", seed: 4799, edgeDiv: 4, soften: 80, wallModes: ["even"] },
+  { base: "tetrahedron", wallMm: 4, roundingMm: 1.5, jitter: 8, jitterMode: "both", truncate: 15, borderFraction: 0.36, filletMm: 0, seed: 3982, points: 12, soften: 80, wallModes: ["even"] },
+  // with Smooth alone,
+  { base: "dodecahedron", wallMm: 4, roundingMm: 0, truncate: 15, borderFraction: 0.2, filletMm: 4.5, seed: 2265, edgeDiv: 4, soften: 50, wallModes: ["even"] },
+  // and with Subdivide. In the second, the corners of some needle faces
+  // are drawn in while the shared point of two mitred strips at a knee
+  // kept its place from before the mitre.
+  { base: "octahedron", wallMm: 4, roundingMm: 0.5, jitter: 8, jitterMode: "surface", borderFraction: 0.36, filletMm: 1.5, seed: 4760, subdiv: 1, soften: 20, wallModes: ["even"] },
+  { base: "dodecahedron", wallMm: 1.4, roundingMm: 1.5, jitter: 20, jitterMode: "radial", truncate: 15, borderFraction: 0.2, filletMm: 4.5, seed: 4409, subdiv: 1, soften: 20, wallModes: ["even"] },
 ];
 
 describe("Stage-2 rounding does not fold through itself", () => {
