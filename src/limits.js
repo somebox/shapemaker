@@ -100,7 +100,7 @@ export function filletCeiling(skeleton, state, frames = faceFrames(skeleton)) {
  * rebuild asks for the ceiling, and dragging Wall, Rounding, Border or
  * Fillet rebuilds on the same skeleton. The corner offsets, and where
  * slivers are in play the search for the first refused wall (tens of
- * milliseconds, 150 on some shapes), are worked out once per shape. Kept
+ * milliseconds on some shapes), are worked out once per shape. Kept
  * by content, as copies: a rebuild makes a new skeleton object each time.
  */
 const wallCeilings = [];

@@ -5,7 +5,7 @@
 
 import { BASES } from "./bases.js";
 
-/** @typedef {{ key: string, group: string, advanced?: boolean, label: string, type: string, unit?: string, min?: number, max?: number, step?: number, options?: {value:string,label:string,title?:string,disabled?:boolean}[], numeric?: boolean, boolean?: boolean, customTag?: boolean, hideWhen?: (s:object)=>boolean, inertWhen?: (s:object)=>boolean, boundsForState?: (s:object)=>({min:number,max:number}|null) }} ControlDef */
+/** @typedef {{ key: string, group: string, advanced?: boolean, label: string, type: string, unit?: string, min?: number, max?: number, step?: number, options?: {value:string,label:string,title?:string,disabled?:boolean}[], numeric?: boolean, boolean?: boolean, customTag?: boolean, hideWhen?: (s:object)=>boolean, inertWhen?: (s:object)=>boolean, note?: string, help?: string, boundsForState?: (s:object)=>({min:number,max:number}|null) }} ControlDef */
 
 /** Canonical geometry keys in documented order. */
 export const STATE_KEYS = Object.freeze([
@@ -218,6 +218,11 @@ export const CONTROL_DEFS = [
     key: "dual",
     group: "shape",
     label: "Dual",
+    note: "faces ↔ corners",
+    help:
+      "Each face becomes a corner and each corner a face: a cube becomes an " +
+      "octahedron, the icosidodecahedron 30 diamonds, and a triangulated " +
+      "sphere pentagon and hexagon cells (with Ellipse outlines, a ring ball).",
     type: "segments",
     boolean: true,
     options: [
@@ -254,40 +259,10 @@ export const CONTROL_DEFS = [
     step: 0.01,
   },
   {
-    // Surface subdivision (skeleton operator): triangles split 4:1,
-    // polygons fan over midpoint-split edges. Order is load-bearing:
-    // jitter → dual → truncate → spike → subdivide → smooth.
-    key: "subdiv",
-    group: "shape",
-    label: "Subdivide",
-    type: "segments",
-    numeric: true,
-    options: [
-      { value: "0", label: "None" },
-      { value: "1", label: "Once" },
-      { value: "2", label: "Twice" },
-    ],
-  },
-  {
-    // Polygon split pattern: Radial fans 2k triangles per k-gon from the
-    // centroid (8 openings per cube side at Once); Grid cuts k corner
-    // quads (4 per cube side at Once, 16 at Twice). Triangles split 4:1
-    // either way. Smooth needs Radial — its sphere clip would bend the
-    // flat quads out of plane, so it is inert (and ignored) under Grid.
-    key: "subdivStyle",
-    group: "shape",
-    label: "Pattern",
-    type: "segments",
-    options: [
-      { value: "radial", label: "Radial" },
-      { value: "grid", label: "Grid" },
-    ],
-    inertWhen: (s) => !(s.subdiv > 0),
-  },
-  {
-    // Polygonal subdivision fairing: softens corners, ridges, and concave
-    // spike valleys into flowing surfaces; auto-refines when Subdivide is
-    // None so dragging Smooth works directly on any shape.
+    // Softens corners, ridges, and concave spike valleys into flowing
+    // surfaces on any shape. With Subdivide, the subdivided skeleton is
+    // faired; with Subdivide None, the shell rounds its edges and corners
+    // instead, so every face and opening stays.
     key: "soften",
     group: "shape",
     label: "Smooth",
@@ -388,6 +363,39 @@ export const CONTROL_DEFS = [
     max: 30,
     step: 0.1,
     inertWhen: (s) => !s.openings || s.openingStyle === "ellipse",
+  },
+  {
+    // Surface subdivision (skeleton operator): triangles split 4:1,
+    // polygons fan over midpoint-split edges. Order is load-bearing:
+    // jitter → dual → truncate → spike → subdivide → smooth. It lives in
+    // Openings because what it mostly changes is how many there are; it
+    // stays live with closed faces (facets, and Smooth's resolution).
+    key: "subdiv",
+    group: "openings",
+    label: "Subdivide",
+    type: "segments",
+    numeric: true,
+    options: [
+      { value: "0", label: "None" },
+      { value: "1", label: "Once" },
+      { value: "2", label: "Twice" },
+    ],
+  },
+  {
+    // Polygon split pattern: Radial fans 2k triangles per k-gon from the
+    // centroid (8 openings per cube side at Once); Grid cuts k corner
+    // quads (4 per cube side at Once, 16 at Twice). Triangles split 4:1
+    // either way. Under Smooth, Grid quads split along a diagonal so the
+    // bent faces stay planar.
+    key: "subdivStyle",
+    group: "openings",
+    label: "Split",
+    type: "segments",
+    options: [
+      { value: "radial", label: "Radial", title: "Fan polygons from the centre into triangles (triangles split in four)" },
+      { value: "grid", label: "Grid", title: "Cut polygons into corner quads (triangles split in four)" },
+    ],
+    inertWhen: (s) => !(s.subdiv > 0),
   },
   {
     // Direction of the opening's sides through the shell (`openingAxis`).

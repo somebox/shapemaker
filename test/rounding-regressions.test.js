@@ -134,3 +134,107 @@ describe("Stage-2 rounding does not fold through itself", () => {
     }
   }
 });
+
+// The scan the suites above and form/through/wall-mode rely on: it has to
+// find a crossing when there is one.
+describe("the crossing scan", () => {
+  /** Möller–Trumbore on the open segment p0→p1 and the open triangle: the scan's edge test, written plainly. */
+  const segmentHitsTriangle = (p0, p1, v0, v1, v2, eps = 1e-9) => {
+    const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+    const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+    const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    const e1 = sub(v1, v0), e2 = sub(v2, v0), d = sub(p1, p0);
+    const pv = cross(d, e2), det = dot(e1, pv);
+    if (Math.abs(det) <= eps) return false;
+    const inv = 1 / det, tv = sub(p0, v0), qv = cross(tv, e1);
+    const u = dot(tv, pv) * inv, v = dot(d, qv) * inv, t = dot(e2, qv) * inv;
+    return u > eps && v > eps && u + v < 1 - eps && t > eps && t < 1 - eps;
+  };
+  /** The same pairs with no tree and no shortcuts: every triangle against every other. */
+  const everyPair = ({ positions: P, indices: I }) => {
+    const tri = (t) => [0, 1, 2].map((k) => [0, 1, 2].map((c) => P[I[t * 3 + k] * 3 + c]));
+    const out = [];
+    for (let t = 0; t < I.length / 3; t++) {
+      const a = tri(t), A = [I[t * 3], I[t * 3 + 1], I[t * 3 + 2]];
+      for (let u = t + 1; u < I.length / 3; u++) {
+        if (A.includes(I[u * 3]) || A.includes(I[u * 3 + 1]) || A.includes(I[u * 3 + 2])) continue;
+        const b = tri(u);
+        if ([0, 1, 2].some((k) => segmentHitsTriangle(a[k], a[(k + 1) % 3], ...b)
+          || segmentHitsTriangle(b[k], b[(k + 1) % 3], ...a))) out.push([t, u]);
+      }
+    }
+    return out;
+  };
+
+  it("finds exactly the pairs that checking every pair finds", () => {
+    let seed = 12345;
+    const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+    // Triangles thrown into a box: large and small, every seventh nearly
+    // flat, every fifth sharing a corner with an earlier one.
+    for (const [count, size] of [[40, 30], [200, 20], [600, 8]]) {
+      const positions = [], indices = [];
+      for (let t = 0; t < count; t++) {
+        const centre = [rnd() * 100, rnd() * 100, rnd() * 100], first = positions.length / 3;
+        for (let v = 0; v < 3; v++) {
+          for (let c = 0; c < 3; c++) positions.push(centre[c] + (rnd() - 0.5) * size * (t % 7 === 0 && c === 2 ? 1e-7 : 1));
+        }
+        indices.push(first, first + 1, t % 5 === 4 ? Math.floor(rnd() * first) : first + 2);
+      }
+      const want = everyPair({ positions, indices });
+      assert.ok(want.length > 5, `${count} triangles: ${want.length} pairs cross`);
+      assert.deepEqual(selfIntersections({ positions, indices }), want, `${count} triangles`);
+      assert.deepEqual(selfIntersections({ positions: Float32Array.from(positions), indices }),
+        everyPair({ positions: Float32Array.from(positions), indices }), `${count} triangles, float32`);
+      // A limit stops the scan early: that many pairs, each one a real one.
+      const some = selfIntersections({ positions, indices }, 3);
+      assert.equal(some.length, 3);
+      for (const pair of some) assert.ok(want.some((w) => w[0] === pair[0] && w[1] === pair[1]));
+    }
+  });
+
+  it("finds a corner pushed through a built shell", () => {
+    const r = compile({ base: "cube" });
+    const indices = r.mesh.indices;
+    assert.deepEqual(selfIntersections({ positions: r.mesh.positions64, indices }), []);
+    // One vertex moved to the far side of the centre: its triangles now
+    // run through both walls.
+    const positions = Float64Array.from(r.mesh.positions64);
+    for (let c = 0; c < 3; c++) positions[c] = -positions[c];
+    const hits = selfIntersections({ positions, indices });
+    assert.ok(hits.length > 0);
+    assert.deepEqual(hits, everyPair({ positions, indices }));
+    assert.equal(selfIntersections({ positions, indices }, 1).length, 1);
+    assert.deepEqual(selfIntersections({ positions: [], indices: [] }), []);
+  });
+
+  it("stays quick and right when centres rise and then fall along the list", () => {
+    // Centres at 0, 1, ... m ... 1, 0 along x, as round a ring. Halving a
+    // list in this order by its middle triangle takes a pass per handful of
+    // triangles, so the scan sorts what is left once that has cost enough.
+    let seed = 2468;
+    const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+    const soup = (count, corner) => {
+      const positions = [], indices = [];
+      for (let t = 0; t < count; t++) {
+        const tri = corner(t);
+        const shift = Math.min(t, count - 1 - t) - (tri[0] + tri[3] + tri[6]) / 3;
+        for (let v = 0; v < 3; v++) positions.push(tri[v * 3] + shift, tri[v * 3 + 1], tri[v * 3 + 2]);
+        indices.push(t * 3, t * 3 + 1, t * 3 + 2);
+      }
+      return { positions, indices };
+    };
+    // Turned every way and larger than the step between them: neighbours cross.
+    const crossing = soup(600, () => Array.from({ length: 9 }, () => (rnd() - 0.5) * 4));
+    const want = everyPair(crossing);
+    assert.ok(want.length > 100, `${want.length} pairs cross`);
+    assert.deepEqual(selfIntersections(crossing), want);
+    // Small and apart, the list's second half a row up: nothing crosses,
+    // and halving the tree's nodes stays within its bound of 9 n log2 n
+    // triangles passed over. Without the sort it passes over 90 times that
+    // bound here.
+    const n = 50000, tally = {};
+    const apart = soup(n, (t) => [0, 0, 0, 0.5, 0, 0, 0, 0.5, 0].map((p, i) => (i % 3 === 1 && t >= n / 2 ? p + 2 : p)));
+    assert.deepEqual(selfIntersections(apart, Infinity, tally), []);
+    assert.ok(tally.halving < 9 * n * Math.log2(n), `halving passed over ${tally.halving} triangles`);
+  });
+});

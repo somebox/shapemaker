@@ -65,22 +65,35 @@ export function placeMesh(mesh, matrix) {
 }
 
 /**
+ * The distinct z values of a mesh's vertices, lowest first: the levels a
+ * cut plane has to keep clear of. Reading and sorting them is the costly
+ * part of placing a plane on a dense mesh (a subdivided globe has 186,000
+ * vertices), so a search does it once and hands the list to every helper
+ * below.
+ * @param {Float64Array|Float32Array|number[]} positions
+ * @returns {Float64Array}
+ */
+function vertexLevels(positions) {
+  const n = Math.floor(positions.length / 3);
+  const zs = new Float64Array(n);
+  for (let i = 0; i < n; i++) zs[i] = positions[i * 3 + 2];
+  zs.sort();
+  // Keep a level only if it is clear of the last one kept.
+  let count = 0;
+  for (let i = 0; i < n; i++) {
+    if (!count || Math.abs(zs[i] - zs[count - 1]) > 1e-12) zs[count++] = zs[i];
+  }
+  return zs.subarray(0, count);
+}
+
+/**
  * Snap candidate z to the midpoint of a gap between distinct vertex z values.
  * @param {Float64Array|Float32Array} positions
  * @param {number} targetZ
  * @returns {number|null}
  */
 export function snapPlaneZ(positions, targetZ) {
-  const n = positions.length / 3;
-  /** @type {number[]} */
-  const zs = [];
-  for (let i = 0; i < n; i++) zs.push(positions[i * 3 + 2]);
-  zs.sort((a, b) => a - b);
-  /** @type {number[]} */
-  const uniq = [];
-  for (const z of zs) {
-    if (!uniq.length || Math.abs(z - uniq[uniq.length - 1]) > 1e-12) uniq.push(z);
-  }
+  const uniq = vertexLevels(positions);
   if (uniq.length < 2) return null;
 
   let best = null;
@@ -194,7 +207,9 @@ export function rankSplitOrientations(skeleton, opts = {}) {
         if (p[i] < zLo) zLo = p[i];
         if (p[i] > zHi) zHi = p[i];
       }
-      const planeZ = snapPlaneZInBand(p, (zLo + zHi) * 0.5, zLo + (zHi - zLo) * band[0], zLo + (zHi - zLo) * band[1]);
+      const planeZ = snapPlaneZInBand(
+        vertexLevels(p), (zLo + zHi) * 0.5, zLo + (zHi - zLo) * band[0], zLo + (zHi - zLo) * band[1],
+      );
       support = planeZ == null
         ? Infinity
         : estimateSplitOverhang(placed, planeZ).support;
@@ -306,20 +321,11 @@ export function skeletonSeamLevels(skeleton, matrix) {
  * Both sides are returned because a near-tangential cut can be splittable
  * on one side of the ring and degenerate on the other.
  *
- * @param {Float64Array|Float32Array} positions
+ * @param {Float64Array} uniq the mesh's vertexLevels()
  * @param {number} seamZ
  * @returns {number[]} 0–2 candidate z values, nearest first
  */
-function seamPlaneCandidates(positions, seamZ, minGap = PLANE_GAP_MIN_MM) {
-  const n = positions.length / 3;
-  /** @type {number[]} */
-  const zs = [];
-  for (let i = 0; i < n; i++) zs.push(positions[i * 3 + 2]);
-  zs.sort((a, b) => a - b);
-  const uniq = [];
-  for (const z of zs) {
-    if (!uniq.length || Math.abs(z - uniq[uniq.length - 1]) > 1e-12) uniq.push(z);
-  }
+function seamPlaneCandidates(uniq, seamZ, minGap = PLANE_GAP_MIN_MM) {
   let below = null, above = null;
   for (let i = 0; i < uniq.length - 1; i++) {
     const lo = uniq[i], hi = uniq[i + 1];
@@ -345,22 +351,14 @@ function seamPlaneCandidates(positions, seamZ, minGap = PLANE_GAP_MIN_MM) {
  * the clearance, and the nearest-gap rule would then return a plane near
  * the top of the model.
  *
- * @param {Float64Array|Float32Array} positions
+ * @param {Float64Array} uniq the mesh's vertexLevels()
  * @param {number} target
  * @param {number} lo band floor (mm)
  * @param {number} hi band ceiling (mm)
  * @param {number} [minGap] vertex clearance (mm)
  * @returns {number|null}
  */
-function snapPlaneZInBand(positions, target, lo, hi, minGap = PLANE_GAP_MIN_MM) {
-  const n = positions.length / 3;
-  const zs = [];
-  for (let i = 0; i < n; i++) zs.push(positions[i * 3 + 2]);
-  zs.sort((a, b) => a - b);
-  const uniq = [];
-  for (const z of zs) {
-    if (!uniq.length || Math.abs(z - uniq[uniq.length - 1]) > 1e-12) uniq.push(z);
-  }
+function snapPlaneZInBand(uniq, target, lo, hi, minGap = PLANE_GAP_MIN_MM) {
   let best = null;
   let bestDist = Infinity;
   for (let i = 0; i < uniq.length - 1; i++) {
@@ -402,7 +400,8 @@ export function rankSplitPlanes(placedMesh, opts) {
   const mid = heightMm * 0.5;
   const lo = heightMm * band[0];
   const hi = heightMm * band[1];
-  const positions = placedMesh.positions64 ?? placedMesh.positions;
+  // Sorted once: every seam and every sample below reads the same levels.
+  const levels = vertexLevels(placedMesh.positions64 ?? placedMesh.positions);
 
   /** @type {{ z: number, area: number, dist: number, seam: boolean, seamOff: number }[]} */
   const candidates = [];
@@ -422,13 +421,13 @@ export function rankSplitPlanes(placedMesh, opts) {
   for (const minGap of [PLANE_GAP_MIN_MM, PLANE_GAP_MIN_MM / 4, PLANE_GAP_MIN_MM / 40]) {
     for (const seamZ of seamZs) {
       if (seamZ < lo || seamZ > hi) continue;
-      for (const z of seamPlaneCandidates(positions, seamZ, minGap)) {
+      for (const z of seamPlaneCandidates(levels, seamZ, minGap)) {
         if (Math.abs(z - seamZ) <= SEAM_MAX_OFFSET_MM) consider(z, true, Math.abs(z - seamZ));
       }
     }
     for (let s = 0; s < samples; s++) {
       const t = samples === 1 ? 0.5 : s / (samples - 1);
-      consider(snapPlaneZInBand(positions, lo + t * (hi - lo), lo, hi, minGap), false);
+      consider(snapPlaneZInBand(levels, lo + t * (hi - lo), lo, hi, minGap), false);
     }
     if (candidates.length) break;
   }
